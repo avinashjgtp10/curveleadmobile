@@ -1,0 +1,20 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+
+# macOS
+.DS_Store
+
+# Env files
+.env
+.env.local
+
+# Native
+ios/
+android/
+
+# Editor
+.vscode/
+.idea/
