@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "CurveLead",
+    "slug": "curvelead-mobile",
+    "scheme": "curvelead",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0F172A"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.curvelead.mobile"
+    },
+    "android": {
+      "package": "com.curvelead.mobile",
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "extra": {
+      "apiUrlDev": "http://172.31.87.245:CHANGE_ME/api",
+      "apiUrlProd": "https://api.curvelead.com/api"
+    }
+  }
+}
