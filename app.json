@@ -6,7 +6,13 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#f0f9ff",
+    "androidStatusBar": {
+      "barStyle": "dark-content",
+      "backgroundColor": "#f0f9ff",
+      "hidden": false
+    },
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash.png",
@@ -36,7 +42,8 @@
       "expo-secure-store",
       "expo-status-bar",
       "expo-web-browser",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-font"
     ],
     "extra": {
       "apiUrlDev": "https://curvelead.com/api",

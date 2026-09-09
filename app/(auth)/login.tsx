@@ -1,3 +1,6 @@
+import { IconEye } from "@/components/ReferenceIcons";
+import { GlassBackground, CurveLeadLogo } from "@/components/Glass";
+import { LinearGradient } from "expo-linear-gradient";
 import React, { useRef, useState } from "react";
 import {
   Image, KeyboardAvoidingView, Platform, Pressable,
@@ -106,6 +109,7 @@ export default function LoginScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
     >
+      <GlassBackground login />
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={styles.content}
@@ -115,7 +119,7 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.hero}>
-          <Image source={require("../../assets/icon.png")} style={styles.logo} />
+          <CurveLeadLogo />
           <Text style={styles.logoText}>curvelead</Text>
         </View>
 
@@ -123,21 +127,13 @@ export default function LoginScreen() {
           <Text style={styles.title}>Get Started now</Text>
           <Text style={styles.subtitle}>Sign in with your password or a one-time email code.</Text>
 
-          <SegmentedButtons
-            style={styles.segmented}
-            value={mode}
-            onValueChange={(value) => updateMode(value as LoginMode)}
-            buttons={[
-              { value: "password", label: "Password" },
-              { value: "otp", label: "Email OTP" },
-            ]}
-          />
+          <View style={styles.segmented}>{(["password", "otp"] as const).map(value => <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected: mode === value }} onPress={() => updateMode(value)} style={{ flex: 1, paddingVertical: 10, backgroundColor: mode === value ? colors.primary : "transparent" }}><Text style={{ textAlign: "center", fontFamily: "Inter_600SemiBold", fontSize: 14, color: mode === value ? "#fff" : colors.textSecondary }}>{value === "password" ? "Password" : "Email OTP"}</Text></Pressable>)}</View>
 
           {error ? <View style={[styles.message, styles.errorBox]}><Text style={styles.errorText}>{error}</Text></View> : null}
           {notice ? <View style={[styles.message, styles.noticeBox]}><Text style={styles.noticeText}>{notice}</Text></View> : null}
 
           <TextInput
-            style={styles.fieldGroup} mode="outlined" label="Email" placeholder="Myname@gmail.com"
+            style={styles.fieldGroup} mode="outlined" outlineStyle={{ borderRadius: 12, borderColor: colors.borderSoft }} theme={{ colors: { background: "rgba(255,255,255,0.7)" } }} placeholder="Email" accessibilityLabel="Email"
             value={email} onChangeText={updateEmail} keyboardType="email-address"
             autoCapitalize="none" autoCorrect={false} autoComplete="email" disabled={loading}
             onFocus={() => scrollToField(220)}
@@ -146,12 +142,12 @@ export default function LoginScreen() {
           {mode === "password" ? (
             <View style={styles.fieldGroup}>
               <TextInput
-                mode="outlined" label="Password" placeholder="Enter your password"
+                mode="outlined" outlineStyle={{ borderRadius: 12, borderColor: colors.borderSoft }} theme={{ colors: { background: "rgba(255,255,255,0.7)" } }} placeholder="Password" accessibilityLabel="Password"
                 value={password} onChangeText={(value) => { setPassword(value); setError(""); }}
                 secureTextEntry={!showPassword} autoCapitalize="none" autoComplete="current-password"
                 returnKeyType="go" onSubmitEditing={handleSubmit} disabled={loading}
                 onFocus={() => scrollToField(310)}
-                right={<TextInput.Icon icon={showPassword ? "eye-off" : "eye"} onPress={() => setShowPassword((value) => !value)} forceTextInputFocus={false} />}
+                right={<TextInput.Icon icon={showPassword ? "eye-off-outline" : () => <IconEye />} onPress={() => setShowPassword((value) => !value)} forceTextInputFocus={false} />}
               />
               <Pressable onPress={() => router.push("/(auth)/forgot-password")} hitSlop={10} style={styles.forgotLinkWrap}>
                 <Text style={styles.forgotLink}>Forgot password?</Text>
@@ -160,7 +156,7 @@ export default function LoginScreen() {
           ) : (
             <View style={styles.fieldGroup}>
               <TextInput
-                mode="outlined" label="One-time code" placeholder="000000" value={otp}
+                mode="outlined" outlineStyle={{ borderRadius: 12, borderColor: colors.borderSoft }} theme={{ colors: { background: "rgba(255,255,255,0.7)" } }} label="One-time code" placeholder="000000" value={otp}
                 onChangeText={(value) => { setOtp(value.replace(/\D/g, "").slice(0, 6)); setError(""); }}
                 keyboardType="number-pad" maxLength={6} disabled={!otpSent || loading}
                 returnKeyType="go" onSubmitEditing={handleSubmit}
@@ -173,9 +169,9 @@ export default function LoginScreen() {
             </View>
           )}
 
-          <Button mode="contained" onPress={handleSubmit} loading={loading} disabled={loading} style={styles.button} contentStyle={styles.buttonContent} labelStyle={styles.buttonLabel}>
+          <LinearGradient colors={["#38bdf8", "#0ea5e9", "#2563eb"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ borderRadius: 16 }}><Button buttonColor="transparent" mode="contained" onPress={handleSubmit} loading={loading} disabled={loading} style={styles.button} contentStyle={styles.buttonContent} labelStyle={styles.buttonLabel}>
             {mode === "password" ? "Log in" : otpSent ? "Verify & Log in" : "Send Email OTP"}
-          </Button>
+          </Button></LinearGradient>
 
           <Text style={styles.terms}>
             By signing in to your CurveLead account, you are agreeing to accept our{" "}
@@ -195,15 +191,15 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.primarySoft },
-  content: { flexGrow: 1, paddingBottom: 40 },
+  screen: { flex: 1 },
+  content: { flexGrow: 1 },
   hero: { alignItems: "center", justifyContent: "center", paddingTop: 70, paddingBottom: 40 },
   logo: { width: 56, height: 56, borderRadius: 14, marginBottom: 10 },
-  logoText: { color: colors.primary, fontSize: 26, fontWeight: "800", letterSpacing: -0.5 },
-  card: { flex: 1, backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingTop: 30 },
-  title: { color: colors.text, fontSize: 26, fontWeight: "800", textAlign: "center" },
-  subtitle: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 8, textAlign: "center" },
-  segmented: { marginTop: 24, marginBottom: 18 },
+  logoText: { color: "#0284c7", fontSize: 30, fontFamily: "DMSans_700Bold", letterSpacing: -0.8, marginTop: 16 },
+  card: { flex: 1, backgroundColor: "rgba(255,255,255,0.80)", borderWidth: 1, borderColor: "rgba(255,255,255,0.7)", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingTop: 32 },
+  title: { color: colors.text, fontSize: 24, fontFamily: "DMSans_700Bold" },
+  subtitle: { color: colors.textSecondary, fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20, marginTop: 4 },
+  segmented: { flexDirection: "row", borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: colors.border, backgroundColor: "rgba(240,249,255,0.6)", marginTop: 24, marginBottom: 24 },
   message: { borderRadius: 10, padding: 11, marginBottom: 16 },
   errorBox: { backgroundColor: colors.dangerSoft },
   noticeBox: { backgroundColor: colors.successSoft },
@@ -214,14 +210,14 @@ const styles = StyleSheet.create({
   forgotLink: { color: colors.primary, fontSize: 12, fontWeight: "700" },
   mutedLink: { color: colors.textMuted },
   otpInputContent: { textAlign: "center", fontSize: 20, fontWeight: "800", letterSpacing: 10 },
-  button: { borderRadius: 10, marginTop: 4 },
-  buttonContent: { height: 52 },
-  buttonLabel: { fontSize: 15, fontWeight: "700" },
+  button: { borderRadius: 16 },
+  buttonContent: { height: 56 },
+  buttonLabel: { fontSize: 16, fontFamily: "Inter_700Bold", letterSpacing: 0.4 },
   terms: { color: colors.textSecondary, fontSize: 12, lineHeight: 18, textAlign: "center", marginTop: 18 },
-  termsLink: { color: colors.primary, fontWeight: "700", textDecorationLine: "underline" },
+  termsLink: { color: colors.primary, fontFamily: "Inter_500Medium" },
   signupRow: { flexDirection: "row", justifyContent: "center", marginTop: 20 },
   signupPrompt: { color: colors.textSecondary, fontSize: 13 },
   signupLink: { color: colors.primary, fontSize: 13, fontWeight: "800" },
-  footerText: { color: colors.textSecondary, fontSize: 12, textAlign: "center", marginTop: 20 },
-  footerLink: { color: colors.primary, fontWeight: "700", textDecorationLine: "underline" },
+  footerText: { color: colors.textMuted, fontSize: 14, textAlign: "center", marginTop: 32, paddingTop: 32, borderTopWidth: 1, borderTopColor: colors.borderSoft },
+  footerLink: { color: colors.primary, fontFamily: "Inter_500Medium" },
 });

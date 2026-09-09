@@ -1,6 +1,7 @@
+import { GlassBackground, glass, GradientIcon } from "@/components/Glass";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Dimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
+  useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
@@ -82,7 +83,7 @@ export default function FollowupsScreen() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const didMountRef = useRef(false);
-  const screenWidth = Dimensions.get("window").width;
+  const { width: screenWidth } = useWindowDimensions();
   const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
   const [followups, setFollowups] = useState<TodayFollowup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -194,6 +195,7 @@ export default function FollowupsScreen() {
 
   return (
     <View style={styles.screen}>
+      <GlassBackground />
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.Content title="Follow-ups" titleStyle={styles.headerTitle} />
         <Appbar.Action icon="plus" color={colors.primary} onPress={openAdd} />
@@ -221,15 +223,15 @@ export default function FollowupsScreen() {
             );
           })}
         </ScrollView>
+      </View>
         <Pressable style={styles.todayToggle} onPress={() => setExpanded((value) => !value)}>
           <Text style={styles.todayToggleText}>{isSameDay(selectedDate, new Date()) ? "Today" : "Selected day"} ({followups.length})</Text>
           <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={16} color={colors.primary} />
         </Pressable>
-      </View>
 
       {expanded ? (
         <ScrollView
-          contentContainerStyle={{ paddingBottom: insets.bottom + 40, flexGrow: 1 }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 100, flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(selectedDate, true)} tintColor={colors.primary} colors={[colors.primary]} />}
           showsVerticalScrollIndicator={false}
         >
@@ -308,20 +310,20 @@ export default function FollowupsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 17, fontWeight: "800" },
+  header: { backgroundColor: "transparent" },
+  headerTitle: { fontSize: 20, fontFamily: "DMSans_700Bold" },
 
-  calendar: { backgroundColor: colors.surfaceMuted, paddingBottom: 10 },
+  calendar: { ...glass, marginHorizontal: 16, marginBottom: 16, paddingBottom: 12 },
   monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 14 },
-  monthLabel: { color: colors.primary, fontSize: 16, fontWeight: "800" },
+  monthLabel: { color: colors.primary, fontSize: 14, fontFamily: "Inter_700Bold" },
   weekRow: { flexDirection: "row", paddingHorizontal: 8 },
   dayColumn: { width: DAY_ITEM_WIDTH, alignItems: "center", gap: 8 },
-  dayLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: "600" },
+  dayLabel: { color: colors.textMuted, fontSize: 10, fontFamily: "Inter_700Bold" },
   dayNumber: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   dayNumberActive: { backgroundColor: colors.primary },
   dayNumberText: { color: colors.text, fontSize: 15, fontWeight: "700" },
   dayNumberTextActive: { color: colors.surface },
-  todayToggle: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 12 },
+  todayToggle: { ...glass, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, marginHorizontal: 16, marginBottom: 16 },
   todayToggleText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
 
   state: { alignItems: "center", justifyContent: "center", paddingVertical: 60 },
@@ -333,14 +335,14 @@ const styles = StyleSheet.create({
   emptyTitle: { color: colors.primary, fontSize: 15, fontWeight: "700", textAlign: "center" },
   emptyText: { color: colors.primary, fontSize: 14, textAlign: "center", marginTop: 4 },
 
-  row: { paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
+  row: { ...glass, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 12 },
   avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   avatarText: { color: colors.surface, fontSize: 16, fontWeight: "800" },
-  rowTitleLine: { flexDirection: "row", alignItems: "center", gap: 8 },
-  rowName: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "800" },
-  stagePill: { borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 },
+  rowTitleLine: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
+  rowName: { flexShrink: 1, maxWidth: "100%", color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold" },
+  stagePill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   stagePillText: { fontSize: 10, fontWeight: "800" },
-  rowTime: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginTop: 4 },
+  rowTime: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
   rowNotes: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
   doneButton: { alignSelf: "center" },
 

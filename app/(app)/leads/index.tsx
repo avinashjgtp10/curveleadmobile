@@ -1,3 +1,5 @@
+import { IconChevronRight, IconSearch } from "@/components/ReferenceIcons";
+import { GlassBackground, glass, GradientIcon } from "@/components/Glass";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert, Linking, Modal, Pressable, RefreshControl, SectionList, StyleSheet,
@@ -78,7 +80,7 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, colorFor, findSta
         {selectMode ? (
           <Checkbox status={selected ? "checked" : "unchecked"} onPress={onToggleSelect} />
         ) : (
-          <Avatar.Text size={44} label={(lead.name?.charAt(0) || "?").toUpperCase()} style={styles.avatar} labelStyle={styles.avatarText} />
+          <Avatar.Text size={44} label={(lead.name?.charAt(0) || "?").toUpperCase()} style={[styles.avatar, { backgroundColor: ["#0ea5e9", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444"][(lead.name?.charCodeAt(0) || 0) % 5] }]} labelStyle={styles.avatarText} />
         )}
         <View style={styles.leadContent}>
           <View style={styles.nameRow}>
@@ -91,7 +93,7 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, colorFor, findSta
             <Chip compact style={[styles.stagePill, { backgroundColor: stageColors.bg }]} textStyle={[styles.stagePillText, { color: stageColors.text }]}>{stageLabel}</Chip>
           </View>
         </View>
-        {!selectMode ? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} /> : null}
+        {!selectMode ? <IconChevronRight /> : null}
       </Card.Content>
     </Card>
   );
@@ -282,12 +284,12 @@ export default function LeadsScreen() {
         </View>
       )}
       <Searchbar
-        style={styles.searchBox} value={search} onChangeText={updateSearch}
+        icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 14, minHeight: 48 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
         placeholder="Search Name/Number/Keywords…" onClearIconPress={() => updateSearch("")}
       />
       <View style={styles.filtersRow}>
         {FILTERS.map((item) => (
-          <Chip key={item.value || "all"} selected={score === item.value} onPress={() => setScore(item.value)} style={[styles.filterChip, score === item.value && styles.filterActive]}>
+          <Chip key={item.value || "all"} textStyle={{ color: score === item.value ? "#fff" : colors.textSecondary, fontFamily: "Inter_600SemiBold" }} showSelectedCheck={false} selected={score === item.value} onPress={() => setScore(item.value)} style={[styles.filterChip, score === item.value && styles.filterActive]}>
             {item.label}
           </Chip>
         ))}
@@ -298,6 +300,7 @@ export default function LeadsScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
+      <GlassBackground />
       {loading && !leads.length ? (
         <View style={styles.loadingWrap}>{header}<View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.loadingText}>Loading leads…</Text></View></View>
       ) : error && !leads.length ? (
@@ -347,7 +350,7 @@ export default function LeadsScreen() {
           </View>
         </View>
       ) : (
-        <FAB icon="plus" style={[styles.fab, { bottom: insets.bottom + 24 }]} onPress={goToNewLead} color={colors.surface} />
+        <FAB icon="plus" style={[styles.fab, { bottom: insets.bottom + 86 }]} onPress={goToNewLead} color={colors.surface} />
       )}
 
       <Modal visible={reassignOpen} transparent animationType="fade" onRequestClose={() => !bulkBusy && setReassignOpen(false)}>
@@ -428,27 +431,27 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   loadingWrap: { flex: 1, paddingHorizontal: 16 }, listContent: { paddingHorizontal: 16 },
   titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16 },
-  title: { color: colors.text, fontSize: 26, fontWeight: "800" }, count: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  title: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" }, count: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   titleActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   selectHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16, height: 40 },
   selectCount: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  searchBox: { marginBottom: 4 },
+  searchBox: { ...glass, marginBottom: 4 },
   filtersRow: { flexDirection: "row", gap: 8, paddingTop: 13, paddingBottom: 6, flexWrap: "wrap" },
-  filterChip: { backgroundColor: colors.surface }, filterActive: { backgroundColor: colors.primarySoft },
-  sectionHeader: { color: colors.text, fontSize: 13, fontWeight: "800", backgroundColor: colors.surfaceMuted, paddingVertical: 8, paddingHorizontal: 10, marginTop: 8, marginBottom: 4, borderRadius: 6 },
-  leadRow: { borderRadius: 12, borderColor: colors.borderSoft, backgroundColor: colors.surface, marginBottom: 10 }, pressed: { opacity: 0.7 },
+  filterChip: { ...glass, borderRadius: 12 }, filterActive: { backgroundColor: colors.primary },
+  sectionHeader: { color: colors.textMuted, fontSize: 12, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 1.2, paddingVertical: 8, paddingHorizontal: 4, marginTop: 8, marginBottom: 4 },
+  leadRow: { ...glass, marginBottom: 8 }, pressed: { opacity: 0.7 },
   leadRowContent: { flexDirection: "row", alignItems: "center", minHeight: 66 },
   avatar: { backgroundColor: colors.primary, marginRight: 11 }, avatarText: { fontSize: 16, fontWeight: "800" },
-  leadContent: { flex: 1 }, nameRow: { flexDirection: "row", alignItems: "center", gap: 6 }, leadName: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "800" }, hotDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.danger },
-  subtitle: { color: colors.textSecondary, fontSize: 11, marginTop: 3 },
+  leadContent: { flex: 1 }, nameRow: { flexDirection: "row", alignItems: "center", gap: 6 }, leadName: { flex: 1, color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold" }, hotDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.danger },
+  subtitle: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" },
-  sourcePill: { maxWidth: 130, backgroundColor: colors.text, height: 24 }, sourcePillText: { color: colors.surface, fontSize: 10, fontWeight: "700", lineHeight: 12 },
-  stagePill: { height: 24 }, stagePillText: { fontSize: 10, fontWeight: "800", lineHeight: 12 },
+  sourcePill: { maxWidth: 130, backgroundColor: colors.text, height: 24, borderRadius: 6 }, sourcePillText: { color: colors.surface, fontSize: 10, fontWeight: "700", lineHeight: 12 },
+  stagePill: { height: 24, borderRadius: 6 }, stagePillText: { fontSize: 10, fontWeight: "800", lineHeight: 12 },
   inlineError: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10, marginBottom: 12 }, inlineErrorText: { color: colors.danger, fontSize: 10, textAlign: "center" },
   center: { flex: 1, minHeight: 300, alignItems: "center", justifyContent: "center", paddingHorizontal: 30 }, loadingText: { color: colors.textSecondary, fontSize: 12, marginTop: 11 }, errorTitle: { color: colors.text, fontSize: 17, fontWeight: "800" }, errorMessage: { color: colors.textSecondary, fontSize: 12, textAlign: "center", marginTop: 7 }, retry: { backgroundColor: colors.primary, paddingHorizontal: 19, paddingVertical: 10, borderRadius: 10, marginTop: 16 }, retryText: { color: colors.surface, fontSize: 12, fontWeight: "800" },
   footerLoader: { paddingVertical: 20 }, endText: { color: colors.textMuted, fontSize: 10, textAlign: "center", paddingVertical: 18 },
   empty: { alignItems: "center", paddingHorizontal: 30, paddingTop: 55 }, emptyIcon: { width: 64, height: 64, borderRadius: 22, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" }, emptyTitle: { color: colors.text, fontSize: 16, fontWeight: "800", marginTop: 14 }, emptyText: { color: colors.textMuted, fontSize: 11, lineHeight: 17, textAlign: "center", marginTop: 5 }, emptyButton: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 11, marginTop: 17 }, emptyButtonText: { color: colors.surface, fontSize: 12, fontWeight: "800" },
-  fab: { position: "absolute", right: 20, backgroundColor: colors.text },
+  fab: { position: "absolute", right: 20, backgroundColor: colors.primary },
 
   bulkBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingTop: 12 },
   bulkAction: { flex: 1, alignItems: "center" },
