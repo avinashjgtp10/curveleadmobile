@@ -3,7 +3,8 @@ import { colors } from "./index";
 
 export const paperTheme = {
   ...MD3LightTheme,
-  roundness: 2,
+  roundness: 4,
+  fonts: Object.fromEntries(Object.entries(MD3LightTheme.fonts).map(([key, font]) => [key, { ...font, fontFamily: "Inter_400Regular" }])) as typeof MD3LightTheme.fonts,
   colors: {
     ...MD3LightTheme.colors,
     primary: colors.primary,

@@ -1,6 +1,8 @@
+import { IconBell, SvgUserAdd, SvgCalendar, IconSearch, SvgFolder } from "@/components/ReferenceIcons";
+import { GlassBackground, glass, GradientIcon, GradientNumber } from "@/components/Glass";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
 } from "react-native";
 import { ActivityIndicator, Appbar, Avatar, Button, Card, List } from "react-native-paper";
 import axios from "axios";
@@ -38,19 +40,21 @@ function timeOf(value: string) {
 }
 
 function StatTile({ label, value }: { label: string; value: string }) {
+  const { width } = useWindowDimensions();
   return (
-    <View style={styles.statTile}>
+    <View style={[styles.statTile, { width: (width - 44) / 2 }]}>
       <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>{value}</Text>
+      <GradientNumber value={value} tone={label.includes("Converted") ? "violet" : label.includes("New") ? "emerald" : label.includes("Due") ? "amber" : "sky"} />
     </View>
   );
 }
 
 function QuickTile({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+  const { width } = useWindowDimensions();
   return (
-    <Card mode="contained" style={styles.quickTile} onPress={onPress}>
+    <Card mode="contained" style={[styles.quickTile, { width: (width - 44) / 2 }]} onPress={onPress}>
       <Card.Content style={styles.quickTileContent}>
-        <Ionicons name={icon} size={22} color={colors.primary} />
+        <GradientIcon tone={label.includes("Schedule") ? "amber" : label.includes("Search") ? "emerald" : label.includes("Import") ? "violet" : "sky"}>{label.includes("Add") ? <SvgUserAdd color="#fff" /> : label.includes("Schedule") ? <SvgCalendar color="#fff" /> : label.includes("Import") ? <SvgFolder color="#fff" /> : <Ionicons name={icon} size={20} color="#fff" />}</GradientIcon>
         <Text style={styles.quickLabel}>{label}</Text>
       </Card.Content>
     </Card>
@@ -87,9 +91,10 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.screen}>
+      <GlassBackground />
       <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.Content title="Dashboard Overview" titleStyle={styles.headerTitle} />
-        <Appbar.Action icon="bell-outline" color={colors.text} onPress={() => router.push("/(app)/notifications")} />
+        <View style={{ flex: 1 }}><View><Text style={{ fontSize: 12, color: colors.primary, letterSpacing: 1.2, fontFamily: "Inter_500Medium" }}>WELCOME BACK</Text><Text style={styles.headerTitle}>Dashboard Overview</Text></View></View>
+        <Appbar.Action icon={() => <IconBell />} style={{ ...glass, borderRadius: 12 }} color={colors.text} onPress={() => router.push("/(app)/notifications")} />
       </Appbar.Header>
 
       <Pressable style={styles.periodRow} onPress={() => setPeriodPickerOpen(true)}>
@@ -125,7 +130,7 @@ export default function DashboardScreen() {
                 {(data.pipeline.length ? data.pipeline.slice(0, 4) : []).map((stage) => (
                   <View key={stage.name} style={styles.stageColumn}>
                     <Text style={styles.stageColumnLabel} numberOfLines={1}>{pretty(stage.name).toUpperCase()}</Text>
-                    <Text style={styles.stageColumnValue}>{fmt(stage.count)}</Text>
+                    <Text style={styles.stageColumnValue}>{fmt(stage.count)}</Text><View style={{ width: "100%", height: 6, borderRadius: 3, backgroundColor: colors.primarySoft, marginTop: 8 }}><View style={{ width: `${Math.min(100, stage.count / Math.max(1, ...data.pipeline.map(s => s.count)) * 60)}%`, height: 6, borderRadius: 3, backgroundColor: colors.primary }} /></View>
                   </View>
                 ))}
                 {!data.pipeline.length ? <Text style={styles.empty}>No pipeline stages yet.</Text> : null}
@@ -226,48 +231,48 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  header: { minHeight: 52, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.text },
-  headerTitle: { color: colors.text, fontSize: 17, fontWeight: "800" },
-  periodRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 44, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
-  periodText: { color: colors.text, fontSize: 14, fontWeight: "700" },
+  header: { height: 80, paddingHorizontal: 12, backgroundColor: "transparent" },
+  headerTitle: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" },
+  periodRow: { ...glass, flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", marginLeft: 16, marginBottom: 16, paddingHorizontal: 16, paddingVertical: 10 },
+  periodText: { color: "#334155", fontSize: 14, fontFamily: "Inter_600SemiBold" },
 
   state: { minHeight: 350, padding: 30, alignItems: "center", justifyContent: "center" },
   stateTitle: { color: colors.text, fontSize: 18, fontWeight: "800" },
   stateText: { color: colors.textSecondary, fontSize: 13, textAlign: "center", lineHeight: 19, marginTop: 9 },
   retry: { marginTop: 16 },
 
-  statGrid: { flexDirection: "row", flexWrap: "wrap" },
-  statTile: { width: "50%", paddingVertical: 20, paddingHorizontal: 18, borderWidth: 0.5, borderColor: colors.borderSoft, alignItems: "center" },
-  statLabel: { color: colors.text, fontSize: 13, fontWeight: "700", textAlign: "center" },
-  statValue: { color: colors.text, fontSize: 30, fontWeight: "800", marginTop: 8 },
+  statGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, paddingHorizontal: 16 },
+  statTile: { ...glass, width: "48%", flexGrow: 1, padding: 16 },
+  statLabel: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_500Medium" },
+  statValue: { color: colors.primary, fontSize: 30, fontFamily: "Inter_700Bold", marginTop: 4 },
 
-  stageSection: { backgroundColor: colors.surfaceMuted, paddingVertical: 16 },
-  stageSectionTitle: { color: colors.text, fontSize: 15, fontWeight: "800", textAlign: "center", marginBottom: 14 },
-  stageRow: { flexDirection: "row", paddingHorizontal: 18 },
+  stageSection: { ...glass, marginHorizontal: 16, marginTop: 16, padding: 16 },
+  stageSectionTitle: { color: "#334155", fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 12 },
+  stageRow: { flexDirection: "row", gap: 8 },
   stageColumn: { flex: 1, alignItems: "center" },
-  stageColumnLabel: { color: colors.textSecondary, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
-  stageColumnValue: { color: colors.text, fontSize: 26, fontWeight: "800", marginTop: 6 },
+  stageColumnLabel: { color: colors.textMuted, fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.4 },
+  stageColumnValue: { color: colors.text, fontSize: 20, fontFamily: "Inter_700Bold", marginTop: 4 },
 
-  alert: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 14, marginHorizontal: 18, marginTop: 18 },
+  alert: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "rgba(244,63,94,0.08)", borderWidth: 1, borderColor: "rgba(244,63,94,0.2)", borderRadius: 16, padding: 16, marginHorizontal: 16, marginTop: 16 },
   alertCopy: { flex: 1 }, alertTitle: { color: colors.danger, fontSize: 12, fontWeight: "800" }, alertSubtitle: { color: colors.danger, fontSize: 10, marginTop: 3, opacity: 0.8 },
 
-  section: { marginTop: 24, paddingHorizontal: 18 },
+  section: { marginTop: 16, paddingHorizontal: 16 },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  sectionTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  sectionTitle: { color: "#334155", fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 12 },
   sectionCount: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
 
-  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  quickTile: { width: "47%", height: 88, borderRadius: 10, backgroundColor: colors.surfaceMuted },
-  quickTileContent: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
-  quickLabel: { color: colors.primary, fontSize: 12, fontWeight: "700", textAlign: "center" },
+  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  quickTile: { ...glass, width: "48%", flexGrow: 1 },
+  quickTileContent: { padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  quickLabel: { flex: 1, color: "#334155", fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
-  listCard: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.borderSoft, overflow: "hidden" },
+  listCard: { ...glass, overflow: "hidden" },
   empty: { color: colors.textMuted, textAlign: "center", paddingVertical: 22, fontSize: 12 },
 
   followupTime: { alignItems: "center", gap: 3 }, followupTimeText: { color: colors.text, fontSize: 12, fontWeight: "700" },
 
   insightsRow: { flexDirection: "row", gap: 10 },
-  insightCard: { flex: 1 },
+  insightCard: { ...glass, flex: 1 },
   insightLabel: { color: colors.textSecondary, fontSize: 10, fontWeight: "700" }, insightValue: { color: colors.text, fontSize: 17, fontWeight: "800", marginTop: 5 },
 
   avatar: { backgroundColor: colors.primary },

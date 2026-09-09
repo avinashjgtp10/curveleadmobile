@@ -1,5 +1,7 @@
+import { GlassBackground, glass, GradientIcon, GradientName } from "@/components/Glass";
+import * as Icons from "@/components/ReferenceIcons";
 import React from "react";
-import { View, StyleSheet, ScrollView } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable } from "react-native";
 import { Button, List, Text } from "react-native-paper";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -38,8 +40,11 @@ export default function MoreScreen() {
 
   const visibleItems = MENU.filter((item) => !item.roles || can(item.roles));
 
+  const referenceIcons = [Icons.SvgGitBranch, Icons.SvgMegaphone, Icons.SvgSparkles, Icons.SvgClipboard, Icons.SvgFolder, Icons.SvgMessageCircle, Icons.SvgTeam, Icons.SvgPlug, Icons.SvgBarChart, Icons.SvgCreditCard, Icons.SvgSettings];
+  const tones: GradientName[] = ["sky", "violet", "pink", "sky", "indigo", "teal", "indigo", "sky", "emerald", "sky", "slate"];
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingHorizontal: 18, paddingTop: insets.top + 14, paddingBottom: insets.bottom + 105 }} showsVerticalScrollIndicator={false}>
+    <View style={{ flex: 1 }}><GlassBackground />
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 105 }} showsVerticalScrollIndicator={false}>
       <Text style={styles.eyebrow}>WORKSPACE</Text>
       <Text style={styles.title}>More</Text>
       {user && (
@@ -49,39 +54,39 @@ export default function MoreScreen() {
       )}
 
       <View style={styles.list}>
-        {visibleItems.map((item, index) => (
-          <List.Item
-            key={item.href}
-            title={item.label}
-            titleStyle={styles.rowLabel}
-            onPress={() => router.push(item.href as never)}
-            style={[styles.row, index === visibleItems.length - 1 && styles.rowLast]}
-            left={() => <View style={styles.rowIcon}><Ionicons name={item.icon} size={20} color={colors.primary} /></View>}
-            right={(props) => <List.Icon {...props} icon="chevron-right" color={colors.textMuted} />}
-          />
-        ))}
+        {visibleItems.map((item, index) => {
+          const i = MENU.indexOf(item);
+          const Icon = referenceIcons[i];
+          return <View key={item.href}>
+            <Pressable accessibilityRole="button" onPress={() => router.push(item.href as never)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: "rgba(224,242,254,0.6)" }]}>
+              <GradientIcon tone={tones[i] || "slate"}>{Icon ? <Icon color="#fff" /> : <Ionicons name={item.icon} size={20} color="#fff" />}</GradientIcon>
+              <Text style={[styles.rowLabel, { flex: 1 }]}>{item.label}</Text><Icons.IconChevronRight />
+            </Pressable>
+            {index < visibleItems.length - 1 && <View style={{ height: 1, backgroundColor: "rgba(224,242,254,0.6)", marginHorizontal: 16 }} />}
+          </View>;
+        })}
       </View>
 
       <Button
-        mode="outlined" icon="logout" textColor={colors.danger} style={styles.logout} contentStyle={styles.logoutContent}
+        mode="outlined" icon={() => <Icons.IconLogout />} textColor={colors.danger} style={styles.logout} contentStyle={styles.logoutContent}
         onPress={async () => { await logout(); router.replace("/(auth)/login"); }}
       >
         Log out
       </Button>
-    </ScrollView>
+    </ScrollView></View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: "transparent" },
   eyebrow: { color: colors.primary, fontSize: 10, fontWeight: "900", letterSpacing: 1.5 },
-  title: { fontSize: 29, fontWeight: "900", letterSpacing: -0.8, color: colors.text, marginTop: 4 },
-  subtitle: { color: colors.textSecondary, marginTop: 4, marginBottom: 22, fontSize: 12, textTransform: "capitalize" },
-  list: { overflow: "hidden", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radii.lg, ...shadows.card },
-  row: { borderBottomWidth: 1, borderBottomColor: colors.surfaceMuted },
+  title: { fontSize: 20, fontFamily: "DMSans_700Bold", color: colors.text, marginTop: 4 },
+  subtitle: { color: colors.textSecondary, marginTop: 4, marginBottom: 16, fontSize: 12, textTransform: "capitalize" },
+  list: { ...glass, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.7)", borderWidth: 1, borderColor: "rgba(255,255,255,0.6)", borderRadius: 16 },
+  row: { flexDirection: "row", alignItems: "center", gap: 16, paddingVertical: 14, paddingHorizontal: 16 },
   rowLast: { borderBottomWidth: 0 },
   rowIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", alignSelf: "center" },
-  rowLabel: { color: colors.text, fontSize: 14, fontWeight: "700" },
-  logout: { marginTop: 24, borderColor: "#FECDD3", backgroundColor: colors.dangerSoft },
-  logoutContent: { height: 48 },
+  rowLabel: { color: "#334155", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  logout: { marginTop: 16, borderRadius: 16, borderWidth: 2, borderColor: "#FECDD3", backgroundColor: colors.dangerSoft },
+  logoutContent: { height: 56 },
 });

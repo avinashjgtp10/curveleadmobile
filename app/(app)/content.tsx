@@ -1,66 +1,54 @@
-import React from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Card, List, Text } from "react-native-paper";
-import { router } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import React, { useCallback, useState } from "react";
+import { ScrollView, StyleSheet, View, Text } from "react-native";
+import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { GlassBackground, glass, GradientIcon } from "@/components/Glass";
+import { GlassPressable } from "@/components/GlassPressable";
+import { IconChevronRight, SvgTemplate, SvgFileText, SvgReceipt } from "@/components/ReferenceIcons";
+import { fetchTemplates } from "@/api/templates";
+import { fetchBrochures } from "@/api/brochures";
+import { fetchQuotations } from "@/api/quotations";
 import { colors } from "@/theme";
 
-type IconName = keyof typeof Ionicons.glyphMap;
-
-const SECTIONS: { key: string; title: string; description: string; icon: IconName; iconBg: string; href: string }[] = [
-  {
-    key: "templates", title: "Templates", description: "Reusable SMS, WhatsApp and email templates for your team.",
-    icon: "chatbubbles-outline", iconBg: "#FFB580", href: "/(app)/more/templates",
-  },
-  {
-    key: "brochures", title: "Brochures", description: "Share PDFs, images and product brochures with leads.",
-    icon: "document-text-outline", iconBg: "#D2E1FF", href: "/(app)/more/brochures",
-  },
-  {
-    key: "quotations", title: "Quotations", description: "Create, send and track quotations for your leads.",
-    icon: "receipt-outline", iconBg: "#ABFCCC", href: "/(app)/more/quotations",
-  },
-];
+const SECTIONS = [
+  { title: "Templates", description: "Reusable SMS, WhatsApp and email templates for your team.", Icon: SvgTemplate, tone: "orange", href: "/(app)/more/templates" },
+  { title: "Brochures", description: "Share PDFs, images and product brochures with leads.", Icon: SvgFileText, tone: "sky", href: "/(app)/more/brochures" },
+  { title: "Quotations", description: "Create, send and track quotations for your leads.", Icon: SvgReceipt, tone: "emerald", href: "/(app)/more/quotations" },
+] as const;
 
 export default function ContentScreen() {
   const insets = useSafeAreaInsets();
-  return (
-    <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.Content title="Content Library" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
-
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
-        <Text style={styles.subtitle}>Everything you share with leads, in one place.</Text>
-
-        {SECTIONS.map((section) => (
-          <Card key={section.key} mode="outlined" style={styles.card} onPress={() => router.push(section.href)}>
-            <Card.Content style={styles.cardContent}>
-              <List.Icon icon={() => <Ionicons name={section.icon} size={22} color={colors.text} />} style={[styles.cardIcon, { backgroundColor: section.iconBg }]} />
-              <View style={styles.cardBody}>
-                <Text style={styles.cardTitle}>{section.title}</Text>
-                <Text style={styles.cardDescription}>{section.description}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-            </Card.Content>
-          </Card>
-        ))}
-      </ScrollView>
-    </View>
-  );
+  const [counts, setCounts] = useState<(number | null)[]>([null, null, null]);
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    Promise.allSettled([fetchTemplates(), fetchBrochures(), fetchQuotations()]).then(results => {
+      if (active) setCounts(results.map(result => result.status === "fulfilled" ? result.value.length : null));
+    });
+    return () => { active = false; };
+  }, []));
+  return <View style={{ flex: 1 }}><GlassBackground />
+    <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
+      <Text style={styles.title}>Content Library</Text>
+      <Text style={styles.subtitle}>Everything you share with leads, in one place.</Text>
+      {SECTIONS.map(({ title, description, Icon, tone, href }) => <GlassPressable key={title} style={styles.card} onPress={() => router.push(href)}>
+        <GradientIcon tone={tone} size={56}><Icon color="#fff" /></GradientIcon>
+        <View style={{ flex: 1 }}><Text style={styles.cardTitle}>{title}</Text><Text style={styles.description}>{description}</Text></View><IconChevronRight />
+      </GlassPressable>)}
+      <View style={[glass, { padding: 16, marginTop: 4 }]}>
+        <Text style={styles.statsTitle}>LIBRARY STATS</Text>
+        <View style={{ flexDirection: "row", gap: 12 }}>{SECTIONS.map((item, i) => <View key={item.title} style={{ flex: 1, alignItems: "center" }}><Text accessibilityLabel={`${item.title}: ${counts[i] ?? "unavailable"}`} style={styles.count}>{counts[i] ?? "—"}</Text><Text style={styles.countLabel}>{item.title}</Text></View>)}</View>
+      </View>
+    </ScrollView>
+  </View>;
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 17, fontWeight: "800" },
-  content: { padding: 18 },
-  subtitle: { color: colors.textSecondary, fontSize: 13, marginBottom: 18 },
-  card: { marginBottom: 12 },
-  cardContent: { flexDirection: "row", alignItems: "center", gap: 14 },
-  cardIcon: { width: 46, height: 46, borderRadius: 12, margin: 0 },
-  cardBody: { flex: 1 },
-  cardTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
-  cardDescription: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 4 },
+  title: { fontSize: 20, fontFamily: "DMSans_700Bold", color: colors.text },
+  subtitle: { fontSize: 14, fontFamily: "Inter_400Regular", color: colors.textMuted, marginTop: 4, marginBottom: 16 },
+  card: { flexDirection: "row", alignItems: "center", gap: 16, padding: 16, marginBottom: 12 },
+  cardTitle: { fontFamily: "Inter_700Bold", fontSize: 14, color: colors.text, marginBottom: 2 },
+  description: { fontFamily: "Inter_400Regular", color: colors.textSecondary, fontSize: 12, lineHeight: 19.5 },
+  statsTitle: { fontSize: 12, fontFamily: "Inter_700Bold", color: colors.textMuted, letterSpacing: 1.2, marginBottom: 12 },
+  count: { color: colors.primary, fontSize: 20, fontFamily: "Inter_700Bold" },
+  countLabel: { fontSize: 10, color: colors.textMuted, fontFamily: "Inter_500Medium" },
 });
