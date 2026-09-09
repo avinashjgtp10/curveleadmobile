@@ -35,9 +35,24 @@ export interface StaffMember {
   role: "owner" | "manager" | "sales";
 }
 
+export type UserRole = "staff" | "admin" | "super_admin";
+
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
-  tenantId: string;
+  role: UserRole;
+  tenant_id: string;
+}
+
+export interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+  business_type: string;
+  subscriptionStatus: string;
+  trialEndsAt: string | null;
+  subscriptionStart: string | null;
+  subscriptionEnd: string | null;
+  planName: string | null;
 }
