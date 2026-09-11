@@ -13,10 +13,6 @@
       "backgroundColor": "#f0f9ff",
       "hidden": false
     },
-    "newArchEnabled": true,
-    "splash": {
-      "backgroundColor": "#ffffff"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -26,7 +22,6 @@
     },
     "android": {
       "package": "com.curvelead.mobile",
-      "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/curvelead-adaptive-icon.png",
         "backgroundColor": "#031d50"
