@@ -5,7 +5,7 @@
     "scheme": "curvelead",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/curvelead-icon.png",
     "userInterfaceStyle": "light",
     "backgroundColor": "#f0f9ff",
     "androidStatusBar": {
@@ -15,9 +15,7 @@
     },
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0F172A"
+      "backgroundColor": "#ffffff"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -30,8 +28,8 @@
       "package": "com.curvelead.mobile",
       "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0F172A"
+        "foregroundImage": "./assets/curvelead-adaptive-icon.png",
+        "backgroundColor": "#031d50"
       }
     },
     "web": {
@@ -43,12 +41,25 @@
       "expo-status-bar",
       "expo-web-browser",
       "@react-native-community/datetimepicker",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "backgroundColor": "#ffffff"
+          }
+        }
+      ]
     ],
     "extra": {
       "apiUrlDev": "https://curvelead.com/api",
       "apiUrlProd": "https://curvelead.com/api",
-      "facebookAppId": "1551778202757963"
+      "facebookAppId": "1551778202757963",
+      "router": {},
+      "eas": {
+        "projectId": "1b2165d6-eb2a-411b-b7e8-9b0843cdfa82"
+      }
     }
   }
 }
