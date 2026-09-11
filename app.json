@@ -47,8 +47,10 @@
         {
           "backgroundColor": "#ffffff",
           "dark": {
-            "backgroundColor": "#ffffff"
-          }
+            "backgroundColor": "#ffffff",
+            "image": "./assets/splash-transparent.png"
+          },
+          "image": "./assets/splash-transparent.png"
         }
       ]
     ],
