@@ -1,7 +1,7 @@
 import { BlurView, BlurTargetView } from "expo-blur";
 import { IconHome, IconUsers, IconCheck, IconBook, IconGrid } from "@/components/ReferenceIcons";
 import React from "react";
-import { Redirect, Tabs } from "expo-router";
+import { Redirect, router, Tabs } from "expo-router";
 // @ts-ignore - AuthContext is a TSX module and this app-level config does not enable JSX for the import check
 import { useAuth } from "@/contexts/AuthContext";
 import { Platform, StyleSheet, View } from "react-native";
@@ -54,6 +54,10 @@ export default function AppLayout() {
       React.createElement(Tabs.Screen, {
         key: name,
         name,
+        // The Leads tab has its own nested stack (list -> detail). Left as-is, switching to
+        // another tab and back leaves you stranded on whatever lead-detail screen you were on
+        // instead of the leads list — so pressing the tab explicitly resets it to the list.
+        ...(name === "leads" ? { listeners: { tabPress: () => router.dismissTo("/(app)/leads") } } : null),
         options: {
           title: item.label,
           tabBarIcon: ({ focused }: { focused: boolean }) =>

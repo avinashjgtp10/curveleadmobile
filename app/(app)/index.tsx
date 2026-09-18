@@ -1,17 +1,22 @@
-import { IconBell, SvgUserAdd, SvgCalendar, IconSearch, SvgFolder } from "@/components/ReferenceIcons";
+import { IconBell, SvgUserAdd, SvgCalendar, SvgFolder } from "@/components/ReferenceIcons";
 import { GlassBackground, glass, GradientIcon, GradientNumber } from "@/components/Glass";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
+  Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
 } from "react-native";
 import { ActivityIndicator, Appbar, Avatar, Button, Card, List } from "react-native-paper";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboard";
 import { fetchTodayFollowups, TodayFollowup } from "@/api/leads";
+import { facebookSyncLeads } from "@/api/integrations";
+
+const LAST_SYNC_KEY = "meta_leads_last_sync";
+const META_SYNC_THROTTLE_MS = 2 * 60 * 1000;
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -37,6 +42,15 @@ function timeOf(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+}
+
+function relativeTime(date: Date) {
+  const minutes = Math.floor((Date.now() - date.getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function StatTile({ label, value }: { label: string; value: string }) {
@@ -71,6 +85,10 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
+  // Manual Facebook lead sync (mirrors web's Leads page > Sync Leads, same endpoint)
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+
   const load = useCallback(async (refresh = false) => {
     refresh ? setRefreshing(true) : setLoading(true);
     setError("");
@@ -89,6 +107,49 @@ export default function DashboardScreen() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    AsyncStorage.getItem(LAST_SYNC_KEY).then((value) => {
+      const parsed = Number(value || 0);
+      if (parsed) setLastSyncedAt(new Date(parsed));
+    });
+  }, []);
+
+  async function handleManualSync() {
+    setSyncing(true);
+    try {
+      const result = await facebookSyncLeads();
+      const now = new Date();
+      await AsyncStorage.setItem(LAST_SYNC_KEY, String(now.getTime()));
+      setLastSyncedAt(now);
+      Alert.alert("Sync complete", result.message);
+      if (result.created) load();
+    } catch (syncError) {
+      Alert.alert("Sync failed", axios.isAxiosError(syncError) && typeof syncError.response?.data?.error === "string"
+        ? syncError.response.data.error : "Please try again.");
+    } finally { setSyncing(false); }
+  }
+
+  // Auto-pull Facebook leads whenever the dashboard is focused, so leads show up without
+  // a manual tap on Sync — mirrors web. Throttled so switching tabs back and forth
+  // doesn't hammer the Graph API — at most once every 2 minutes.
+  useFocusEffect(useCallback(() => {
+    let cancelled = false;
+    (async () => {
+      const stored = Number((await AsyncStorage.getItem(LAST_SYNC_KEY)) || 0);
+      if (Date.now() - stored < META_SYNC_THROTTLE_MS) return;
+      const now = new Date();
+      await AsyncStorage.setItem(LAST_SYNC_KEY, String(now.getTime()));
+      if (cancelled) return;
+      setLastSyncedAt(now);
+      try {
+        const result = await facebookSyncLeads();
+        if (!cancelled && result.created) load();
+      } catch { /* silently ignore — e.g. no Facebook page connected for this tenant */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []));
+
   return (
     <View style={styles.screen}>
       <GlassBackground />
@@ -97,10 +158,16 @@ export default function DashboardScreen() {
         <Appbar.Action icon={() => <IconBell />} style={{ ...glass, borderRadius: 12 }} color={colors.text} onPress={() => router.push("/(app)/notifications")} />
       </Appbar.Header>
 
-      <Pressable style={styles.periodRow} onPress={() => setPeriodPickerOpen(true)}>
-        <Text style={styles.periodText}>{PERIOD_LABEL[period]}</Text>
-        <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
-      </Pressable>
+      <View style={styles.periodSyncRow}>
+        <Pressable style={styles.periodRow} onPress={() => setPeriodPickerOpen(true)}>
+          <Text style={styles.periodText}>{PERIOD_LABEL[period]}</Text>
+          <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+        </Pressable>
+        <Pressable style={styles.syncRow} onPress={handleManualSync} disabled={syncing}>
+          {syncing ? <ActivityIndicator size="small" color={colors.primary} /> : <Ionicons name="sync-outline" size={14} color={colors.primary} />}
+          <Text style={styles.syncText}>{syncing ? "Syncing…" : lastSyncedAt ? `Synced ${relativeTime(lastSyncedAt)}` : "Sync leads"}</Text>
+        </Pressable>
+      </View>
 
       <ScrollView
         contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
@@ -194,7 +261,7 @@ export default function DashboardScreen() {
                 <Text style={styles.sectionTitle}>Recently added</Text>
                 <Button mode="text" compact onPress={() => router.push("/(app)/leads")}>See all</Button>
               </View>
-              <View style={styles.listCard}>
+              <View style={[styles.listCard, styles.recentListCard]}>
                 {data.recentLeads.slice(0, 4).map((lead) => (
                   <List.Item
                     key={lead.id} title={lead.name} description={pretty(lead.stage || lead.source)}
@@ -233,8 +300,11 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   header: { height: 80, paddingHorizontal: 12, backgroundColor: "transparent" },
   headerTitle: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" },
-  periodRow: { ...glass, flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", marginLeft: 16, marginBottom: 16, paddingHorizontal: 16, paddingVertical: 10 },
+  periodSyncRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginHorizontal: 16, marginBottom: 16 },
+  periodRow: { ...glass, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
   periodText: { color: "#334155", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  syncRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 4, paddingVertical: 6 },
+  syncText: { color: colors.primary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
   state: { minHeight: 350, padding: 30, alignItems: "center", justifyContent: "center" },
   stateTitle: { color: colors.text, fontSize: 18, fontWeight: "800" },
@@ -244,7 +314,6 @@ const styles = StyleSheet.create({
   statGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, paddingHorizontal: 16 },
   statTile: { ...glass, width: "48%", flexGrow: 1, padding: 16 },
   statLabel: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_500Medium" },
-  statValue: { color: colors.primary, fontSize: 30, fontFamily: "Inter_700Bold", marginTop: 4 },
 
   stageSection: { ...glass, marginHorizontal: 16, marginTop: 16, padding: 16 },
   stageSectionTitle: { color: "#334155", fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 12 },
@@ -267,6 +336,7 @@ const styles = StyleSheet.create({
   quickLabel: { flex: 1, color: "#334155", fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
   listCard: { ...glass, overflow: "hidden" },
+  recentListCard: { paddingVertical: 4, paddingHorizontal: 6 },
   empty: { color: colors.textMuted, textAlign: "center", paddingVertical: 22, fontSize: 12 },
 
   followupTime: { alignItems: "center", gap: 3 }, followupTimeText: { color: colors.text, fontSize: 12, fontWeight: "700" },
