@@ -113,7 +113,9 @@ function ActionBox({ icon, value, chip, placeholder = "Not set", onPress }: {
     <View style={styles.inputArea}>
       <Ionicons name={icon} size={16} color={colors.textSecondary} style={styles.inputIcon} />
       {chip ? (
-        <View style={[styles.statusChip, { backgroundColor: chip.bg }]}><Text style={[styles.statusChipText, { color: chip.text }]}>{chip.label}</Text></View>
+        <View style={styles.chipWrap}>
+          <View style={[styles.statusChip, { backgroundColor: chip.bg }]}><Text style={[styles.statusChipText, { color: chip.text }]}>{chip.label}</Text></View>
+        </View>
       ) : (
         <Text style={styles.inputAreaText} numberOfLines={1}>{value || placeholder}</Text>
       )}
@@ -736,7 +738,8 @@ const styles = StyleSheet.create({
   inputActions: { flexDirection: "row", alignItems: "center", marginLeft: 8 },
   inputActionButton: { margin: 0 },
 
-  statusChip: { flex: 1, alignSelf: "flex-start", borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
+  chipWrap: { flex: 1, alignItems: "flex-start" },
+  statusChip: { borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
   statusChipText: { fontSize: 13, fontWeight: "700" },
   moneyHint: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginTop: -12, marginBottom: 18 },
 
