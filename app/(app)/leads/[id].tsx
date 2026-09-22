@@ -522,7 +522,7 @@ export default function LeadDetailScreen() {
         )}
       </ScrollView>
 
-      <Modal visible={stageSheetOpen} transparent animationType="fade" onRequestClose={closeStageSheet}>
+      <Modal visible={stageSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeStageSheet}>
         <Pressable style={styles.sheetBackdrop} onPress={closeStageSheet}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -574,7 +574,7 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={statusSheetOpen} transparent animationType="fade" onRequestClose={() => !updatingStatus && setStatusSheetOpen(false)}>
+      <Modal visible={statusSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !updatingStatus && setStatusSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !updatingStatus && setStatusSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -600,7 +600,7 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={followupSheetOpen} transparent animationType="fade" onRequestClose={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
+      <Modal visible={followupSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -630,7 +630,7 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={activityOptionsOpen} transparent animationType="fade" onRequestClose={() => setActivityOptionsOpen(false)}>
+      <Modal visible={activityOptionsOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setActivityOptionsOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setActivityOptionsOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -649,7 +649,7 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={logSheetOpen} transparent animationType="fade" onRequestClose={() => !loggingActivity && setLogSheetOpen(false)}>
+      <Modal visible={logSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !loggingActivity && setLogSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !loggingActivity && setLogSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />

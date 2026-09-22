@@ -161,7 +161,7 @@ export default function BrochuresScreen() {
         </ScrollView>
       )}
 
-      <Modal visible={uploadOpen} transparent animationType="fade" onRequestClose={() => !uploading && setUploadOpen(false)}>
+      <Modal visible={uploadOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !uploading && setUploadOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !uploading && setUploadOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -180,7 +180,7 @@ export default function BrochuresScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={shareOpen} transparent animationType="fade" onRequestClose={() => !sharing && setShareOpen(false)}>
+      <Modal visible={shareOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !sharing && setShareOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !sharing && setShareOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />

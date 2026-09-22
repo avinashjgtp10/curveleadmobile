@@ -9,10 +9,10 @@ import {
   ActivityIndicator, Avatar, Button, Card, Checkbox, Chip, FAB, IconButton, List, Searchbar,
 } from "react-native-paper";
 import axios from "axios";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "@/theme";
+import { colors, tabBarStyleFor } from "@/theme";
 import { usePermission } from "@/hooks/usePermission";
 import { useStages } from "@/hooks/useStages";
 import {
@@ -40,6 +40,35 @@ const SOURCES = [
 
 function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
+}
+
+function FilterDropdown({ value, options, open, onToggle, onSelect }: {
+  value: string; options: { value: string; label: string }[]; open: boolean; onToggle: () => void; onSelect: (value: string) => void;
+}) {
+  const selected = options.find((item) => item.value === value) || options[0];
+  return (
+    <>
+      <Pressable style={[styles.filterDropdownField, open && styles.filterDropdownFieldActive]} onPress={onToggle}>
+        <Text style={styles.filterDropdownFieldText}>{selected?.label}</Text>
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
+      </Pressable>
+      {open ? (
+        <ScrollView style={styles.filterDropdownPanel} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+          {options.map((item) => {
+            const isSelected = item.value === value;
+            return (
+              <Pressable
+                key={item.value || "all"} style={[styles.filterDropdownItem, isSelected && styles.filterDropdownItemSelected]}
+                onPress={() => onSelect(item.value)}
+              >
+                <Text style={[styles.filterDropdownItemText, isSelected && styles.filterDropdownItemTextSelected]}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+    </>
+  );
 }
 
 function pretty(value?: string) {
@@ -112,6 +141,7 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, colo
 
 export default function LeadsScreen() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const { isAdmin } = usePermission();
   const { stages, colorFor, findStage } = useStages();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -146,11 +176,19 @@ export default function LeadsScreen() {
   const [filterStage, setFilterStage] = useState("");
   const [filterSource, setFilterSource] = useState("");
   const [filterAssignedTo, setFilterAssignedTo] = useState("");
+  const [openFilterDropdown, setOpenFilterDropdown] = useState<"score" | "stage" | "source" | "assigned" | null>(null);
 
   const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
   const [hiddenStages, setHiddenStages] = useState<string[]>([]);
 
-  const activeFilterCount = [filterStage, filterSource, filterAssignedTo].filter(Boolean).length;
+  useEffect(() => {
+    const parent = navigation.getParent();
+    const hideBar = filtersSheetOpen || settingsSheetOpen;
+    parent?.setOptions({ tabBarStyle: hideBar ? { display: "none" } : tabBarStyleFor(insets.bottom) });
+    return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
+  }, [filtersSheetOpen, settingsSheetOpen, navigation, insets.bottom]);
+
+  const activeFilterCount = [score, filterStage, filterSource, filterAssignedTo].filter(Boolean).length;
 
   const load = useCallback(async (nextPage = 1, append = false) => {
     const id = ++requestId.current;
@@ -196,13 +234,14 @@ export default function LeadsScreen() {
 
   function openFiltersSheet() {
     setFiltersSheetOpen(true);
+    setOpenFilterDropdown(null);
     if (staff.length || staffLoading) return;
     setStaffLoading(true); setStaffError("");
     fetchStaff().then(setStaff).catch((staffErr) => setStaffError(errorMessage(staffErr, "Could not load your team."))).finally(() => setStaffLoading(false));
   }
 
   function clearFilters() {
-    setFilterStage(""); setFilterSource(""); setFilterAssignedTo("");
+    setScore(""); setFilterStage(""); setFilterSource(""); setFilterAssignedTo("");
   }
 
   const sections = useMemo(() => {
@@ -326,32 +365,31 @@ export default function LeadsScreen() {
         </View>
       ) : (
         <View style={styles.titleRow}>
-          <Text style={styles.title}>Leads</Text>
-          <Text style={styles.count}>{total.toLocaleString("en-IN")} total contacts</Text>
+          <View style={styles.titleRowMain}>
+            {router.canGoBack() ? <IconButton icon="arrow-left" size={22} onPress={() => router.back()} style={styles.backButton} /> : null}
+            <View>
+              <Text style={styles.title}>Leads</Text>
+              <Text style={styles.count}>{total.toLocaleString("en-IN")} total contacts</Text>
+            </View>
+          </View>
+          <IconButton icon="cog-outline" size={20} onPress={() => setSettingsSheetOpen(true)} style={styles.settingsButton} />
         </View>
       )}
-      <Searchbar
-        icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 14, minHeight: 48 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
-        placeholder="Search Name/Number/Keywords…" onClearIconPress={() => updateSearch("")}
-      />
-      <View style={styles.filtersRow}>
-        {FILTERS.map((item) => (
-          <Chip key={item.value || "all"} textStyle={{ color: score === item.value ? "#fff" : colors.textSecondary, fontFamily: "Inter_600SemiBold" }} showSelectedCheck={false} selected={score === item.value} onPress={() => setScore(item.value)} style={[styles.filterChip, score === item.value && styles.filterActive]}>
-            {item.label}
-          </Chip>
-        ))}
-      </View>
-      <View style={styles.filterActionsRow}>
-        <Button
-          mode={activeFilterCount ? "contained" : "outlined"} icon="tune-variant" compact
-          onPress={openFiltersSheet} style={styles.filtersButton}
+      <View style={styles.searchRow}>
+        <Searchbar
+          icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 14, minHeight: 48 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
+          placeholder="Search Name/Number/Keywords…" placeholderTextColor={colors.textMuted} onClearIconPress={() => updateSearch("")}
+        />
+        <Pressable
+          style={[styles.filterButton, activeFilterCount && styles.filterButtonActive]} onPress={openFiltersSheet}
+          accessibilityLabel={activeFilterCount ? `Filters (${activeFilterCount} active)` : "Filters"}
         >
-          {activeFilterCount ? `Filters (${activeFilterCount})` : "Filters"}
-        </Button>
-        <IconButton icon="cog-outline" size={20} onPress={() => setSettingsSheetOpen(true)} style={styles.settingsButton} />
+          <Ionicons name="options-outline" size={20} color={activeFilterCount ? "#fff" : colors.textSecondary} />
+        </Pressable>
       </View>
       {activeFilterCount > 0 ? (
         <View style={styles.activeChipsRow}>
+          {score ? <Chip compact onClose={() => setScore("")} style={styles.activeChip}>Score: {FILTERS.find((f) => f.value === score)?.label || score}</Chip> : null}
           {filterStage ? <Chip compact onClose={() => setFilterStage("")} style={styles.activeChip}>Stage: {filterStage}</Chip> : null}
           {filterSource ? <Chip compact onClose={() => setFilterSource("")} style={styles.activeChip}>Source: {SOURCES.find((s) => s.value === filterSource)?.label || filterSource}</Chip> : null}
           {filterAssignedTo ? (
@@ -420,7 +458,7 @@ export default function LeadsScreen() {
         <FAB icon="plus" style={[styles.fab, { bottom: insets.bottom + 86 }]} onPress={goToNewLead} color={colors.surface} />
       )}
 
-      <Modal visible={reassignOpen} transparent animationType="fade" onRequestClose={() => !bulkBusy && setReassignOpen(false)}>
+      <Modal visible={reassignOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !bulkBusy && setReassignOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !bulkBusy && setReassignOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -448,7 +486,7 @@ export default function LeadsScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={stageSheetOpen} transparent animationType="fade" onRequestClose={() => !bulkBusy && setStageSheetOpen(false)}>
+      <Modal visible={stageSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !bulkBusy && setStageSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !bulkBusy && setStageSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -474,7 +512,7 @@ export default function LeadsScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={callSheetOpen} transparent animationType="fade" onRequestClose={() => setCallSheetOpen(false)}>
+      <Modal visible={callSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setCallSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setCallSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -495,27 +533,35 @@ export default function LeadsScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={filtersSheetOpen} transparent animationType="fade" onRequestClose={() => setFiltersSheetOpen(false)}>
+      <Modal visible={filtersSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setFiltersSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setFiltersSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Filters</Text>
-            <ScrollView style={styles.filterScroll} showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.filterScroll} showsVerticalScrollIndicator={false} nestedScrollEnabled>
+              <Text style={styles.filterSectionLabel}>Score</Text>
+              <FilterDropdown
+                value={score} options={FILTERS}
+                open={openFilterDropdown === "score"}
+                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "score" ? null : "score")}
+                onSelect={(value) => { setScore(value); setOpenFilterDropdown(null); }}
+              />
+
               <Text style={styles.filterSectionLabel}>Stage</Text>
-              <View style={styles.chipRow}>
-                <Chip selected={!filterStage} mode={!filterStage ? "flat" : "outlined"} onPress={() => setFilterStage("")}>All stages</Chip>
-                {stages.map((item) => (
-                  <Chip key={item.id || item.name} selected={filterStage === item.name} mode={filterStage === item.name ? "flat" : "outlined"} onPress={() => setFilterStage(item.name)}>{item.name}</Chip>
-                ))}
-              </View>
+              <FilterDropdown
+                value={filterStage} options={[{ value: "", label: "All stages" }, ...stages.map((item) => ({ value: item.name, label: item.name }))]}
+                open={openFilterDropdown === "stage"}
+                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "stage" ? null : "stage")}
+                onSelect={(value) => { setFilterStage(value); setOpenFilterDropdown(null); }}
+              />
 
               <Text style={styles.filterSectionLabel}>Source</Text>
-              <View style={styles.chipRow}>
-                <Chip selected={!filterSource} mode={!filterSource ? "flat" : "outlined"} onPress={() => setFilterSource("")}>All sources</Chip>
-                {SOURCES.map((item) => (
-                  <Chip key={item.value} selected={filterSource === item.value} mode={filterSource === item.value ? "flat" : "outlined"} onPress={() => setFilterSource(item.value)}>{item.label}</Chip>
-                ))}
-              </View>
+              <FilterDropdown
+                value={filterSource} options={[{ value: "", label: "All sources" }, ...SOURCES]}
+                open={openFilterDropdown === "source"}
+                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "source" ? null : "source")}
+                onSelect={(value) => { setFilterSource(value); setOpenFilterDropdown(null); }}
+              />
 
               <Text style={styles.filterSectionLabel}>Assigned To</Text>
               {staffLoading ? (
@@ -523,13 +569,16 @@ export default function LeadsScreen() {
               ) : staffError ? (
                 <Text style={styles.sheetErrorText}>{staffError}</Text>
               ) : (
-                <View style={styles.optionsList}>
-                  <List.Item title="All staff" onPress={() => setFilterAssignedTo("")} right={(props) => !filterAssignedTo ? <List.Icon {...props} icon="check" color={colors.primary} /> : null} />
-                  <List.Item title="Unassigned" onPress={() => setFilterAssignedTo("unassigned")} right={(props) => filterAssignedTo === "unassigned" ? <List.Icon {...props} icon="check" color={colors.primary} /> : null} />
-                  {staff.map((member) => (
-                    <List.Item key={member.id} title={member.name} onPress={() => setFilterAssignedTo(member.id)} right={(props) => filterAssignedTo === member.id ? <List.Icon {...props} icon="check" color={colors.primary} /> : null} />
-                  ))}
-                </View>
+                <FilterDropdown
+                  value={filterAssignedTo}
+                  options={[
+                    { value: "", label: "All staff" }, { value: "unassigned", label: "Unassigned" },
+                    ...staff.map((member) => ({ value: member.id, label: member.name })),
+                  ]}
+                  open={openFilterDropdown === "assigned"}
+                  onToggle={() => setOpenFilterDropdown(openFilterDropdown === "assigned" ? null : "assigned")}
+                  onSelect={(value) => { setFilterAssignedTo(value); setOpenFilterDropdown(null); }}
+                />
               )}
             </ScrollView>
             <View style={styles.filterSheetActions}>
@@ -540,7 +589,7 @@ export default function LeadsScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={settingsSheetOpen} transparent animationType="fade" onRequestClose={() => setSettingsSheetOpen(false)}>
+      <Modal visible={settingsSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setSettingsSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setSettingsSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -575,22 +624,34 @@ export default function LeadsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   loadingWrap: { flex: 1, paddingHorizontal: 16 }, listContent: { paddingHorizontal: 16 },
-  titleRow: { paddingTop: 12, marginBottom: 16 },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 12, marginBottom: 16 },
+  titleRowMain: { flexDirection: "row", alignItems: "center" },
+  backButton: { margin: 0, marginRight: 4 },
   title: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" }, count: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   selectHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16, height: 40 },
   selectCount: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  searchBox: { ...glass, marginBottom: 4 },
-  filtersRow: { flexDirection: "row", gap: 8, paddingTop: 13, paddingBottom: 6, flexWrap: "wrap" },
-  filterChip: { ...glass, borderRadius: 12 }, filterActive: { backgroundColor: colors.primary },
-  filterActionsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
-  filtersButton: {}, settingsButton: { margin: 0 },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
+  searchBox: { ...glass, flex: 1 },
+  filterButton: { ...glass, width: 48, height: 48, alignItems: "center", justifyContent: "center" },
+  filterButtonActive: { backgroundColor: colors.primary },
+  settingsButton: { margin: 0 },
   activeChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
   activeChip: {},
   filterScroll: { maxHeight: "70%" },
   sheetScroll: { maxHeight: "55%" },
   filterSectionLabel: { color: colors.text, fontSize: 12, fontWeight: "700", marginTop: 14, marginBottom: 8 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   filterStaffLoader: { marginVertical: 12 },
+  filterDropdownField: { height: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  filterDropdownFieldActive: { borderColor: colors.primary, borderWidth: 2 },
+  filterDropdownFieldText: { color: colors.text, fontSize: 14, fontWeight: "600" },
+  filterDropdownPanel: {
+    marginTop: 6, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft,
+    paddingVertical: 4, maxHeight: 220,
+  },
+  filterDropdownItem: { paddingHorizontal: 16, paddingVertical: 12 },
+  filterDropdownItemSelected: { backgroundColor: colors.primarySoft },
+  filterDropdownItemText: { color: colors.primary, fontSize: 14, fontWeight: "500" },
+  filterDropdownItemTextSelected: { color: colors.text, fontWeight: "700" },
   filterSheetActions: { flexDirection: "row", gap: 10, marginTop: 14 },
   filterSheetButton: { flex: 1 },
   sectionHeader: { color: colors.textMuted, fontSize: 12, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 1.2, paddingVertical: 8, paddingHorizontal: 4, marginTop: 8, marginBottom: 4 },

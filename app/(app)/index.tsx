@@ -289,7 +289,7 @@ export default function DashboardScreen() {
         ) : null}
       </ScrollView>
 
-      <Modal visible={periodPickerOpen} transparent animationType="fade" onRequestClose={() => setPeriodPickerOpen(false)}>
+      <Modal visible={periodPickerOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setPeriodPickerOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setPeriodPickerOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />

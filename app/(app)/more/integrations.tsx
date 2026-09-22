@@ -243,7 +243,7 @@ export default function IntegrationsScreen() {
         </ScrollView>
       ) : null}
 
-      <Modal visible={pagePickerOpen} transparent animationType="fade" onRequestClose={() => setPagePickerOpen(false)}>
+      <Modal visible={pagePickerOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setPagePickerOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setPagePickerOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -262,7 +262,7 @@ export default function IntegrationsScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={waSheetOpen} transparent animationType="fade" onRequestClose={() => !waSaving && setWaSheetOpen(false)}>
+      <Modal visible={waSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !waSaving && setWaSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !waSaving && setWaSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />

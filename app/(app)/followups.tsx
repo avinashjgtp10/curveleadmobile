@@ -5,10 +5,10 @@ import {
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
-import { router } from "expo-router";
+import { router, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "@/theme";
+import { colors, tabBarStyleFor } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { useStages } from "@/hooks/useStages";
 import {
@@ -79,6 +79,7 @@ function FollowupRow({ item, completing, onComplete, onPress, colorFor, findStag
 
 export default function FollowupsScreen() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const { colorFor, findStage } = useStages();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<ScrollView>(null);
@@ -93,6 +94,12 @@ export default function FollowupsScreen() {
   const [expanded, setExpanded] = useState(true);
 
   const [addOpen, setAddOpen] = useState(false);
+
+  useEffect(() => {
+    navigation.setOptions({ tabBarStyle: addOpen ? { display: "none" } : tabBarStyleFor(insets.bottom) });
+    return () => { navigation.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
+  }, [addOpen, navigation, insets.bottom]);
+
   const [leadQuery, setLeadQuery] = useState("");
   const [leadResults, setLeadResults] = useState<LeadListItem[]>([]);
   const [searchingLeads, setSearchingLeads] = useState(false);
@@ -197,6 +204,7 @@ export default function FollowupsScreen() {
     <View style={styles.screen}>
       <GlassBackground />
       <Appbar.Header style={styles.header} elevated={false}>
+        {router.canGoBack() ? <Appbar.BackAction onPress={() => router.back()} /> : null}
         <Appbar.Content title="Follow-ups" titleStyle={styles.headerTitle} />
         <Appbar.Action icon="plus" color={colors.primary} onPress={openAdd} />
       </Appbar.Header>
@@ -231,7 +239,7 @@ export default function FollowupsScreen() {
 
       {expanded ? (
         <ScrollView
-          contentContainerStyle={{ paddingBottom: insets.bottom + 100, flexGrow: 1 }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 100, flexGrow: followups.length ? 0 : 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(selectedDate, true)} tintColor={colors.primary} colors={[colors.primary]} />}
           showsVerticalScrollIndicator={false}
         >
@@ -260,7 +268,7 @@ export default function FollowupsScreen() {
         </ScrollView>
       ) : null}
 
-      <Modal visible={addOpen} transparent animationType="fade" onRequestClose={() => !saving && setAddOpen(false)}>
+      <Modal visible={addOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !saving && setAddOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !saving && setAddOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
