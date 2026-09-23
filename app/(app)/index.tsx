@@ -14,6 +14,7 @@ import { colors } from "@/theme";
 import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboard";
 import { fetchTodayFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads } from "@/api/integrations";
+import { fetchNotifications } from "@/api/notifications";
 
 const LAST_SYNC_KEY = "meta_leads_last_sync";
 const META_SYNC_THROTTLE_MS = 2 * 60 * 1000;
@@ -81,6 +82,7 @@ export default function DashboardScreen() {
   const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [followups, setFollowups] = useState<TodayFollowup[]>([]);
+  const [notificationCount, setNotificationCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -99,6 +101,9 @@ export default function DashboardScreen() {
       ]);
       setData(summary);
       setFollowups(todayFollowups);
+      fetchNotifications()
+        .then((latestNotifications) => setNotificationCount(latestNotifications.filter((item) => !item.read_at).length))
+        .catch(() => setNotificationCount(todayFollowups.length));
     } catch (loadError) {
       setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string"
         ? loadError.response.data.error : "Could not load your dashboard.");
@@ -106,6 +111,16 @@ export default function DashboardScreen() {
   }, [period]);
 
   useEffect(() => { load(); }, [load]);
+
+  useFocusEffect(useCallback(() => {
+    let cancelled = false;
+    fetchNotifications()
+      .then((latestNotifications) => {
+        if (!cancelled) setNotificationCount(latestNotifications.filter((item) => !item.read_at).length);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []));
 
   useEffect(() => {
     AsyncStorage.getItem(LAST_SYNC_KEY).then((value) => {
@@ -155,7 +170,12 @@ export default function DashboardScreen() {
       <GlassBackground />
       <Appbar.Header style={styles.header} elevated={false}>
         <View style={{ flex: 1 }}><View><Text style={{ fontSize: 12, color: colors.primary, letterSpacing: 1.2, fontFamily: "Inter_500Medium" }}>WELCOME BACK</Text><Text style={styles.headerTitle}>Dashboard Overview</Text></View></View>
-        <Appbar.Action icon={() => <IconBell />} style={{ ...glass, borderRadius: 12 }} color={colors.text} onPress={() => router.push("/(app)/notifications")} />
+        <Pressable style={styles.notificationButton} onPress={() => router.push("/(app)/notifications")}>
+          <IconBell />
+          {notificationCount ? (
+            <Text style={styles.notificationBadge}>{notificationCount > 99 ? "99+" : notificationCount}</Text>
+          ) : null}
+        </Pressable>
       </Appbar.Header>
 
       <View style={styles.periodSyncRow}>
@@ -292,6 +312,7 @@ export default function DashboardScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
     </View>
   );
 }
@@ -300,6 +321,31 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   header: { height: 80, paddingHorizontal: 12, backgroundColor: "transparent" },
   headerTitle: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" },
+  notificationButton: {
+    ...glass,
+    width: 64,
+    height: 64,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  notificationBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    minWidth: 22,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    overflow: "hidden",
+    backgroundColor: colors.danger,
+    color: "#fff",
+    fontSize: 10,
+    lineHeight: 18,
+    textAlign: "center",
+    fontFamily: "Inter_700Bold",
+  },
   periodSyncRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginHorizontal: 16, marginBottom: 16 },
   periodRow: { ...glass, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
   periodText: { color: "#334155", fontSize: 14, fontFamily: "Inter_600SemiBold" },
