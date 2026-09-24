@@ -3,11 +3,11 @@ import {
   Alert, KeyboardAvoidingView, Modal, Platform, Pressable,
   ScrollView, StyleSheet, TextInput as RNTextInput, View,
 } from "react-native";
-import { Appbar, Button, Chip, HelperText, IconButton, List, Text, TextInput } from "react-native-paper";
+import { Appbar, Button, HelperText, IconButton, List, Text } from "react-native-paper";
 import axios from "axios";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "@/theme";
+import { colors, tabBarStyleFor } from "@/theme";
 import { usePermission } from "@/hooks/usePermission";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { createLead, createLeadFollowup } from "@/api/leads";
@@ -55,11 +55,40 @@ const INITIAL_FORM: FormState = {
   address: "", source: "manual", notes: "",
 };
 
+function LabeledInput({ label, required, value, onChangeText, placeholder, error, helperText, multiline, numberOfLines, ...inputProps }: {
+  label: string; required?: boolean; value: string; onChangeText: (value: string) => void; placeholder?: string;
+  error?: boolean; helperText?: string; multiline?: boolean; numberOfLines?: number;
+} & Omit<React.ComponentProps<typeof RNTextInput>, "value" | "onChangeText" | "placeholder" | "multiline" | "numberOfLines" | "style">) {
+  return (
+    <>
+      <Text style={styles.label}>{label}{required ? <Text style={styles.required}> *</Text> : null}</Text>
+      <View style={[styles.inputBox, multiline && styles.inputBoxMultiline, error && styles.inputError]}>
+        <RNTextInput
+          style={[styles.inputBoxText, multiline && styles.inputBoxTextMultiline]}
+          value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.textMuted}
+          multiline={multiline} numberOfLines={numberOfLines} textAlignVertical={multiline ? "top" : "center"}
+          {...inputProps}
+        />
+      </View>
+      {helperText ? <HelperText type="error" visible={!!error}>{helperText}</HelperText> : null}
+    </>
+  );
+}
+
 export default function NewLeadScreen() {
   const { returnTo } = useLocalSearchParams<{ returnTo?: "dashboard" | "leads" }>();
   const { isAdmin } = usePermission();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const phoneRef = useRef<RNTextInput>(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const parent = navigation.getParent();
+      parent?.setOptions({ tabBarStyle: { display: "none" } });
+      return () => parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) });
+    }, [navigation, insets.bottom])
+  );
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [saving, setSaving] = useState(false);
   const [country, setCountry] = useState<(typeof COUNTRIES)[number]>(COUNTRIES[0]);
@@ -69,8 +98,10 @@ export default function NewLeadScreen() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [assignedTo, setAssignedTo] = useState<StaffMember | null>(null);
   const [assignPickerOpen, setAssignPickerOpen] = useState(false);
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string; email?: string }>({});
+  const selectedSource = SOURCES.find((item) => item.value === form.source);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -87,16 +118,29 @@ export default function NewLeadScreen() {
     setError("");
   }
 
+  function errorFor(field: "name" | "phone" | "email"): string | undefined {
+    if (field === "name") return !form.name.trim() ? "Enter the lead's name" : undefined;
+    if (field === "phone") {
+      const localDigits = form.phone.replace(/\D/g, "").replace(/^0+/, "");
+      const internationalDigits = `${country.dial}${localDigits}`.replace(/\D/g, "");
+      if (!localDigits) return "Enter a phone number";
+      if (internationalDigits.length < 7) return "Enter a valid phone number";
+      return undefined;
+    }
+    if (field === "email") {
+      return form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim()) ? "Enter a valid email address" : undefined;
+    }
+    return undefined;
+  }
+
+  function validateField(field: "name" | "phone" | "email") {
+    setFieldErrors((current) => ({ ...current, [field]: errorFor(field) }));
+  }
+
   function validate() {
-    const next: typeof fieldErrors = {};
-    if (!form.name.trim()) next.name = "Enter the lead's name";
-    const localDigits = form.phone.replace(/\D/g, "").replace(/^0+/, "");
-    const internationalDigits = `${country.dial}${localDigits}`.replace(/\D/g, "");
-    if (!localDigits) next.phone = "Enter a phone number";
-    else if (internationalDigits.length < 7) next.phone = "Enter a valid phone number";
-    if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) next.email = "Enter a valid email address";
+    const next: typeof fieldErrors = { name: errorFor("name"), phone: errorFor("phone"), email: errorFor("email") };
     setFieldErrors(next);
-    return Object.keys(next).length === 0;
+    return !next.name && !next.phone && !next.email;
   }
 
   async function handleSave() {
@@ -162,15 +206,14 @@ export default function NewLeadScreen() {
       >
         {error ? <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{error}</Text></View> : null}
 
-        <TextInput
-          mode="outlined" label="Name *" value={form.name} onChangeText={(value) => update("name", value)}
+        <LabeledInput
+          label="Name" required value={form.name} onChangeText={(value) => update("name", value)}
           placeholder="John Doe" autoCapitalize="words" autoComplete="name" returnKeyType="next"
-          onSubmitEditing={() => phoneRef.current?.focus()} disabled={saving}
-          error={!!fieldErrors.name} style={styles.field}
+          onSubmitEditing={() => phoneRef.current?.focus()} onBlur={() => validateField("name")} editable={!saving}
+          error={!!fieldErrors.name} helperText={fieldErrors.name}
         />
-        <HelperText type="error" visible={!!fieldErrors.name}>{fieldErrors.name}</HelperText>
 
-        <Text style={styles.label}>Mobile Number *</Text>
+        <Text style={styles.label}>Mobile Number <Text style={styles.required}>*</Text></Text>
         <View style={[styles.phoneField, fieldErrors.phone && styles.inputError]}>
           <Pressable style={styles.countryButton} onPress={() => setCountryPickerOpen(true)} disabled={saving}>
             <Text style={styles.countryFlag}>{country.flag}</Text>
@@ -182,52 +225,90 @@ export default function NewLeadScreen() {
             ref={phoneRef} style={styles.phoneInput} value={form.phone}
             onChangeText={(value) => update("phone", value.replace(/[^\d\s()-]/g, ""))} placeholder="88888 88888"
             placeholderTextColor={colors.textMuted} keyboardType="phone-pad" autoComplete="tel"
-            returnKeyType="done" editable={!saving}
+            returnKeyType="done" onBlur={() => validateField("phone")} editable={!saving}
           />
         </View>
         <HelperText type="error" visible={!!fieldErrors.phone}>{fieldErrors.phone}</HelperText>
 
-        <TextInput
-          mode="outlined" label="Email Address" value={form.email} onChangeText={(value) => update("email", value)}
+        <LabeledInput
+          label="Email Address" value={form.email} onChangeText={(value) => update("email", value)}
           placeholder="email@gmail.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
-          autoComplete="email" disabled={saving} error={!!fieldErrors.email} style={styles.field}
-        />
-        <HelperText type="error" visible={!!fieldErrors.email}>{fieldErrors.email}</HelperText>
-
-        <Text style={styles.label}>Lead Source *</Text>
-        <View style={styles.chipRow}>
-          {SOURCES.map((item) => (
-            <Chip
-              key={item.value} selected={form.source === item.value} onPress={() => update("source", item.value)}
-              mode={form.source === item.value ? "flat" : "outlined"} style={styles.chip}
-            >
-              {item.label}
-            </Chip>
-          ))}
-        </View>
-
-        <TextInput
-          mode="outlined" label="Business Name" value={form.business_name} onChangeText={(value) => update("business_name", value)}
-          placeholder="Company or organisation" autoCapitalize="words" disabled={saving} style={styles.field}
+          autoComplete="email" onBlur={() => validateField("email")} editable={!saving} error={!!fieldErrors.email} helperText={fieldErrors.email}
         />
 
-        <TextInput
-          mode="outlined" label="City" value={form.location} onChangeText={(value) => update("location", value)}
-          placeholder="Lead location" autoCapitalize="words" disabled={saving} style={styles.field}
+        <Text style={styles.label}>Lead Source <Text style={styles.required}>*</Text></Text>
+        <Pressable
+          style={[styles.assignField, sourcePickerOpen && styles.dropdownFieldActive]}
+          onPress={() => setSourcePickerOpen((value) => !value)} disabled={saving}
+        >
+          <Text style={styles.assignFieldText}>{selectedSource?.label || "Select a source"}</Text>
+          <IconButton icon={sourcePickerOpen ? "chevron-up" : "chevron-down"} size={16} style={styles.countryChevron} />
+        </Pressable>
+        {sourcePickerOpen ? (
+          <View style={styles.dropdownPanel}>
+            {SOURCES.map((item) => {
+              const selected = form.source === item.value;
+              return (
+                <Pressable
+                  key={item.value}
+                  style={[styles.dropdownItem, selected && styles.dropdownItemSelected]}
+                  onPress={() => { update("source", item.value); setSourcePickerOpen(false); }}
+                >
+                  <Text style={[styles.dropdownItemText, selected && styles.dropdownItemTextSelected]}>{item.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+
+        <LabeledInput
+          label="Business Name" value={form.business_name} onChangeText={(value) => update("business_name", value)}
+          placeholder="Company or organisation" autoCapitalize="words" editable={!saving}
         />
 
-        <TextInput
-          mode="outlined" label="Address" value={form.address} onChangeText={(value) => update("address", value)}
-          placeholder="Street address (optional)" multiline numberOfLines={3} disabled={saving} style={styles.field}
+        <LabeledInput
+          label="City" value={form.location} onChangeText={(value) => update("location", value)}
+          placeholder="Lead location" autoCapitalize="words" editable={!saving}
+        />
+
+        <LabeledInput
+          label="Address" value={form.address} onChangeText={(value) => update("address", value)}
+          placeholder="Street address (optional)" multiline numberOfLines={3} editable={!saving}
         />
 
         {isAdmin ? (
           <>
             <Text style={styles.label}>Assign To</Text>
-            <Pressable style={styles.assignField} onPress={() => setAssignPickerOpen(true)} disabled={saving}>
+            <Pressable
+              style={[styles.assignField, assignPickerOpen && styles.dropdownFieldActive]}
+              onPress={() => setAssignPickerOpen((value) => !value)} disabled={saving}
+            >
               <Text style={assignedTo ? styles.assignFieldText : styles.assignFieldPlaceholder}>{assignedTo ? assignedTo.name : "Assign to yourself (default)"}</Text>
-              <IconButton icon="chevron-down" size={16} style={styles.countryChevron} />
+              <IconButton icon={assignPickerOpen ? "chevron-up" : "chevron-down"} size={16} style={styles.countryChevron} />
             </Pressable>
+            {assignPickerOpen ? (
+              <View style={styles.dropdownPanel}>
+                <Pressable
+                  style={[styles.dropdownItem, !assignedTo && styles.dropdownItemSelected]}
+                  onPress={() => { setAssignedTo(null); setAssignPickerOpen(false); }}
+                >
+                  <Text style={[styles.dropdownItemText, !assignedTo && styles.dropdownItemTextSelected]}>Yourself (default)</Text>
+                </Pressable>
+                {staff.map((member) => {
+                  const selected = assignedTo?.id === member.id;
+                  return (
+                    <Pressable
+                      key={member.id}
+                      style={[styles.dropdownItem, selected && styles.dropdownItemSelected]}
+                      onPress={() => { setAssignedTo(member); setAssignPickerOpen(false); }}
+                    >
+                      <Text style={[styles.dropdownItemText, selected && styles.dropdownItemTextSelected]}>{member.name}</Text>
+                      <Text style={styles.dropdownItemSubtext}>{member.role}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
           </>
         ) : null}
 
@@ -245,9 +326,9 @@ export default function NewLeadScreen() {
           </View>
         ) : null}
 
-        <TextInput
-          mode="outlined" label="Notes" value={form.notes} onChangeText={(value) => update("notes", value)}
-          placeholder="Add context for your team…" multiline numberOfLines={4} disabled={saving} style={styles.field}
+        <LabeledInput
+          label="Notes" value={form.notes} onChangeText={(value) => update("notes", value)}
+          placeholder="Add context for your team…" multiline numberOfLines={4} editable={!saving}
         />
       </ScrollView>
 
@@ -256,7 +337,7 @@ export default function NewLeadScreen() {
         <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} style={styles.saveButton} contentStyle={styles.bottomButtonContent}>Create lead</Button>
       </View>
 
-      <Modal visible={countryPickerOpen} transparent animationType="slide" onRequestClose={() => setCountryPickerOpen(false)}>
+      <Modal visible={countryPickerOpen} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setCountryPickerOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setCountryPickerOpen(false)}>
           <Pressable style={[styles.countrySheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -279,33 +360,6 @@ export default function NewLeadScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={assignPickerOpen} transparent animationType="slide" onRequestClose={() => setAssignPickerOpen(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setAssignPickerOpen(false)}>
-          <Pressable style={[styles.countrySheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Assign to</Text>
-              <IconButton icon="close" size={18} onPress={() => setAssignPickerOpen(false)} />
-            </View>
-            <ScrollView style={styles.countryList} showsVerticalScrollIndicator={false}>
-              <List.Item
-                title="Yourself (default)"
-                onPress={() => { setAssignedTo(null); setAssignPickerOpen(false); }}
-                right={!assignedTo ? (props) => <List.Icon {...props} icon="check" color={colors.primary} /> : undefined}
-              />
-              {staff.map((member) => (
-                <List.Item
-                  key={member.id}
-                  title={member.name}
-                  description={member.role}
-                  onPress={() => { setAssignedTo(member); setAssignPickerOpen(false); }}
-                  right={assignedTo?.id === member.id ? (props) => <List.Icon {...props} icon="check" color={colors.primary} /> : undefined}
-                />
-              ))}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -316,14 +370,27 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 16, fontWeight: "700" },
   content: { paddingHorizontal: 20, paddingTop: 18 },
   errorBanner: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 12, marginBottom: 12 }, errorBannerText: { color: colors.danger, fontSize: 12, fontWeight: "600", lineHeight: 18 },
-  field: { marginBottom: 2 },
   label: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 7, marginTop: 16 },
+  required: { color: colors.danger },
   inputError: { borderColor: colors.danger },
+  inputBox: { minHeight: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, justifyContent: "center" },
+  inputBoxMultiline: { paddingVertical: 12, minHeight: 84 },
+  inputBoxText: { color: colors.text, fontSize: 14 },
+  inputBoxTextMultiline: { minHeight: 60 },
   phoneField: { height: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: "row", alignItems: "center" }, countryButton: { height: "100%", flexDirection: "row", alignItems: "center", gap: 0, paddingLeft: 12, paddingRight: 2 }, countryFlag: { fontSize: 17 }, countryDial: { color: colors.text, fontSize: 13, fontWeight: "700", marginLeft: 5 }, countryChevron: { margin: 0 }, phoneDivider: { width: 1, height: 24, backgroundColor: colors.borderSoft }, phoneInput: { flex: 1, height: "100%", paddingHorizontal: 12, color: colors.text, fontSize: 14 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, chip: { marginBottom: 0 },
   assignField: { height: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   assignFieldText: { color: colors.text, fontSize: 14, fontWeight: "600" },
   assignFieldPlaceholder: { color: colors.textMuted, fontSize: 14 },
+  dropdownFieldActive: { borderColor: colors.primary, borderWidth: 2 },
+  dropdownPanel: {
+    marginTop: 6, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft,
+    paddingVertical: 4, elevation: 4, shadowColor: "#0F172A", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 6 },
+  },
+  dropdownItem: { paddingHorizontal: 16, paddingVertical: 12 },
+  dropdownItemSelected: { backgroundColor: colors.primarySoft },
+  dropdownItemText: { color: colors.primary, fontSize: 14, fontWeight: "500" },
+  dropdownItemTextSelected: { color: colors.text, fontWeight: "700" },
+  dropdownItemSubtext: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   followupToggle: { marginTop: 8, paddingHorizontal: 0 }, followupToggleText: { color: colors.text, fontSize: 13, fontWeight: "700" },
   followupPicker: { marginTop: 4, marginBottom: 8 },
   bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 12, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSoft }, cancelButton: { width: 110 }, saveButton: { flex: 1 }, bottomButtonContent: { height: 46 },

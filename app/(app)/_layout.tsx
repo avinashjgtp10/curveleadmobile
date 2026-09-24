@@ -1,12 +1,12 @@
-import { BlurView, BlurTargetView } from "expo-blur";
+import { BlurTargetView } from "expo-blur";
 import { IconHome, IconUsers, IconCheck, IconBook, IconGrid } from "@/components/ReferenceIcons";
 import React from "react";
 import { Redirect, router, Tabs } from "expo-router";
 // @ts-ignore - AuthContext is a TSX module and this app-level config does not enable JSX for the import check
 import { useAuth } from "@/contexts/AuthContext";
-import { Platform, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors } from "@/theme";
+import { colors, tabBarStyleFor } from "@/theme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const NAV_ITEMS = {
@@ -39,15 +39,14 @@ export default function AppLayout() {
     Tabs,
     {
       screenLayout: ({ children, route }) => React.createElement(BlurTargetView, { ref: targetFor(route.key), style: { flex: 1 } }, children),
-      screenOptions: ({ route }) => ({
+      screenOptions: () => ({
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarHideOnKeyboard: true,
         tabBarLabelStyle: styles.label,
         tabBarItemStyle: styles.item,
-        tabBarStyle: [styles.bar, { height: 64 + Math.max(insets.bottom, 8), paddingBottom: Math.max(insets.bottom, 8) }],
-        tabBarBackground: () => React.createElement(BlurView, { intensity: 60, tint: "light", blurTarget: targetFor(route.key), blurMethod: "dimezisBlurViewSdk31Plus", style: StyleSheet.absoluteFill }),
+        tabBarStyle: tabBarStyleFor(insets.bottom),
       }),
     },
     ...Object.entries(NAV_ITEMS).map(([name, item]) =>
@@ -77,21 +76,6 @@ export default function AppLayout() {
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    position: "absolute",
-    height: Platform.OS === "ios" ? 88 : 70,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === "ios" ? 22 : 8,
-    paddingHorizontal: 8,
-    backgroundColor: "rgba(255,255,255,0.7)",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.6)",
-    shadowColor: colors.text,
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 18,
-    elevation: 12,
-  },
   item: { borderRadius: 16 },
   label: { fontSize: 10, fontFamily: "Inter_600SemiBold", letterSpacing: 0.5, marginTop: 2 },
   icon: {

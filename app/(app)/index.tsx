@@ -14,6 +14,7 @@ import { colors } from "@/theme";
 import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboard";
 import { fetchTodayFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads } from "@/api/integrations";
+import { useStages } from "@/hooks/useStages";
 import { fetchNotifications } from "@/api/notifications";
 
 const LAST_SYNC_KEY = "meta_leads_last_sync";
@@ -78,6 +79,7 @@ function QuickTile({ icon, label, onPress }: { icon: IconName; label: string; on
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
+  const { colorFor } = useStages();
   const [period, setPeriod] = useState<DashboardPeriod>("last_7_days");
   const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
   const [data, setData] = useState<DashboardSummary | null>(null);
@@ -282,14 +284,22 @@ export default function DashboardScreen() {
                 <Button mode="text" compact onPress={() => router.push("/(app)/leads")}>See all</Button>
               </View>
               <View style={[styles.listCard, styles.recentListCard]}>
-                {data.recentLeads.slice(0, 4).map((lead) => (
-                  <List.Item
-                    key={lead.id} title={lead.name} description={pretty(lead.stage || lead.source)}
-                    onPress={() => router.push(`/(app)/leads/${lead.id}`)}
-                    left={() => <Avatar.Text size={38} label={(lead.name?.charAt(0) || "?").toUpperCase()} style={styles.avatar} labelStyle={styles.avatarText} />}
-                    right={(props) => <List.Icon {...props} icon="chevron-right" />}
-                  />
-                ))}
+                {data.recentLeads.slice(0, 4).map((lead) => {
+                  const stageColors = colorFor(lead.stage);
+                  return (
+                    <List.Item
+                      key={lead.id} title={lead.name}
+                      description={() => (
+                        <View style={[styles.recentStageChip, { backgroundColor: stageColors.bg }]}>
+                          <Text style={[styles.recentStageChipText, { color: stageColors.text }]}>{pretty(lead.stage || lead.source)}</Text>
+                        </View>
+                      )}
+                      onPress={() => router.push(`/(app)/leads/${lead.id}`)}
+                      left={() => <Avatar.Text size={38} label={(lead.name?.charAt(0) || "?").toUpperCase()} style={styles.avatar} labelStyle={styles.avatarText} />}
+                      right={(props) => <List.Icon {...props} icon="chevron-right" />}
+                    />
+                  );
+                })}
                 {!data.recentLeads.length ? <Text style={styles.empty}>No leads added yet.</Text> : null}
               </View>
             </View>
@@ -299,7 +309,7 @@ export default function DashboardScreen() {
         ) : null}
       </ScrollView>
 
-      <Modal visible={periodPickerOpen} transparent animationType="fade" onRequestClose={() => setPeriodPickerOpen(false)}>
+      <Modal visible={periodPickerOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setPeriodPickerOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setPeriodPickerOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -393,6 +403,8 @@ const styles = StyleSheet.create({
 
   avatar: { backgroundColor: colors.primary },
   avatarText: { fontWeight: "800" },
+  recentStageChip: { alignSelf: "flex-start", borderRadius: 4, paddingHorizontal: 8, paddingVertical: 2, marginTop: 2 },
+  recentStageChipText: { fontSize: 11, fontWeight: "700" },
   fallback: { color: colors.textMuted, fontSize: 10, textAlign: "center", marginTop: 18, paddingHorizontal: 30 },
 
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
