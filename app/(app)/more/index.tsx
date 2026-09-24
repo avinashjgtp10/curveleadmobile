@@ -19,7 +19,7 @@ interface MenuItem {
 }
 
 const MENU: MenuItem[] = [
-  { icon: "git-network-outline", label: "Pipeline", href: "/(app)/more/pipeline" },
+  { icon: "git-network-outline", label: "Lead Automation", href: "/(app)/more/lead-automation" },
   { icon: "megaphone-outline", label: "Campaigns", href: "/(app)/more/campaigns" },
   { icon: "sparkles-outline", label: "AI Tools", href: "/(app)/more/ai-tools" },
   { icon: "document-text-outline", label: "Quotations", href: "/(app)/more/quotations" },

@@ -12,6 +12,7 @@ import { usePermission } from "@/hooks/usePermission";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { createLead, createLeadFollowup } from "@/api/leads";
 import { fetchStaff, StaffMember } from "@/api/staff";
+import { notifyLeadCreated } from "@/api/notifications";
 
 const SOURCES = [
   { value: "manual", label: "Manual" },
@@ -163,6 +164,12 @@ export default function NewLeadScreen() {
           await createLeadFollowup(lead.id, { followup_type: "call", next_followup_at: followupAt.toISOString() });
         } catch { /* lead is already created; a missed follow-up isn't worth blocking navigation */ }
       }
+      notifyLeadCreated({
+        id: lead.id,
+        name: form.name.trim(),
+        phone: `${country.dial}${form.phone.replace(/\D/g, "").replace(/^0+/, "")}`,
+        source: form.source,
+      }).catch(() => {});
       router.replace(`/(app)/leads/${lead.id}`);
     } catch (saveError) {
       if (axios.isAxiosError(saveError)) {

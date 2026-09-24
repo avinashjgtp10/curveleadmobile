@@ -20,6 +20,7 @@ import {
 } from "@/api/leads";
 import { fetchStaff, StaffMember } from "@/api/staff";
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
+import { notifyLeadsDeleted } from "@/api/notifications";
 
 const PAGE_SIZE = 25;
 const FILTERS = [
@@ -344,7 +345,9 @@ export default function LeadsScreen() {
         { text: "Delete", style: "destructive", onPress: async () => {
           setBulkBusy(true);
           try {
+            const deletedLeads = leads.filter((lead) => selectedIds.has(lead.id)).map((lead) => ({ id: lead.id, name: lead.name }));
             await bulkDeleteLeads(Array.from(selectedIds));
+            notifyLeadsDeleted(deletedLeads).catch(() => {});
             exitSelectMode();
             load();
           } catch (deleteError) {
