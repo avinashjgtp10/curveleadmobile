@@ -384,7 +384,7 @@ export default function LeadsScreen() {
           placeholder="Search Name/Number/Keywords…" placeholderTextColor={colors.textMuted} onClearIconPress={() => updateSearch("")}
         />
         <Pressable
-          style={[styles.filterButton, activeFilterCount && styles.filterButtonActive]} onPress={openFiltersSheet}
+          style={[styles.filterButton, activeFilterCount > 0 && styles.filterButtonActive]} onPress={openFiltersSheet}
           accessibilityLabel={activeFilterCount ? `Filters (${activeFilterCount} active)` : "Filters"}
         >
           <Ionicons name="options-outline" size={20} color={activeFilterCount ? "#fff" : colors.textSecondary} />

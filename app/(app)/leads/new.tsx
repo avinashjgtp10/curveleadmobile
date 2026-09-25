@@ -8,6 +8,7 @@ import axios from "axios";
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
+import { GlassBackground } from "@/components/Glass";
 import { usePermission } from "@/hooks/usePermission";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { createLead, createLeadFollowup } from "@/api/leads";
@@ -194,6 +195,7 @@ export default function NewLeadScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <GlassBackground />
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={closeForm} />
         <Appbar.Content title="Add lead" titleStyle={styles.headerTitle} />
@@ -366,9 +368,9 @@ export default function NewLeadScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
-  content: { paddingHorizontal: 20, paddingTop: 18 },
+  header: { backgroundColor: "transparent" },
+  headerTitle: { fontSize: 15, fontWeight: "700" },
+  content: { paddingHorizontal: 16, paddingTop: 10 },
   errorBanner: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 12, marginBottom: 12 }, errorBannerText: { color: colors.danger, fontSize: 12, fontWeight: "600", lineHeight: 18 },
   label: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 7, marginTop: 16 },
   required: { color: colors.danger },
@@ -393,6 +395,6 @@ const styles = StyleSheet.create({
   dropdownItemSubtext: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   followupToggle: { marginTop: 8, paddingHorizontal: 0 }, followupToggleText: { color: colors.text, fontSize: 13, fontWeight: "700" },
   followupPicker: { marginTop: 4, marginBottom: 8 },
-  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 12, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSoft }, cancelButton: { width: 110 }, saveButton: { flex: 1 }, bottomButtonContent: { height: 46 },
+  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: "rgba(255,255,255,0.82)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.65)" }, cancelButton: { width: 104 }, saveButton: { flex: 1 }, bottomButtonContent: { height: 42 },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" }, countrySheet: { maxHeight: "74%", backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 9 }, sheetHandle: { width: 38, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginBottom: 13 }, sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: colors.borderSoft }, sheetTitle: { color: colors.text, fontSize: 17, fontWeight: "800" }, countryList: { paddingHorizontal: 8 },
 });

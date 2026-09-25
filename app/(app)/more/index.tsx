@@ -20,6 +20,8 @@ interface MenuItem {
 
 const MENU: MenuItem[] = [
   { icon: "git-network-outline", label: "Lead Automation", href: "/(app)/more/lead-automation" },
+  { icon: "sparkles-outline", label: "AI Agent", href: "/(app)/more/ai-tools" },
+  { icon: "albums-outline", label: "Content Library", href: "/(app)/content" },
   { icon: "megaphone-outline", label: "Campaigns", href: "/(app)/more/campaigns" },
   { icon: "sparkles-outline", label: "AI Tools", href: "/(app)/more/ai-tools" },
   { icon: "document-text-outline", label: "Quotations", href: "/(app)/more/quotations" },
@@ -30,6 +32,8 @@ const MENU: MenuItem[] = [
   { icon: "bar-chart-outline", label: "Reports", href: "/(app)/more/reports" },
   { icon: "card-outline", label: "Billing", href: "/(app)/more/billing", roles: ["admin", "super_admin"] },
   { icon: "settings-outline", label: "Settings", href: "/(app)/more/settings" },
+  { icon: "help-circle-outline", label: "Help & Support", href: "/(app)/more/help-support" },
+  { icon: "person-circle-outline", label: "Account", href: "/(app)/more/account" },
   { icon: "shield-checkmark-outline", label: "Super Admin", href: "/(app)/more/super-admin", roles: ["super_admin"] },
 ];
 
@@ -40,8 +44,8 @@ export default function MoreScreen() {
 
   const visibleItems = MENU.filter((item) => !item.roles || can(item.roles));
 
-  const referenceIcons = [Icons.SvgGitBranch, Icons.SvgMegaphone, Icons.SvgSparkles, Icons.SvgClipboard, Icons.SvgFolder, Icons.SvgMessageCircle, Icons.SvgTeam, Icons.SvgPlug, Icons.SvgBarChart, Icons.SvgCreditCard, Icons.SvgSettings];
-  const tones: GradientName[] = ["sky", "violet", "pink", "sky", "indigo", "teal", "indigo", "sky", "emerald", "sky", "slate"];
+  const referenceIcons = [Icons.SvgGitBranch, undefined, undefined, Icons.SvgMegaphone, Icons.SvgSparkles, Icons.SvgClipboard, Icons.SvgFolder, Icons.SvgMessageCircle, Icons.SvgTeam, Icons.SvgPlug, Icons.SvgBarChart, Icons.SvgCreditCard, Icons.SvgSettings, undefined, undefined, undefined];
+  const tones: GradientName[] = ["sky", "emerald", "indigo", "violet", "pink", "sky", "indigo", "teal", "indigo", "sky", "emerald", "sky", "slate", "amber", "emerald", "slate"];
   return (
     <View style={{ flex: 1 }}><GlassBackground />
     <ScrollView style={styles.container} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 105 }} showsVerticalScrollIndicator={false}>
@@ -57,7 +61,7 @@ export default function MoreScreen() {
         {visibleItems.map((item, index) => {
           const i = MENU.indexOf(item);
           const Icon = referenceIcons[i];
-          return <View key={item.href}>
+          return <View key={`${item.href}-${item.label}`}>
             <Pressable accessibilityRole="button" onPress={() => router.push(item.href as never)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: "rgba(224,242,254,0.6)" }]}>
               <GradientIcon tone={tones[i] || "slate"}>{Icon ? <Icon color="#fff" /> : <Ionicons name={item.icon} size={20} color="#fff" />}</GradientIcon>
               <Text style={[styles.rowLabel, { flex: 1 }]}>{item.label}</Text><Icons.IconChevronRight />

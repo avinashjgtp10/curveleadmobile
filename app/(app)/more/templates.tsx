@@ -301,7 +301,7 @@ const styles = StyleSheet.create({
   emptyTitle: { color: colors.text, fontSize: 15, fontWeight: "800", marginTop: 14 },
   emptyButton: { marginTop: 12 },
 
-  sheetBackdrop: { ...StyleSheet.absoluteFillObject, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
+  sheetBackdrop: { ...StyleSheet.absoluteFill, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
   sheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden" },
   sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 14 },

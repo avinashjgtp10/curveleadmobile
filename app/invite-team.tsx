@@ -115,7 +115,7 @@ function InviteSelect({ label, value, open, onPress, options, onSelect }: { labe
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
-  backdropTap: { ...StyleSheet.absoluteFillObject },
+  backdropTap: { ...StyleSheet.absoluteFill },
   sheet: { maxHeight: "88%", backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden" },
   header: { minHeight: 52, paddingHorizontal: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.borderSoft, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { color: colors.text, fontSize: 16, fontWeight: "800" },
