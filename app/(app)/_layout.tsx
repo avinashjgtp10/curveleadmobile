@@ -3,10 +3,10 @@ import React from "react";
 import { Redirect, router, Tabs } from "expo-router";
 // @ts-ignore - AuthContext is a TSX module and this app-level config does not enable JSX for the import check
 import { useAuth } from "@/contexts/AuthContext";
-import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { colors } from "@/theme";
+import { colors, tabBarStyleFor } from "@/theme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const NAV_ITEMS = {
@@ -57,7 +57,7 @@ export default function AppLayout() {
         tabBarHideOnKeyboard: true,
         tabBarLabelStyle: styles.label,
         tabBarItemStyle: styles.item,
-        tabBarStyle: [styles.bar, { height: 64 + Math.max(insets.bottom, 8), paddingBottom: Math.max(insets.bottom, 8) }],
+        tabBarStyle: tabBarStyleFor(insets.bottom),
       }),
     },
     ...(() => {
@@ -123,22 +123,6 @@ export default function AppLayout() {
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    position: "absolute",
-    height: Platform.OS === "ios" ? 88 : 70,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === "ios" ? 22 : 8,
-    paddingHorizontal: 8,
-    backgroundColor: "#fff",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(226,232,240,0.8)",
-    shadowColor: colors.text,
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 18,
-    elevation: 12,
-    zIndex: 10,
-  },
   item: { borderRadius: 16 },
   tabItemClip: { overflow: "hidden", borderRadius: 16 },
   aiItem: { overflow: "visible" },

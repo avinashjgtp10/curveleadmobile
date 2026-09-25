@@ -47,6 +47,7 @@ export default function RootLayout() {
         {splashComplete ? <Stack screenOptions={{ headerShown: false, statusBarStyle: "dark", statusBarHidden: false, contentStyle: { backgroundColor: colors.background } }}>
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(app)" />
+          <Stack.Screen name="invite-team" options={{ animation: "slide_from_bottom", presentation: "transparentModal", contentStyle: { backgroundColor: "transparent" } }} />
         </Stack> : <StartupSplash onComplete={finishSplash} />}
       </AuthProvider>
     </PaperProvider><StatusBarBackground backgroundColor={backgroundColor} /></View></ThemeProvider>

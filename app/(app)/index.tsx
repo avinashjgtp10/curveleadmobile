@@ -751,5 +751,4 @@ const styles = StyleSheet.create({
   insightCard: { ...glass, flex: 1, minHeight: 70, padding: 10, backgroundColor: "rgba(255,255,255,0.78)" },
   insightLabel: { color: colors.textSecondary, fontSize: 10, fontFamily: "Inter_700Bold" },
   insightValue: { color: colors.text, fontSize: 17, fontFamily: "DMSans_700Bold", marginTop: 8 },
-
 });
