@@ -8,6 +8,7 @@ import axios from "axios";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
+import { GlassBackground } from "@/components/Glass";
 import { usePermission } from "@/hooks/usePermission";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { createLead, createLeadFollowup } from "@/api/leads";
@@ -150,6 +151,7 @@ export default function NewLeadScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <GlassBackground />
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={closeForm} />
         <Appbar.Content title="Add lead" titleStyle={styles.headerTitle} />
@@ -166,7 +168,7 @@ export default function NewLeadScreen() {
           mode="outlined" label="Name *" value={form.name} onChangeText={(value) => update("name", value)}
           placeholder="John Doe" autoCapitalize="words" autoComplete="name" returnKeyType="next"
           onSubmitEditing={() => phoneRef.current?.focus()} disabled={saving}
-          error={!!fieldErrors.name} style={styles.field}
+          error={!!fieldErrors.name} dense style={styles.field}
         />
         <HelperText type="error" visible={!!fieldErrors.name}>{fieldErrors.name}</HelperText>
 
@@ -190,7 +192,7 @@ export default function NewLeadScreen() {
         <TextInput
           mode="outlined" label="Email Address" value={form.email} onChangeText={(value) => update("email", value)}
           placeholder="email@gmail.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
-          autoComplete="email" disabled={saving} error={!!fieldErrors.email} style={styles.field}
+          autoComplete="email" disabled={saving} error={!!fieldErrors.email} dense style={styles.field}
         />
         <HelperText type="error" visible={!!fieldErrors.email}>{fieldErrors.email}</HelperText>
 
@@ -208,17 +210,17 @@ export default function NewLeadScreen() {
 
         <TextInput
           mode="outlined" label="Business Name" value={form.business_name} onChangeText={(value) => update("business_name", value)}
-          placeholder="Company or organisation" autoCapitalize="words" disabled={saving} style={styles.field}
+          placeholder="Company or organisation" autoCapitalize="words" disabled={saving} dense style={styles.field}
         />
 
         <TextInput
           mode="outlined" label="City" value={form.location} onChangeText={(value) => update("location", value)}
-          placeholder="Lead location" autoCapitalize="words" disabled={saving} style={styles.field}
+          placeholder="Lead location" autoCapitalize="words" disabled={saving} dense style={styles.field}
         />
 
         <TextInput
           mode="outlined" label="Address" value={form.address} onChangeText={(value) => update("address", value)}
-          placeholder="Street address (optional)" multiline numberOfLines={3} disabled={saving} style={styles.field}
+          placeholder="Street address (optional)" multiline numberOfLines={3} disabled={saving} dense style={styles.field}
         />
 
         {isAdmin ? (
@@ -247,7 +249,7 @@ export default function NewLeadScreen() {
 
         <TextInput
           mode="outlined" label="Notes" value={form.notes} onChangeText={(value) => update("notes", value)}
-          placeholder="Add context for your team…" multiline numberOfLines={4} disabled={saving} style={styles.field}
+          placeholder="Add context for your team…" multiline numberOfLines={4} disabled={saving} dense style={styles.field}
         />
       </ScrollView>
 
@@ -312,20 +314,20 @@ export default function NewLeadScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
-  content: { paddingHorizontal: 20, paddingTop: 18 },
+  header: { backgroundColor: "transparent" },
+  headerTitle: { fontSize: 15, fontWeight: "700" },
+  content: { paddingHorizontal: 16, paddingTop: 10 },
   errorBanner: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 12, marginBottom: 12 }, errorBannerText: { color: colors.danger, fontSize: 12, fontWeight: "600", lineHeight: 18 },
-  field: { marginBottom: 2 },
-  label: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 7, marginTop: 16 },
+  field: { marginBottom: 0, backgroundColor: "rgba(255,255,255,0.78)" },
+  label: { color: colors.text, fontSize: 12, fontWeight: "700", marginBottom: 6, marginTop: 12 },
   inputError: { borderColor: colors.danger },
-  phoneField: { height: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: "row", alignItems: "center" }, countryButton: { height: "100%", flexDirection: "row", alignItems: "center", gap: 0, paddingLeft: 12, paddingRight: 2 }, countryFlag: { fontSize: 17 }, countryDial: { color: colors.text, fontSize: 13, fontWeight: "700", marginLeft: 5 }, countryChevron: { margin: 0 }, phoneDivider: { width: 1, height: 24, backgroundColor: colors.borderSoft }, phoneInput: { flex: 1, height: "100%", paddingHorizontal: 12, color: colors.text, fontSize: 14 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, chip: { marginBottom: 0 },
-  assignField: { height: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  assignFieldText: { color: colors.text, fontSize: 14, fontWeight: "600" },
-  assignFieldPlaceholder: { color: colors.textMuted, fontSize: 14 },
-  followupToggle: { marginTop: 8, paddingHorizontal: 0 }, followupToggleText: { color: colors.text, fontSize: 13, fontWeight: "700" },
+  phoneField: { height: 42, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: "rgba(255,255,255,0.78)", flexDirection: "row", alignItems: "center" }, countryButton: { height: "100%", flexDirection: "row", alignItems: "center", gap: 0, paddingLeft: 10, paddingRight: 0 }, countryFlag: { fontSize: 16 }, countryDial: { color: colors.text, fontSize: 12, fontWeight: "700", marginLeft: 5 }, countryChevron: { margin: 0 }, phoneDivider: { width: 1, height: 22, backgroundColor: colors.borderSoft }, phoneInput: { flex: 1, height: "100%", paddingHorizontal: 10, color: colors.text, fontSize: 13 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 7 }, chip: { marginBottom: 0, backgroundColor: "rgba(255,255,255,0.72)" },
+  assignField: { height: 42, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: "rgba(255,255,255,0.78)", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  assignFieldText: { color: colors.text, fontSize: 13, fontWeight: "600" },
+  assignFieldPlaceholder: { color: colors.textMuted, fontSize: 13 },
+  followupToggle: { marginTop: 6, paddingHorizontal: 0, paddingVertical: 0 }, followupToggleText: { color: colors.text, fontSize: 12, fontWeight: "700" },
   followupPicker: { marginTop: 4, marginBottom: 8 },
-  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 12, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSoft }, cancelButton: { width: 110 }, saveButton: { flex: 1 }, bottomButtonContent: { height: 46 },
+  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: "rgba(255,255,255,0.82)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.65)" }, cancelButton: { width: 104 }, saveButton: { flex: 1 }, bottomButtonContent: { height: 42 },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" }, countrySheet: { maxHeight: "74%", backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 9 }, sheetHandle: { width: 38, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginBottom: 13 }, sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: colors.borderSoft }, sheetTitle: { color: colors.text, fontSize: 17, fontWeight: "800" }, countryList: { paddingHorizontal: 8 },
 });

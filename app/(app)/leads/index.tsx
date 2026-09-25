@@ -151,7 +151,7 @@ export default function LeadsScreen() {
   const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
   const [hiddenStages, setHiddenStages] = useState<string[]>([]);
 
-  const activeFilterCount = [filterStage, filterSource, filterAssignedTo].filter(Boolean).length;
+  const activeFilterCount = [score, filterStage, filterSource, filterAssignedTo].filter(Boolean).length;
 
   const load = useCallback(async (nextPage = 1, append = false) => {
     const id = ++requestId.current;
@@ -203,7 +203,7 @@ export default function LeadsScreen() {
   }
 
   function clearFilters() {
-    setFilterStage(""); setFilterSource(""); setFilterAssignedTo("");
+    setScore(""); setFilterStage(""); setFilterSource(""); setFilterAssignedTo("");
   }
 
   const sections = useMemo(() => {
@@ -333,28 +333,24 @@ export default function LeadsScreen() {
           <Text style={styles.count}>{total.toLocaleString("en-IN")} total contacts</Text>
         </View>
       )}
-      <Searchbar
-        icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 14, minHeight: 48 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
-        placeholder="Search Name/Number/Keywords…" onClearIconPress={() => updateSearch("")}
-      />
-      <View style={styles.filtersRow}>
-        {FILTERS.map((item) => (
-          <Chip key={item.value || "all"} textStyle={{ color: score === item.value ? "#fff" : colors.textSecondary, fontFamily: "Inter_600SemiBold" }} showSelectedCheck={false} selected={score === item.value} onPress={() => setScore(item.value)} style={[styles.filterChip, score === item.value && styles.filterActive]}>
-            {item.label}
-          </Chip>
-        ))}
-      </View>
-      <View style={styles.filterActionsRow}>
+      <View style={styles.searchRow}>
+        <Searchbar
+          icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 14, minHeight: 48 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
+          placeholder="Search Name/Number/Keywords…" onClearIconPress={() => updateSearch("")}
+        />
         <Button
           mode={activeFilterCount ? "contained" : "outlined"} icon="tune-variant" compact
           onPress={openFiltersSheet} style={styles.filtersButton}
         >
           {activeFilterCount ? `Filters (${activeFilterCount})` : "Filters"}
         </Button>
+      </View>
+      <View style={styles.filterActionsRow}>
         <IconButton icon="cog-outline" size={20} onPress={() => setSettingsSheetOpen(true)} style={styles.settingsButton} />
       </View>
       {activeFilterCount > 0 ? (
         <View style={styles.activeChipsRow}>
+          {score ? <Chip compact onClose={() => setScore("")} style={styles.activeChip}>Lead score: {FILTERS.find((item) => item.value === score)?.label || score}</Chip> : null}
           {filterStage ? <Chip compact onClose={() => setFilterStage("")} style={styles.activeChip}>Stage: {filterStage}</Chip> : null}
           {filterSource ? <Chip compact onClose={() => setFilterSource("")} style={styles.activeChip}>Source: {SOURCES.find((s) => s.value === filterSource)?.label || filterSource}</Chip> : null}
           {filterAssignedTo ? (
@@ -504,6 +500,15 @@ export default function LeadsScreen() {
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Filters</Text>
             <ScrollView style={styles.filterScroll} showsVerticalScrollIndicator={false}>
+              <Text style={styles.filterSectionLabel}>Lead score</Text>
+              <View style={styles.chipRow}>
+                {FILTERS.map((item) => (
+                  <Chip key={item.value || "all"} selected={score === item.value} mode={score === item.value ? "flat" : "outlined"} onPress={() => setScore(item.value)}>
+                    {item.label}
+                  </Chip>
+                ))}
+              </View>
+
               <Text style={styles.filterSectionLabel}>Stage</Text>
               <View style={styles.chipRow}>
                 <Chip selected={!filterStage} mode={!filterStage ? "flat" : "outlined"} onPress={() => setFilterStage("")}>All stages</Chip>
@@ -582,11 +587,11 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" }, count: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   selectHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16, height: 40 },
   selectCount: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  searchBox: { ...glass, marginBottom: 4 },
-  filtersRow: { flexDirection: "row", gap: 8, paddingTop: 13, paddingBottom: 6, flexWrap: "wrap" },
-  filterChip: { ...glass, borderRadius: 12 }, filterActive: { backgroundColor: colors.primary },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  searchBox: { ...glass, flex: 1, marginBottom: 0, backgroundColor: colors.surface },
   filterActionsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
-  filtersButton: {}, settingsButton: { margin: 0 },
+  filtersButton: { flexShrink: 0, backgroundColor: colors.surface },
+  settingsButton: { margin: 0 },
   activeChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
   activeChip: {},
   filterScroll: { maxHeight: "70%" },
