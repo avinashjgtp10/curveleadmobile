@@ -32,6 +32,8 @@ const MENU: MenuItem[] = [
   { icon: "bar-chart-outline", label: "Reports", href: "/(app)/more/reports" },
   { icon: "card-outline", label: "Billing", href: "/(app)/more/billing", roles: ["admin", "super_admin"] },
   { icon: "settings-outline", label: "Settings", href: "/(app)/more/settings" },
+  { icon: "help-circle-outline", label: "Help & Support", href: "/(app)/more/help-support" },
+  { icon: "person-circle-outline", label: "Account", href: "/(app)/more/account" },
   { icon: "shield-checkmark-outline", label: "Super Admin", href: "/(app)/more/super-admin", roles: ["super_admin"] },
 ];
 
@@ -42,8 +44,8 @@ export default function MoreScreen() {
 
   const visibleItems = MENU.filter((item) => !item.roles || can(item.roles));
 
-  const referenceIcons = [Icons.SvgGitBranch, undefined, undefined, Icons.SvgMegaphone, Icons.SvgSparkles, Icons.SvgClipboard, Icons.SvgFolder, Icons.SvgMessageCircle, Icons.SvgTeam, Icons.SvgPlug, Icons.SvgBarChart, Icons.SvgCreditCard, Icons.SvgSettings];
-  const tones: GradientName[] = ["sky", "emerald", "indigo", "violet", "pink", "sky", "indigo", "teal", "indigo", "sky", "emerald", "sky", "slate"];
+  const referenceIcons = [Icons.SvgGitBranch, undefined, undefined, Icons.SvgMegaphone, Icons.SvgSparkles, Icons.SvgClipboard, Icons.SvgFolder, Icons.SvgMessageCircle, Icons.SvgTeam, Icons.SvgPlug, Icons.SvgBarChart, Icons.SvgCreditCard, Icons.SvgSettings, undefined, undefined, undefined];
+  const tones: GradientName[] = ["sky", "emerald", "indigo", "violet", "pink", "sky", "indigo", "teal", "indigo", "sky", "emerald", "sky", "slate", "amber", "emerald", "slate"];
   return (
     <View style={{ flex: 1 }}><GlassBackground />
     <ScrollView style={styles.container} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 105 }} showsVerticalScrollIndicator={false}>

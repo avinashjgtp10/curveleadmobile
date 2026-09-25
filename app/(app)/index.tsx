@@ -12,11 +12,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboard";
-import { fetchLeads, fetchTodayFollowups } from "@/api/leads";
+import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads, fetchIntegrationSettings, IntegrationSettings } from "@/api/integrations";
 import { fetchNotifications } from "@/api/notifications";
 import { useAuth } from "@/contexts/AuthContext";
-import { LinearGradient } from "expo-linear-gradient";
 
 const AI_IMAGE_SAMPLES = [
   { caption: "Product shot", source: require("../../assets/ai-samples/product-shot.png") },
@@ -71,6 +70,99 @@ function QuickTile({ icon, label, onPress }: { icon: IconName; label: string; on
         <Text style={styles.quickLabel}>{label}</Text>
       </Card.Content>
     </Card>
+  );
+}
+
+function LeadsByStageCard({ stages, onPress }: { stages: DashboardSummary["pipeline"]; onPress: () => void }) {
+  const { width } = useWindowDimensions();
+  const columns = width >= 600 ? 5 : 2;
+  const maxCount = Math.max(1, ...stages.map((stage) => stage.count));
+  const totalCount = stages.reduce((sum, stage) => sum + stage.count, 0);
+  return (
+    <View style={styles.stageCard}>
+      <Pressable style={styles.stageCardHeader} onPress={onPress} accessibilityRole="button">
+        <Text style={styles.stageCardTitle}>Lead Pipeline</Text>
+        <Text style={styles.stageViewAll}>View all ›</Text>
+      </Pressable>
+      {stages.length ? (
+        <View style={styles.stageColumns}>
+          {stages.map((stage) => (
+            <Pressable key={stage.name} style={[styles.stageColumn, { width: `${(100 - (columns - 1) * 3) / columns}%` }]} onPress={onPress}>
+              <Text style={styles.stageName} numberOfLines={1}>{pretty(stage.name).toUpperCase()}</Text>
+              <Text style={styles.stageCount}>{fmt(stage.count)}</Text>
+              <Text style={styles.stagePercent}>{totalCount ? `${Math.round((stage.count / totalCount) * 100)}%` : "0%"}</Text>
+              <View style={styles.stageTrack}>
+                <View style={[styles.stageFill, { width: `${Math.max(4, (stage.count / maxCount) * 100)}%` }]} />
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.stageEmpty}>No stage data yet.</Text>
+      )}
+    </View>
+  );
+}
+
+function UrgentFollowupsCard({ count, onPress }: { count: number; onPress: () => void }) {
+  return (
+    <Pressable style={styles.urgentCard} onPress={onPress} accessibilityRole="button">
+      <View style={styles.urgentIcon}><Ionicons name="alert" size={18} color="#fff" /></View>
+      <View style={styles.urgentCopy}>
+        <Text style={styles.urgentTitle}>{fmt(count)} follow-ups need urgent attention</Text>
+        <Text style={styles.urgentSubtitle}>Open the list and take action now</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={25} color={colors.danger} />
+    </Pressable>
+  );
+}
+
+function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowup[]; onPress: () => void }) {
+  return (
+    <View style={styles.upcomingCard}>
+      <Pressable style={styles.upcomingHeader} onPress={onPress}>
+        <Text style={styles.upcomingTitle}>Upcoming Follow Ups</Text>
+        <Text style={styles.upcomingCount}>{followups.length}</Text>
+      </Pressable>
+      {followups.length ? followups.slice(0, 2).map((followup, index) => {
+        const time = new Date(followup.next_followup_at);
+        return (
+          <Pressable key={followup.id} style={[styles.upcomingRow, index > 0 && styles.upcomingRowBorder]} onPress={onPress}>
+            <View style={styles.upcomingCopy}>
+              <Text style={styles.upcomingLead} numberOfLines={1}>{followup.lead_name}</Text>
+              <Text style={styles.upcomingType}>{pretty(followup.followup_type)} follow-up</Text>
+            </View>
+            <View style={styles.upcomingTimeWrap}>
+              <Ionicons name="call-outline" size={18} color={colors.textMuted} />
+              <Text style={styles.upcomingTime}>{Number.isNaN(time.getTime()) ? "" : time.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}</Text>
+            </View>
+          </Pressable>
+        );
+      }) : (
+        <Text style={styles.upcomingEmpty}>No upcoming follow-ups</Text>
+      )}
+    </View>
+  );
+}
+
+function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
+  const insights = [
+    { label: "Revenue", value: data.total_revenue || data.revenue_in_period },
+    { label: "Avg. deal", value: data.avg_deal_value },
+    { label: "Balance due", value: data.balance_due_in_period },
+  ];
+  return (
+    <Pressable style={styles.insightsSection} onPress={onPress} accessibilityRole="button">
+      <Text style={styles.insightsTitle}>Insights</Text>
+      <View style={styles.insightsRow}>
+        {insights.map((item) => (
+          <View key={item.label} style={styles.insightCard}>
+            <Text style={styles.insightLabel}>{item.label}</Text>
+            <Text style={styles.insightValue}>₹{fmt(item.value)}</Text>
+          </View>
+        ))}
+      </View>
+    </Pressable>
   );
 }
 
@@ -154,47 +246,12 @@ function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconN
   );
 }
 
-interface SettingsRow { icon: IconName; bg: string; iconColor: string; title: string; subtitle: string; href: string }
-
-const SETTINGS_ROWS: SettingsRow[] = [
-  { icon: "card-outline", bg: colors.successSoft, iconColor: colors.success, title: "Billing & Usage", subtitle: "Plan, credits and invoices", href: "/(app)/more/billing" },
-  { icon: "notifications-outline", bg: colors.primarySoft, iconColor: colors.primary, title: "Notifications", subtitle: "Campaign and chat alerts", href: "/(app)/notifications" },
-  { icon: "lock-closed-outline", bg: "#ede9fe", iconColor: "#7c3aed", title: "Security", subtitle: "2-factor authentication", href: "/(app)/more/security" },
-  { icon: "language-outline", bg: colors.warningSoft, iconColor: colors.warning, title: "Language", subtitle: "English", href: "/(app)/more/language" },
-];
-
-const HELP_ROWS: SettingsRow[] = [
-  { icon: "bulb-outline", bg: colors.primarySoft, iconColor: colors.primary, title: "Submit Feedback", subtitle: "Share ideas and report issues", href: "/(app)/more/feedback" },
-  { icon: "call-outline", bg: colors.successSoft, iconColor: colors.success, title: "Help & Support", subtitle: "Chat with our support team", href: "/(app)/more/help-support" },
-];
-
-function SettingsRowList({ rows }: { rows: SettingsRow[] }) {
-  return (
-    <View style={styles.settingsList}>
-      {rows.map((row, index) => (
-        <View key={row.href}>
-          <Pressable accessibilityRole="button" onPress={() => router.push(row.href as never)} style={({ pressed }) => [styles.settingsRow, pressed && { backgroundColor: "rgba(224,242,254,0.6)" }]}>
-            <View style={[styles.settingsIconWrap, { backgroundColor: row.bg }]}>
-              <Ionicons name={row.icon} size={20} color={row.iconColor} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.settingsRowTitle}>{row.title}</Text>
-              <Text style={styles.settingsRowSubtitle}>{row.subtitle}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-          </Pressable>
-          {index < rows.length - 1 && <View style={styles.settingsDivider} />}
-        </View>
-      ))}
-    </View>
-  );
-}
-
 export default function DashboardScreen() {
   const { user, tenant } = useAuth();
   const insets = useSafeAreaInsets();
   const period: DashboardPeriod = "last_7_days";
   const [data, setData] = useState<DashboardSummary | null>(null);
+  const [upcomingFollowups, setUpcomingFollowups] = useState<TodayFollowup[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -236,6 +293,7 @@ export default function DashboardScreen() {
         fetchTodayFollowups().catch(() => []),
       ]);
       setData(summary);
+      setUpcomingFollowups(todayFollowups);
       fetchNotifications()
         .then((latestNotifications) => setNotificationCount(latestNotifications.filter((item) => !item.read_at).length))
         .catch(() => setNotificationCount(todayFollowups.length));
@@ -279,13 +337,12 @@ export default function DashboardScreen() {
   return (
     <View style={styles.screen}>
       <Appbar.Header style={styles.header} elevated={false}>
-        <Pressable style={styles.profileRow} onPress={() => router.push("/(app)/more/settings")}>
+        <View style={styles.profileRow}>
           <View style={styles.profileAvatar}>
             <Text style={styles.profileAvatarText}>{(user?.name?.charAt(0) || "?").toUpperCase()}</Text>
           </View>
           <Text style={styles.profileName} numberOfLines={1}>{tenant?.name || user?.name || "Account"}</Text>
-          <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
-        </Pressable>
+        </View>
         <View style={{ flex: 1 }} />
         {user?.role ? (
           <View style={styles.roleBadge}>
@@ -320,60 +377,6 @@ export default function DashboardScreen() {
           </View>
         ) : data ? (
           <>
-            {user?.email ? (
-              <View style={styles.verifyCard}>
-                <View style={styles.verifyIconWrap}>
-                  <Ionicons name="warning-outline" size={16} color={colors.warning} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.verifyText}>
-                    Please verify your email address — a link was sent to <Text style={styles.verifyEmail}>{user.email}</Text>.
-                  </Text>
-                  <View style={styles.verifyButtonRow}>
-                    <Pressable style={styles.verifyResendBtn} onPress={() => Alert.alert("Coming soon", "Email verification isn't available yet.")}>
-                      <Text style={styles.verifyResendText}>Resend link</Text>
-                    </Pressable>
-                    <Pressable style={styles.verifyWrongBtn} onPress={() => router.push("/(app)/more/settings")}>
-                      <Text style={styles.verifyWrongText}>Wrong email?</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              </View>
-            ) : null}
-
-            {integrations ? (
-              <LinearGradient colors={["#f97316", "#c2410c"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.waBanner}>
-                <View style={styles.waGlow} pointerEvents="none" />
-                <View style={styles.waTopRow}>
-                  <View style={styles.waStatusPill}>
-                    <View style={[styles.waDot, integrations.whatsapp_configured && styles.waDotConnected]} />
-                    <Text style={styles.waStatusText}>{integrations.whatsapp_configured ? "WHATSAPP CONNECTED" : "WHATSAPP NOT CONNECTED"}</Text>
-                  </View>
-                  <Pressable style={styles.waConnectBtn} onPress={() => router.push("/(app)/more/integrations")}>
-                    <Text style={styles.waConnectText}>Connect</Text>
-                    <Ionicons name="chevron-forward" size={12} color="#ea580c" />
-                  </Pressable>
-                </View>
-                <Text style={styles.waHeadline}>FREE FOREVER</Text>
-                <Pressable style={styles.waBuyPlan} onPress={() => router.push("/(app)/more/billing")}>
-                  <Text style={styles.waBuyPlanText}>Buy Plan</Text>
-                  <Ionicons name="chevron-forward" size={14} color="#fff" />
-                </Pressable>
-              </LinearGradient>
-            ) : null}
-
-            <View style={styles.offerCard}>
-              <View style={styles.offerIconWrap}><Ionicons name="gift-outline" size={16} color="#fff" /></View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.offerTitle}>Got any offer access code?</Text>
-                <Text style={styles.offerSubtitle} numberOfLines={1}>Activate your special discounted plan</Text>
-              </View>
-              <Pressable style={styles.offerActivateBtn} onPress={() => Alert.alert("Coming soon", "Offer code activation isn't available yet.")}>
-                <Text style={styles.offerActivateText}>Activate</Text>
-                <Ionicons name="arrow-forward" size={12} color="#fff" />
-              </Pressable>
-            </View>
-
             <View style={styles.setupCard}>
               <Pressable style={styles.setupHeaderRow} onPress={() => setSetupExpanded((open) => !open)}>
                 <Text style={styles.setupHeaderEmoji}>💰</Text>
@@ -566,17 +569,11 @@ export default function DashboardScreen() {
               </View>
             </View>
 
-            <View style={styles.startHereSection}>
-              <Text style={styles.startHereTitle}>Settings</Text>
-              <Text style={styles.startHereSubtitle}>Account, preferences and security</Text>
-              <SettingsRowList rows={SETTINGS_ROWS} />
-            </View>
+            <LeadsByStageCard stages={data.pipeline || []} onPress={() => router.push("/(app)/leads")} />
+            <UrgentFollowupsCard count={data.critical_followups || data.overdue_followups || 0} onPress={() => router.push("/(app)/followups")} />
+            <UpcomingFollowupsCard followups={upcomingFollowups} onPress={() => router.push("/(app)/followups")} />
+            <InsightsCard data={data} onPress={() => router.push("/(app)/more/reports")} />
 
-            <View style={styles.startHereSection}>
-              <Text style={styles.startHereTitle}>Help & account</Text>
-              <Text style={styles.startHereSubtitle}>Support, feedback and session</Text>
-              <SettingsRowList rows={HELP_ROWS} />
-            </View>
           </>
         ) : null}
       </ScrollView>
@@ -625,36 +622,6 @@ const styles = StyleSheet.create({
   stateTitle: { color: colors.text, fontSize: 18, fontWeight: "800" },
   stateText: { color: colors.textSecondary, fontSize: 13, textAlign: "center", lineHeight: 19, marginTop: 9 },
   retry: { marginTop: 16 },
-
-  verifyCard: { flexDirection: "row", gap: 10, backgroundColor: "#fef3e2", borderRadius: 14, marginHorizontal: 16, marginBottom: 14, padding: 12, borderWidth: 1, borderColor: "rgba(249,115,22,0.18)" },
-  verifyIconWrap: { width: 30, height: 30, borderRadius: 9, backgroundColor: "#fde3c8", alignItems: "center", justifyContent: "center" },
-  verifyText: { color: colors.text, fontSize: 12, lineHeight: 17, fontFamily: "Inter_500Medium" },
-  verifyEmail: { fontFamily: "Inter_700Bold" },
-  verifyButtonRow: { flexDirection: "row", gap: 14, marginTop: 10 },
-  verifyResendBtn: { flex: 1, backgroundColor: "#f97316", borderRadius: 10, paddingVertical: 9, alignItems: "center" },
-  verifyResendText: { color: "#fff", fontSize: 12, fontFamily: "Inter_700Bold" },
-  verifyWrongBtn: { flex: 1, backgroundColor: "#fff", borderRadius: 10, paddingVertical: 9, alignItems: "center", borderWidth: 1, borderColor: "rgba(249,115,22,0.3)" },
-  verifyWrongText: { color: "#ea580c", fontSize: 12, fontFamily: "Inter_700Bold" },
-
-  waBanner: { borderRadius: 16, marginHorizontal: 16, marginBottom: 14, padding: 14, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)" },
-  waGlow: { position: "absolute", top: -30, right: -30, width: 140, height: 140, borderRadius: 70, backgroundColor: "rgba(255,255,255,0.12)" },
-  waTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
-  waStatusPill: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(255,255,255,0.25)", borderRadius: 20, paddingHorizontal: 9, paddingVertical: 4 },
-  waDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
-  waDotConnected: { backgroundColor: colors.success },
-  waStatusText: { color: "#fff", fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
-  waConnectBtn: { flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: "#fff", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4, elevation: 3 },
-  waConnectText: { color: "#ea580c", fontSize: 12, fontFamily: "Inter_700Bold" },
-  waHeadline: { color: "#fff", fontSize: 16, fontFamily: "DMSans_700Bold", marginBottom: 10 },
-  waBuyPlan: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.15)", borderWidth: 1.5, borderColor: "rgba(255,255,255,0.6)", borderRadius: 12, paddingVertical: 9 },
-  waBuyPlanText: { color: "#fff", fontSize: 13, fontFamily: "Inter_700Bold" },
-
-  offerCard: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fef3e2", borderRadius: 14, marginHorizontal: 16, marginBottom: 14, padding: 11, borderWidth: 1, borderColor: "rgba(249,115,22,0.18)" },
-  offerIconWrap: { width: 34, height: 34, borderRadius: 10, backgroundColor: "#f97316", alignItems: "center", justifyContent: "center" },
-  offerTitle: { color: colors.text, fontSize: 12, fontFamily: "Inter_700Bold" },
-  offerSubtitle: { color: colors.textMuted, fontSize: 10, marginTop: 2 },
-  offerActivateBtn: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#f97316", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 7 },
-  offerActivateText: { color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" },
 
   setupCard: { backgroundColor: "#e7f9ef", borderRadius: 16, marginHorizontal: 16, marginBottom: 16, padding: 16 },
   setupHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 20 },
@@ -748,5 +715,41 @@ const styles = StyleSheet.create({
   quickTile: { ...glass, width: "48%", flexGrow: 1 },
   quickTileContent: { padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
   quickLabel: { flex: 1, color: "#334155", fontSize: 12, fontFamily: "Inter_600SemiBold" },
+
+  stageCard: { ...glass, marginHorizontal: 16, marginBottom: 10, padding: 10, backgroundColor: "rgba(255,255,255,0.78)" },
+  stageCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  stageCardTitle: { color: colors.text, fontSize: 14, fontFamily: "DMSans_700Bold" },
+  stageViewAll: { color: colors.primary, fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  stageColumns: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  stageColumn: { minWidth: 0, padding: 6, borderRadius: 8, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: "rgba(255,255,255,0.55)" },
+  stageName: { color: colors.textMuted, fontSize: 9, fontFamily: "Inter_700Bold", textAlign: "center" },
+  stageCount: { color: colors.text, fontSize: 18, fontFamily: "DMSans_700Bold", textAlign: "center", marginTop: 5 },
+  stagePercent: { color: colors.textMuted, fontSize: 9, textAlign: "center", marginTop: 1, marginBottom: 6 },
+  stageTrack: { height: 5, borderRadius: 3, backgroundColor: "#dff2fb", overflow: "hidden" },
+  stageFill: { height: "100%", minWidth: 4, borderRadius: 5, backgroundColor: colors.primary },
+  stageEmpty: { color: colors.textMuted, fontSize: 12, paddingVertical: 10 },
+  urgentCard: { flexDirection: "row", alignItems: "center", gap: 9, marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 14, backgroundColor: "#fcecef", borderWidth: 1, borderColor: "#f0b8c4" },
+  urgentIcon: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: colors.danger },
+  urgentCopy: { flex: 1 },
+  urgentTitle: { color: "#c81e45", fontSize: 13, fontFamily: "Inter_700Bold" },
+  urgentSubtitle: { color: "#c24561", fontSize: 11, marginTop: 3 },
+  upcomingCard: { ...glass, marginHorizontal: 16, marginBottom: 10, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.72)" },
+  upcomingHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 9 },
+  upcomingTitle: { color: colors.text, fontSize: 14, fontFamily: "DMSans_700Bold" },
+  upcomingCount: { color: colors.textSecondary, fontSize: 15, fontFamily: "Inter_700Bold" },
+  upcomingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 54, paddingHorizontal: 12, paddingVertical: 7 },
+  upcomingRowBorder: { borderTopWidth: 1, borderTopColor: colors.borderSoft },
+  upcomingCopy: { flex: 1, minWidth: 0 },
+  upcomingLead: { color: colors.text, fontSize: 13, fontFamily: "Inter_500Medium" },
+  upcomingType: { color: colors.textSecondary, fontSize: 11, marginTop: 2 },
+  upcomingTimeWrap: { alignItems: "center", gap: 3, marginLeft: 8 },
+  upcomingTime: { color: colors.text, fontSize: 11, fontFamily: "Inter_700Bold" },
+  upcomingEmpty: { color: colors.textMuted, fontSize: 11, paddingHorizontal: 12, paddingBottom: 10 },
+  insightsSection: { marginHorizontal: 16, marginBottom: 10 },
+  insightsTitle: { color: colors.text, fontSize: 14, fontFamily: "DMSans_700Bold", marginBottom: 8 },
+  insightsRow: { flexDirection: "row", gap: 8 },
+  insightCard: { ...glass, flex: 1, minHeight: 70, padding: 10, backgroundColor: "rgba(255,255,255,0.78)" },
+  insightLabel: { color: colors.textSecondary, fontSize: 10, fontFamily: "Inter_700Bold" },
+  insightValue: { color: colors.text, fontSize: 17, fontFamily: "DMSans_700Bold", marginTop: 8 },
 
 });
