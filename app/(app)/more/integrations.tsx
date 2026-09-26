@@ -32,6 +32,28 @@ function StatusBadge({ connected }: { connected: boolean }) {
   );
 }
 
+type ComingSoonIntegration = {
+  key: string;
+  name: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+};
+
+const COMING_SOON_INTEGRATIONS: ComingSoonIntegration[] = [
+  { key: "linkedin", name: "LinkedIn Ads", description: "Receive leads from LinkedIn Lead Generation ads.", icon: "logo-linkedin", color: "#0A66C2" },
+  { key: "google-forms", name: "Google Forms", description: "Receive new leads from Google Forms responses.", icon: "document-text-outline", color: "#FBBC05" },
+  { key: "jotform", name: "JotForm", description: "Receive leads from JotForm submissions.", icon: "reader-outline", color: "#FF6100" },
+  { key: "wordpress", name: "WordPress", description: "Capture leads from WordPress contact forms via plugin.", icon: "logo-wordpress", color: "#21759B" },
+  { key: "wix", name: "Wix", description: "Receive leads from your Wix website forms.", icon: "globe-outline", color: "#4A4A4A" },
+  { key: "indiamart", name: "IndiaMART", description: "Auto-import leads from IndiaMART buyer enquiries.", icon: "storefront-outline", color: "#F5A623" },
+  { key: "justdial", name: "JustDial", description: "Auto-import leads from JustDial enquiries.", icon: "call-outline", color: "#E4004B" },
+  { key: "zapier", name: "Zapier", description: "Connect any app to CurveLead using Zapier webhooks.", icon: "flash-outline", color: "#FF4A00" },
+  { key: "pabbly", name: "Pabbly Connect", description: "Automate lead flow from 1000+ apps via Pabbly Connect.", icon: "link-outline", color: "#2F80ED" },
+  { key: "tiktok", name: "TikTok Ads", description: "Receive leads from TikTok Lead Generation campaigns.", icon: "logo-tiktok", color: "#000000" },
+  { key: "clickfunnels", name: "ClickFunnels", description: "Receive leads from ClickFunnels funnels automatically.", icon: "funnel-outline", color: "#EE3D64" },
+];
+
 export default function IntegrationsScreen() {
   const insets = useSafeAreaInsets();
   const redirectUri = AuthSession.makeRedirectUri({ scheme: "curvelead" });
@@ -239,6 +261,27 @@ export default function IntegrationsScreen() {
             </Card.Content>
           </Card>
 
+          <Text style={styles.sectionTitle}>Coming soon</Text>
+          {COMING_SOON_INTEGRATIONS.map((integration) => (
+            <Card mode="outlined" style={[styles.card, styles.cardMuted]} key={integration.key}>
+              <Card.Content style={styles.cardContent}>
+                <View style={[styles.cardIcon, styles.cardIconSoft, { backgroundColor: `${integration.color}1A` }]}>
+                  <Ionicons name={integration.icon} size={20} color={integration.color} />
+                </View>
+                <View style={styles.cardBody}>
+                  <View style={styles.cardTitleRow}>
+                    <Text style={styles.cardTitle}>{integration.name}</Text>
+                    <View style={[styles.badge, styles.badgeIdle]}>
+                      <Ionicons name="lock-closed" size={9} color={colors.textMuted} style={styles.badgeLockIcon} />
+                      <Text style={[styles.badgeText, styles.badgeTextIdle]}>Coming soon</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.cardDescription}>{integration.description}</Text>
+                </View>
+              </Card.Content>
+            </Card>
+          ))}
+
           <Text style={styles.contactBanner}>Looking for any other provider? Contact us.</Text>
         </ScrollView>
       ) : null}
@@ -291,10 +334,14 @@ const styles = StyleSheet.create({
   retry: { marginTop: 14 },
   content: { padding: 18, gap: 14 },
 
+  sectionTitle: { color: colors.text, fontSize: 14, fontWeight: "800", marginTop: 4, marginBottom: -4 },
+
   card: {},
+  cardMuted: { opacity: 0.85 },
   cardContent: { flexDirection: "row", gap: 12 },
   cardIcon: { width: 42, height: 42, borderRadius: 12, backgroundColor: "#1877F2", alignItems: "center", justifyContent: "center" },
   cardIconDark: { backgroundColor: colors.text },
+  cardIconSoft: { backgroundColor: colors.surfaceMuted },
   cardBody: { flex: 1 },
   cardTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   cardTitle: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "800" },
@@ -307,10 +354,11 @@ const styles = StyleSheet.create({
   cardActionMuted: { color: colors.textMuted, fontSize: 12, fontWeight: "700", marginTop: 12 },
   cardActionDanger: { borderColor: colors.danger },
 
-  badge: { borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 },
+  badge: { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 },
   badgeConnected: { backgroundColor: colors.successSoft }, badgeIdle: { backgroundColor: colors.surfaceMuted },
   badgeText: { fontSize: 10, fontWeight: "800" },
   badgeTextConnected: { color: colors.success }, badgeTextIdle: { color: colors.textSecondary },
+  badgeLockIcon: { marginTop: 1 },
 
   contactBanner: { textAlign: "center", color: colors.primary, fontSize: 13, fontWeight: "700", backgroundColor: colors.primarySoft, borderRadius: 10, paddingVertical: 14 },
 

@@ -270,45 +270,50 @@ export default function FollowupsScreen() {
 
       <Modal visible={addOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !saving && setAddOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !saving && setAddOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Add Follow-up</Text>
-            {addError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{addError}</Text></View> : null}
+            <ScrollView
+              contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) }}
+              keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
+            >
+              {addError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{addError}</Text></View> : null}
 
-            <Text style={styles.sheetSectionLabel}>Lead Name <Text style={styles.required}>*</Text></Text>
-            {selectedLead ? (
-              <View style={styles.selectedLead}>
-                <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name} · {selectedLead.phone}</Text>
-                <Pressable onPress={() => setSelectedLead(null)} hitSlop={8}><Ionicons name="close" size={16} color={colors.textSecondary} /></Pressable>
-              </View>
-            ) : (
-              <>
-                <Searchbar
-                  style={styles.searchInput} inputStyle={styles.searchInputText}
-                  value={leadQuery} onChangeText={setLeadQuery} placeholder="Search & Select Lead"
-                  loading={searchingLeads} elevation={0}
-                />
-                {leadResults.length ? (
-                  <View style={styles.suggestions}>
-                    {leadResults.map((lead) => (
-                      <List.Item
-                        key={lead.id} title={lead.name} titleNumberOfLines={1}
-                        description={lead.phone}
-                        onPress={() => { setSelectedLead(lead); setLeadResults([]); }}
-                      />
-                    ))}
-                  </View>
-                ) : null}
-              </>
-            )}
+              <Text style={styles.sheetSectionLabel}>Lead Name <Text style={styles.required}>*</Text></Text>
+              {selectedLead ? (
+                <View style={styles.selectedLead}>
+                  <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name} · {selectedLead.phone}</Text>
+                  <Pressable onPress={() => setSelectedLead(null)} hitSlop={8}><Ionicons name="close" size={16} color={colors.textSecondary} /></Pressable>
+                </View>
+              ) : (
+                <>
+                  <Searchbar
+                    style={styles.searchInput} inputStyle={styles.searchInputText}
+                    value={leadQuery} onChangeText={setLeadQuery} placeholder="Search & Select Lead"
+                    loading={searchingLeads} elevation={0}
+                  />
+                  {leadResults.length ? (
+                    <View style={styles.suggestions}>
+                      {leadResults.map((lead) => (
+                        <List.Item
+                          key={lead.id} title={lead.name} titleNumberOfLines={1}
+                          description={lead.phone}
+                          onPress={() => { setSelectedLead(lead); setLeadResults([]); }}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
+                </>
+              )}
 
-            <Text style={styles.sheetSectionLabel}>Follow-Up Date &amp; Time</Text>
-            <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
+              <Text style={styles.sheetSectionLabel}>Follow-Up Date &amp; Time</Text>
+              <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
 
-            <Text style={styles.sheetSectionLabel}>Follow-Up Note</Text>
-            <TextInput mode="outlined" value={followupNotes} onChangeText={setFollowupNotes} placeholder="Add a note (optional)" multiline numberOfLines={3} style={styles.sheetTextarea} />
+              <Text style={styles.sheetSectionLabel}>Follow-Up Note</Text>
+              <TextInput mode="outlined" value={followupNotes} onChangeText={setFollowupNotes} placeholder="Add a note (optional)" multiline numberOfLines={3} style={styles.sheetTextarea} />
 
-            <Button mode="contained" onPress={saveFollowup} loading={saving} disabled={saving} style={styles.sheetPrimaryButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
+              <Button mode="contained" onPress={saveFollowup} loading={saving} disabled={saving} style={styles.sheetPrimaryButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -355,19 +360,19 @@ const styles = StyleSheet.create({
   doneButton: { alignSelf: "center" },
 
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
-  sheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "88%" },
-  sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
-  sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 14 },
-  sheetSectionLabel: { color: colors.text, fontSize: 12, fontWeight: "700", marginTop: 14, marginBottom: 8 },
+  sheet: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
+  sheetHandle: { width: 34, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 10 },
+  sheetTitle: { color: colors.text, fontSize: 15, fontWeight: "800", marginBottom: 10 },
+  sheetSectionLabel: { color: colors.text, fontSize: 11, fontWeight: "700", marginTop: 10, marginBottom: 5 },
   required: { color: colors.danger },
-  sheetError: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, marginBottom: 6, borderRadius: 8, backgroundColor: colors.dangerSoft },
-  sheetErrorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "700" },
+  sheetError: { flexDirection: "row", alignItems: "center", gap: 8, padding: 8, marginBottom: 4, borderRadius: 8, backgroundColor: colors.dangerSoft },
+  sheetErrorText: { flex: 1, color: colors.danger, fontSize: 11, fontWeight: "700" },
   searchInput: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8 },
-  searchInputText: { fontSize: 14, minHeight: 0 },
+  searchInputText: { fontSize: 13, minHeight: 0 },
   suggestions: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, marginTop: 6, overflow: "hidden" },
-  selectedLead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 46, paddingHorizontal: 14, backgroundColor: colors.primarySoft, borderRadius: 8 },
-  selectedLeadText: { flex: 1, color: colors.primary, fontSize: 14, fontWeight: "700" },
-  sheetTextarea: { minHeight: 80 },
-  sheetPrimaryButton: { marginTop: 20 },
-  sheetPrimaryButtonContent: { height: 48 },
+  selectedLead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 40, paddingHorizontal: 12, backgroundColor: colors.primarySoft, borderRadius: 8 },
+  selectedLeadText: { flex: 1, color: colors.primary, fontSize: 13, fontWeight: "700" },
+  sheetTextarea: { minHeight: 56 },
+  sheetPrimaryButton: { marginTop: 14, marginBottom: 4 },
+  sheetPrimaryButtonContent: { height: 42 },
 });

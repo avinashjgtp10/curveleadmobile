@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Appbar, IconButton, Searchbar, Text, TextInput } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -69,7 +69,6 @@ export default function WhatsAppScreen() {
       ]);
       setLeads(leadPage.leads);
       setTemplates(savedTemplates.filter((item) => item.channel === "whatsapp"));
-      setSelectedId((current) => current || leadPage.leads[0]?.id || "");
     } catch {
       setError("Could not load WhatsApp inbox.");
     } finally {
@@ -89,7 +88,7 @@ export default function WhatsAppScreen() {
     });
   }, [filter, leads, search, starredIds]);
 
-  const selected = leads.find((lead) => lead.id === selectedId) || filteredLeads[0] || leads[0];
+  const selected = selectedId ? leads.find((lead) => lead.id === selectedId) : undefined;
   const totalUnread = leads.filter((_, index) => index % 5 === 0).length;
 
   function toggleStar(id: string) {
@@ -214,18 +213,20 @@ export default function WhatsAppScreen() {
               <Text style={styles.emptyText}>No conversations match this filter.</Text>
             )}
           </View>
+        </ScrollView>
+      )}
 
-          {selected ? (
-            <View style={styles.chatCard}>
-              <View style={styles.chatHeader}>
-                <View style={[styles.avatar, styles.avatarUnread]}><Text style={styles.avatarText}>{initials(selected.name)}</Text></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.chatName}>{selected.name}</Text>
-                  <Text style={styles.chatMeta}>{selected.phone} - Last message {relativeTime(selected.created_at)}</Text>
-                </View>
-                <IconButton icon={starredIds.has(selected.id) ? "star" : "star-outline"} size={20} iconColor={starredIds.has(selected.id) ? colors.warning : colors.textMuted} onPress={() => toggleStar(selected.id)} />
-              </View>
+      <Modal visible={!!selected} animationType="slide" onRequestClose={() => setSelectedId("")}>
+        {selected ? (
+          <View style={styles.chatScreen}>
+            <Appbar.Header style={styles.header} elevated={false}>
+              <Appbar.BackAction onPress={() => setSelectedId("")} />
+              <View style={[styles.avatar, styles.avatarUnread]}><Text style={styles.avatarText}>{initials(selected.name)}</Text></View>
+              <Appbar.Content title={selected.name} subtitle={`${selected.phone} - Last message ${relativeTime(selected.created_at)}`} titleStyle={styles.chatName} subtitleStyle={styles.chatMeta} />
+              <IconButton icon={starredIds.has(selected.id) ? "star" : "star-outline"} size={20} iconColor={starredIds.has(selected.id) ? colors.warning : colors.textMuted} onPress={() => toggleStar(selected.id)} />
+            </Appbar.Header>
 
+            <ScrollView contentContainerStyle={styles.chatContent} showsVerticalScrollIndicator={false}>
               <View style={styles.dayPill}><Text style={styles.dayPillText}>Today</Text></View>
               <View style={styles.messageBubbleIn}>
                 <Text style={styles.messageText}>Hello! Can I get more info on this?</Text>
@@ -235,32 +236,30 @@ export default function WhatsAppScreen() {
                 <Text style={styles.messageText}>Hi {selected.name.split(" ")[0]}! Salonox helps salons, spas and beauty parlours manage everything from appointments to follow-ups.</Text>
               </View>
 
-              <View style={styles.composer}>
-                <TextInput value={message} onChangeText={setMessage} mode="outlined" placeholder="Type a message..." style={styles.messageInput} outlineStyle={styles.messageInputOutline} />
-                <Pressable style={styles.sendButton} onPress={sendMessage}>
-                  <Ionicons name="send" size={20} color="#fff" />
+              <View style={styles.aboutCard}>
+                <Pressable style={styles.viewContactButton} onPress={() => router.push(`/(app)/leads/${selected.id}`)}>
+                  <Ionicons name="person-circle-outline" size={15} color={colors.primary} />
+                  <Text style={styles.viewContactText}>View Contact</Text>
                 </Pressable>
+                <Text style={styles.aboutTitle}>ABOUT</Text>
+                <View style={styles.aboutRow}><Text style={styles.aboutLabel}>First Message</Text><Text style={styles.aboutValue}>{formatDate(selected.created_at)}</Text></View>
+                <View style={styles.aboutRow}><Text style={styles.aboutLabel}>Last Message</Text><Text style={styles.aboutValue}>{relativeTime(selected.created_at)}</Text></View>
+                <View style={styles.aboutRow}><Text style={styles.aboutLabel}>Total Messages</Text><Text style={styles.aboutValue}>3</Text></View>
+                <View style={styles.aboutRow}><Text style={styles.aboutLabel}>Status</Text><Text style={styles.statusPill}>Active</Text></View>
+                <Text style={styles.aboutTitle}>LABELS</Text>
+                <Text style={styles.addLabel}>+ Add Label</Text>
               </View>
-            </View>
-          ) : null}
+            </ScrollView>
 
-          {selected ? (
-            <View style={styles.aboutCard}>
-              <Pressable style={styles.viewContactButton} onPress={() => router.push(`/(app)/leads/${selected.id}`)}>
-                <Ionicons name="person-circle-outline" size={15} color={colors.primary} />
-                <Text style={styles.viewContactText}>View Contact</Text>
+            <View style={[styles.composer, { paddingBottom: insets.bottom + 10 }]}>
+              <TextInput value={message} onChangeText={setMessage} mode="outlined" placeholder="Type a message..." style={styles.messageInput} outlineStyle={styles.messageInputOutline} />
+              <Pressable style={styles.sendButton} onPress={sendMessage}>
+                <Ionicons name="send" size={20} color="#fff" />
               </Pressable>
-              <Text style={styles.aboutTitle}>ABOUT</Text>
-              <View style={styles.aboutRow}><Text style={styles.aboutLabel}>First Message</Text><Text style={styles.aboutValue}>{formatDate(selected.created_at)}</Text></View>
-              <View style={styles.aboutRow}><Text style={styles.aboutLabel}>Last Message</Text><Text style={styles.aboutValue}>{relativeTime(selected.created_at)}</Text></View>
-              <View style={styles.aboutRow}><Text style={styles.aboutLabel}>Total Messages</Text><Text style={styles.aboutValue}>3</Text></View>
-              <View style={styles.aboutRow}><Text style={styles.aboutLabel}>Status</Text><Text style={styles.statusPill}>Active</Text></View>
-              <Text style={styles.aboutTitle}>LABELS</Text>
-              <Text style={styles.addLabel}>+ Add Label</Text>
             </View>
-          ) : null}
-        </ScrollView>
-      )}
+          </View>
+        ) : null}
+      </Modal>
     </View>
   );
 }
@@ -303,8 +302,8 @@ const styles = StyleSheet.create({
   previewText: { color: colors.textSecondary, fontSize: 11, marginTop: 3 },
   unreadBadge: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.success, alignItems: "center", justifyContent: "center" },
   unreadText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
-  chatCard: { ...glass, padding: 14, marginBottom: 14 },
-  chatHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
+  chatScreen: { flex: 1, backgroundColor: colors.background },
+  chatContent: { padding: 16, paddingBottom: 24 },
   chatName: { color: colors.text, fontSize: 15, fontFamily: "Inter_700Bold" },
   chatMeta: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   dayPill: { alignSelf: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 5, marginVertical: 12 },
@@ -313,7 +312,7 @@ const styles = StyleSheet.create({
   messageBubbleOut: { alignSelf: "flex-end", maxWidth: "82%", backgroundColor: "#dcfce7", borderRadius: 14, padding: 12, marginBottom: 12 },
   messageText: { color: colors.text, fontSize: 13, lineHeight: 18 },
   messageTime: { color: colors.textMuted, fontSize: 10, marginTop: 4 },
-  composer: { flexDirection: "row", alignItems: "center", gap: 8 },
+  composer: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.borderSoft, backgroundColor: colors.background },
   messageInput: { flex: 1, backgroundColor: colors.surface, minHeight: 44 },
   messageInputOutline: { borderRadius: 14, borderColor: colors.borderSoft },
   sendButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },

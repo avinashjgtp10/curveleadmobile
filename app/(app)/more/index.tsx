@@ -32,6 +32,8 @@ const MENU: MenuItem[] = [
   { icon: "bar-chart-outline", label: "Reports", href: "/(app)/more/reports" },
   { icon: "card-outline", label: "Billing", href: "/(app)/more/billing", roles: ["admin", "super_admin"] },
   { icon: "settings-outline", label: "Settings", href: "/(app)/more/settings" },
+  { icon: "language-outline", label: "Language", href: "/(app)/more/language" },
+  { icon: "bulb-outline", label: "Submit Feedback", href: "/(app)/more/feedback" },
   { icon: "help-circle-outline", label: "Help & Support", href: "/(app)/more/help-support" },
   { icon: "person-circle-outline", label: "Account", href: "/(app)/more/account" },
   { icon: "shield-checkmark-outline", label: "Super Admin", href: "/(app)/more/super-admin", roles: ["super_admin"] },
@@ -44,8 +46,8 @@ export default function MoreScreen() {
 
   const visibleItems = MENU.filter((item) => !item.roles || can(item.roles));
 
-  const referenceIcons = [Icons.SvgGitBranch, undefined, undefined, Icons.SvgMegaphone, Icons.SvgSparkles, Icons.SvgClipboard, Icons.SvgFolder, Icons.SvgMessageCircle, Icons.SvgTeam, Icons.SvgPlug, Icons.SvgBarChart, Icons.SvgCreditCard, Icons.SvgSettings, undefined, undefined, undefined];
-  const tones: GradientName[] = ["sky", "emerald", "indigo", "violet", "pink", "sky", "indigo", "teal", "indigo", "sky", "emerald", "sky", "slate", "amber", "emerald", "slate"];
+  const referenceIcons = [Icons.SvgGitBranch, undefined, undefined, Icons.SvgMegaphone, Icons.SvgSparkles, Icons.SvgClipboard, Icons.SvgFolder, Icons.SvgMessageCircle, Icons.SvgTeam, Icons.SvgPlug, Icons.SvgBarChart, Icons.SvgCreditCard, Icons.SvgSettings, undefined, undefined, undefined, undefined, undefined];
+  const tones: GradientName[] = ["sky", "emerald", "indigo", "violet", "pink", "sky", "indigo", "teal", "indigo", "sky", "emerald", "sky", "slate", "amber", "pink", "emerald", "slate", "slate"];
   return (
     <View style={{ flex: 1 }}><GlassBackground />
     <ScrollView style={styles.container} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 105 }} showsVerticalScrollIndicator={false}>
