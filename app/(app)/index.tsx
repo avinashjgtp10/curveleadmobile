@@ -2,9 +2,9 @@ import { IconBell, SvgUserAdd, SvgCalendar, SvgFolder } from "@/components/Refer
 import { glass, GradientIcon, GradientNumber } from "@/components/Glass";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  Alert, ImageBackground, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
+  ImageBackground, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
 } from "react-native";
-import { ActivityIndicator, Appbar, Button, Card } from "react-native-paper";
+import { ActivityIndicator, Appbar, Button, Card, TextInput } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { router, useFocusEffect } from "expo-router";
@@ -215,6 +215,7 @@ const GROW_BUSINESS: GridItem[] = [
 ];
 
 const MANAGE_BUSINESS: GridItem[] = [
+  { icon: "document-text-outline", label: "Quotations", ...TONE.violet, href: "/(app)/more/quotations" },
   { icon: "git-network-outline", label: "Lead Automation", ...TONE.sky, href: "/(app)/more/lead-automation" },
   { icon: "people-outline", label: "Team", ...TONE.violet, href: "/(app)/more/team" },
   { icon: "bar-chart-outline", label: "Reports", ...TONE.emerald, href: "/(app)/more/reports" },
@@ -225,6 +226,19 @@ const MANAGE_BUSINESS: GridItem[] = [
   { icon: "settings-outline", label: "Settings", ...TONE.emerald, href: "/(app)/more/settings" },
   { icon: "help-circle-outline", label: "User Guide", ...TONE.amber, href: "/(app)/more/user-guide" },
 ];
+
+const OTHER_DESTINATIONS: GridItem[] = [
+  { icon: "chatbox-ellipses-outline", label: "Message Templates", ...TONE.sky, href: "/(app)/more/templates" },
+  { icon: "notifications-outline", label: "Notifications", ...TONE.sky, href: "/(app)/notifications" },
+  { icon: "lock-closed-outline", label: "Security", ...TONE.violet, href: "/(app)/more/security" },
+  { icon: "language-outline", label: "Language", ...TONE.amber, href: "/(app)/more/language" },
+  { icon: "person-circle-outline", label: "Account", ...TONE.emerald, href: "/(app)/more/account" },
+  { icon: "bulb-outline", label: "Submit Feedback", ...TONE.pink, href: "/(app)/more/feedback" },
+  { icon: "call-outline", label: "Help & Support", ...TONE.emerald, href: "/(app)/more/help-support" },
+  { icon: "albums-outline", label: "Content Library", ...TONE.indigo, href: "/(app)/content" },
+];
+
+const SEARCH_ITEMS: GridItem[] = [...GROW_BUSINESS, ...MANAGE_BUSINESS, ...OTHER_DESTINATIONS];
 
 function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; onPress: () => void }) {
   return (
@@ -256,6 +270,9 @@ export default function DashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [setupExpanded, setSetupExpanded] = useState(false);
   const [integrations, setIntegrations] = useState<IntegrationSettings | null>(null);
@@ -357,7 +374,7 @@ export default function DashboardScreen() {
         </Pressable>
       </Appbar.Header>
 
-      <Pressable style={styles.searchRow} onPress={() => Alert.alert("Coming soon", "Search across tools and settings isn't available yet.")}>
+      <Pressable style={styles.searchRow} onPress={() => setSearchOpen(true)}>
         <Ionicons name="search-outline" size={18} color={colors.textMuted} />
         <Text style={styles.searchPlaceholder}>Search tools & settings</Text>
       </Pressable>
@@ -577,6 +594,45 @@ export default function DashboardScreen() {
           </>
         ) : null}
       </ScrollView>
+
+      <Modal visible={searchOpen} animationType="slide" onRequestClose={() => setSearchOpen(false)}>
+        <View style={[styles.searchScreen, { paddingTop: insets.top + 12 }]}>
+          <View style={styles.searchModalRow}>
+            <View style={styles.searchModalInputWrap}>
+              <Ionicons name="search-outline" size={18} color={colors.textMuted} />
+              <TextInput
+                autoFocus mode="flat" value={searchQuery} onChangeText={setSearchQuery}
+                placeholder="Search tools & settings" style={styles.searchModalInput}
+                underlineColor="transparent" activeUnderlineColor="transparent"
+              />
+            </View>
+            <Pressable onPress={() => { setSearchOpen(false); setSearchQuery(""); }} hitSlop={10}>
+              <Text style={styles.searchModalCancel}>Cancel</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.searchResults} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            {(searchQuery.trim()
+              ? SEARCH_ITEMS.filter((item) => item.label.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+              : SEARCH_ITEMS
+            ).map((item) => (
+              <Pressable
+                key={item.href} style={styles.searchResultRow}
+                onPress={() => { setSearchOpen(false); setSearchQuery(""); router.push(item.href as never); }}
+              >
+                <View style={[styles.searchResultIcon, { backgroundColor: item.bg }]}>
+                  <Ionicons name={item.icon} size={18} color={item.iconColor} />
+                </View>
+                <Text style={styles.searchResultLabel}>{item.label}</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+              </Pressable>
+            ))}
+            {searchQuery.trim() && !SEARCH_ITEMS.some((item) => item.label.toLowerCase().includes(searchQuery.trim().toLowerCase())) ? (
+              <Text style={styles.searchEmptyText}>No matches for "{searchQuery.trim()}".</Text>
+            ) : null}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -617,6 +673,17 @@ const styles = StyleSheet.create({
   },
   searchRow: { ...glass, flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginBottom: 12, paddingHorizontal: 16, paddingVertical: 12 },
   searchPlaceholder: { color: colors.textMuted, fontSize: 14, fontFamily: "Inter_400Regular" },
+
+  searchScreen: { flex: 1, backgroundColor: colors.background },
+  searchModalRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingBottom: 12 },
+  searchModalInputWrap: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12 },
+  searchModalInput: { flex: 1, backgroundColor: "transparent", fontSize: 14, height: 46 },
+  searchModalCancel: { color: colors.primary, fontSize: 14, fontFamily: "Inter_700Bold" },
+  searchResults: { paddingHorizontal: 16, paddingBottom: 40, gap: 4 },
+  searchResultRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
+  searchResultIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  searchResultLabel: { flex: 1, color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  searchEmptyText: { color: colors.textMuted, fontSize: 13, textAlign: "center", marginTop: 30 },
 
   state: { minHeight: 350, padding: 30, alignItems: "center", justifyContent: "center" },
   stateTitle: { color: colors.text, fontSize: 18, fontWeight: "800" },
