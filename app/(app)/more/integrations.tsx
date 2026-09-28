@@ -190,7 +190,7 @@ export default function IntegrationsScreen() {
           <Button mode="contained" onPress={load} style={styles.retry}>Try again</Button>
         </View>
       ) : settings ? (
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 120 }]} showsVerticalScrollIndicator={false}>
           <Card mode="outlined" style={styles.card}>
             <Card.Content style={styles.cardContent}>
               <View style={styles.cardIcon}><Ionicons name="logo-facebook" size={22} color={colors.surface} /></View>
@@ -200,7 +200,7 @@ export default function IntegrationsScreen() {
                   <StatusBadge connected={settings.meta_configured} />
                 </View>
                 <Text style={styles.cardDescription}>{settings.meta_configured ? `Connected to "${settings.meta_page_name}"` : "Sync leads from your Facebook Page's Lead Ads forms automatically."}</Text>
-                <Button mode="outlined" compact style={styles.cardAction} onPress={startFacebookConnect} loading={connectingFacebook} disabled={!request || connectingFacebook}>
+                <Button mode="outlined" compact style={styles.cardAction} contentStyle={styles.cardActionContent} labelStyle={styles.cardActionLabel} onPress={startFacebookConnect} loading={connectingFacebook} disabled={!request || connectingFacebook}>
                   {settings.meta_configured ? "Reconnect" : "Connect"}
                 </Button>
               </View>
@@ -222,11 +222,11 @@ export default function IntegrationsScreen() {
                 <Text style={styles.fieldLabel}>Ingest URL</Text>
                 <Text selectable style={styles.codeText}>{settings.api_ingest_url}</Text>
                 <View style={styles.cardActionRow}>
-                  <Button mode="outlined" compact style={styles.cardActionInline} onPress={handleGenerateKey} loading={apiKeyBusy} disabled={apiKeyBusy}>
+                  <Button mode="outlined" compact style={styles.cardActionInline} contentStyle={styles.cardActionContent} labelStyle={styles.cardActionLabel} onPress={handleGenerateKey} loading={apiKeyBusy} disabled={apiKeyBusy}>
                     {settings.api_key ? "Regenerate" : "Generate key"}
                   </Button>
                   {settings.api_key ? (
-                    <Button mode="outlined" compact textColor={colors.danger} style={[styles.cardActionInline, styles.cardActionDanger]} onPress={handleRevokeKey} disabled={apiKeyBusy}>Revoke</Button>
+                    <Button mode="outlined" compact textColor={colors.danger} style={[styles.cardActionInline, styles.cardActionDanger]} contentStyle={styles.cardActionContent} labelStyle={styles.cardActionLabel} onPress={handleRevokeKey} disabled={apiKeyBusy}>Revoke</Button>
                   ) : null}
                 </View>
               </View>
@@ -242,7 +242,7 @@ export default function IntegrationsScreen() {
                   <StatusBadge connected={settings.whatsapp_configured} />
                 </View>
                 <Text style={styles.cardDescription}>{settings.whatsapp_configured ? `Phone number ID: ${settings.whatsapp_phone_number_id}` : "Send automated WhatsApp messages using your Business API credentials."}</Text>
-                <Button mode="outlined" compact style={styles.cardAction} onPress={openWhatsappSheet}>Configure</Button>
+                <Button mode="outlined" compact style={styles.cardAction} contentStyle={styles.cardActionContent} labelStyle={styles.cardActionLabel} onPress={openWhatsappSheet}>Configure</Button>
               </View>
             </Card.Content>
           </Card>
@@ -332,26 +332,28 @@ const styles = StyleSheet.create({
   state: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30 },
   errorText: { color: colors.danger, fontSize: 13, textAlign: "center" },
   retry: { marginTop: 14 },
-  content: { padding: 18, gap: 14 },
+  content: { padding: 14, gap: 12 },
 
   sectionTitle: { color: colors.text, fontSize: 14, fontWeight: "800", marginTop: 4, marginBottom: -4 },
 
   card: {},
   cardMuted: { opacity: 0.85 },
-  cardContent: { flexDirection: "row", gap: 12 },
-  cardIcon: { width: 42, height: 42, borderRadius: 12, backgroundColor: "#1877F2", alignItems: "center", justifyContent: "center" },
+  cardContent: { flexDirection: "row", gap: 10 },
+  cardIcon: { width: 38, height: 38, borderRadius: 11, backgroundColor: "#1877F2", alignItems: "center", justifyContent: "center" },
   cardIconDark: { backgroundColor: colors.text },
   cardIconSoft: { backgroundColor: colors.surfaceMuted },
   cardBody: { flex: 1 },
   cardTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  cardTitle: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "800" },
-  cardDescription: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 6 },
-  fieldLabel: { color: colors.textMuted, fontSize: 10, fontWeight: "700", marginTop: 10, textTransform: "uppercase" },
+  cardTitle: { flex: 1, color: colors.text, fontSize: 14, fontWeight: "800" },
+  cardDescription: { color: colors.textSecondary, fontSize: 12, lineHeight: 16, marginTop: 4 },
+  fieldLabel: { color: colors.textMuted, fontSize: 10, fontWeight: "700", marginTop: 8, textTransform: "uppercase" },
   codeText: { color: colors.text, fontSize: 12, fontWeight: "600", marginTop: 4, backgroundColor: colors.surfaceMuted, borderRadius: 6, padding: 8 },
-  cardActionRow: { flexDirection: "row", gap: 10, marginTop: 12 },
-  cardAction: { alignSelf: "flex-start", marginTop: 12 },
-  cardActionInline: { alignSelf: "flex-start" },
-  cardActionMuted: { color: colors.textMuted, fontSize: 12, fontWeight: "700", marginTop: 12 },
+  cardActionRow: { flexDirection: "row", gap: 8, marginTop: 10 },
+  cardAction: { alignSelf: "flex-start", marginTop: 10, borderRadius: 8 },
+  cardActionInline: { alignSelf: "flex-start", borderRadius: 8 },
+  cardActionContent: { height: 32 },
+  cardActionLabel: { fontSize: 12, fontWeight: "700", marginVertical: 0, marginHorizontal: 10 },
+  cardActionMuted: { color: colors.textMuted, fontSize: 12, fontWeight: "700", marginTop: 10 },
   cardActionDanger: { borderColor: colors.danger },
 
   badge: { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 },
