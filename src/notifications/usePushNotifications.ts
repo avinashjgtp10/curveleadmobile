@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
-import * as Notifications from "expo-notifications";
+import type * as NotificationsType from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { registerPushToken, unregisterPushToken } from "@/api/pushTokens";
@@ -8,9 +8,16 @@ import { saveIncomingPushNotification } from "@/api/notifications";
 import { configureNotificationHandler, registerForPushNotificationsAsync } from "./push";
 import { navigateToNotification, NotificationRouteData } from "./navigateToNotification";
 import { withRetry } from "./retry";
+import { isExpoGo } from "./environment";
 
 const LAST_REGISTERED_TOKEN_KEY = "curvelead_push_token";
 const PLATFORM = Platform.OS === "ios" ? "ios" : "android";
+
+/** Must stay lazy — see push.ts: importing expo-notifications statically crashes Expo Go on Android. */
+function loadNotifications(): typeof NotificationsType {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require("expo-notifications");
+}
 
 function parseNotificationData(raw: unknown): NotificationRouteData {
   if (!raw || typeof raw !== "object") return {};
@@ -38,6 +45,9 @@ async function registerAndPersist(token: string) {
  * token-refresh handling, unregistration on logout, and tap navigation for
  * foreground/background/cold-start notifications.
  *
+ * No-ops entirely in Expo Go (remote push isn't supported there as of SDK 53) — every
+ * effect below checks `isExpoGo` before touching expo-notifications.
+ *
  * Mount this once, inside the authenticated navigation tree, only once the app's router
  * is actually ready to navigate (e.g. after your splash/startup gate has resolved) —
  * navigating before that can silently no-op or throw in expo-router.
@@ -53,7 +63,7 @@ export function usePushNotifications(navigationReady: boolean) {
 
   // Registration lifecycle, tied to login/logout.
   useEffect(() => {
-    if (isLoading) return;
+    if (isExpoGo || isLoading) return;
 
     if (!user) {
       // Logged out: best-effort unregister this device's token so the backend stops
@@ -87,7 +97,7 @@ export function usePushNotifications(navigationReady: boolean) {
 
     // Fires if the underlying push token rotates while the app is running (rare, but
     // documented as possible by Expo — e.g. after a Google Play Services update).
-    const tokenSub = Notifications.addPushTokenListener((event) => {
+    const tokenSub = loadNotifications().addPushTokenListener((event) => {
       registerAndPersist(event.data).catch(() => {});
     });
 
@@ -99,8 +109,8 @@ export function usePushNotifications(navigationReady: boolean) {
 
   // Tap handling: foreground taps and background taps both fire this listener.
   useEffect(() => {
-    if (!navigationReady) return;
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+    if (isExpoGo || !navigationReady) return;
+    const sub = loadNotifications().addNotificationResponseReceivedListener((response) => {
       const data = parseNotificationData(response.notification.request.content.data);
       navigateToNotification(data);
     });
@@ -109,9 +119,9 @@ export function usePushNotifications(navigationReady: boolean) {
 
   // Cold start: the app was launched BY tapping a notification (it wasn't already running).
   useEffect(() => {
-    if (!navigationReady || isLoading || coldStartHandled.current) return;
+    if (isExpoGo || !navigationReady || isLoading || coldStartHandled.current) return;
     coldStartHandled.current = true;
-    Notifications.getLastNotificationResponseAsync().then((response) => {
+    loadNotifications().getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
       const data = parseNotificationData(response.notification.request.content.data);
       navigateToNotification(data);
@@ -121,7 +131,8 @@ export function usePushNotifications(navigationReady: boolean) {
   // Foreground delivery: mirror it into the same local list the Notifications screen reads,
   // so a push that arrives while the app is open shows up there too, not just as a banner.
   useEffect(() => {
-    const sub = Notifications.addNotificationReceivedListener((notification) => {
+    if (isExpoGo) return;
+    const sub = loadNotifications().addNotificationReceivedListener((notification) => {
       const data = parseNotificationData(notification.request.content.data);
       const content = notification.request.content;
       saveIncomingPushNotification({
