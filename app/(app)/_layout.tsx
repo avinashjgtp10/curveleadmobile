@@ -134,7 +134,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  iconActive: { backgroundColor: colors.border },
+  iconActive: { backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.border },
   aiButtonWrap: { flex: 1, top: -14, alignItems: "center", justifyContent: "center", zIndex: 20, elevation: 20 },
   aiButtonGlow: { position: "absolute", top: -5, width: 66, height: 66, borderRadius: 33, backgroundColor: "rgba(16,185,129,0.16)" },
   aiButton: {
