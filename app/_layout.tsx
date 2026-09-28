@@ -16,6 +16,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import * as NativeSplashScreen from "expo-splash-screen";
 import { CurveLeadSplash } from "@/components/CurveLeadSplash";
+import { usePushNotifications } from "@/notifications/usePushNotifications";
 import { colors } from "@/theme";
 import { paperTheme } from "@/theme/paperTheme";
 
@@ -33,6 +34,12 @@ function StartupSplash({ onComplete }: { onComplete: () => void }) {
   return <CurveLeadSplash ready={!isLoading} onComplete={onComplete} />;
 }
 
+/** Navigation is only safe to use once the Stack (below) is actually mounted, i.e. after splash. */
+function PushNotificationsManager({ navigationReady }: { navigationReady: boolean }) {
+  usePushNotifications(navigationReady);
+  return null;
+}
+
 export default function RootLayout() {
   const [splashComplete, setSplashComplete] = useState(false);
   const finishSplash = useCallback(() => setSplashComplete(true), []);
@@ -42,6 +49,7 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={navigationTheme}><View style={{ flex: 1, backgroundColor }}><PaperProvider theme={paperTheme} settings={{ icon: (props) => <MaterialCommunityIcons name={props.name as never} color={props.color} size={props.size} /> }}>
       <AuthProvider>
+        <PushNotificationsManager navigationReady={splashComplete} />
         <StatusBar style="dark" hidden={false} />
         {Platform.OS === "android" && Number(Platform.Version) < 35 && <NativeStatusBar barStyle="dark-content" backgroundColor={backgroundColor} translucent hidden={false} />}
         {splashComplete ? <Stack screenOptions={{ headerShown: false, statusBarStyle: "dark", statusBarHidden: false, contentStyle: { backgroundColor: colors.background } }}>

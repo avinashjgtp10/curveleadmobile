@@ -48,6 +48,13 @@
           },
           "image": "./assets/splash-transparent.png"
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/curvelead-adaptive-icon.png",
+          "color": "#0ea5e9"
+        }
       ]
     ],
     "extra": {
