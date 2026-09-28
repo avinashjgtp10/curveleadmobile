@@ -21,7 +21,8 @@
       "bundleIdentifier": "com.curvelead.mobile"
     },
     "android": {
-      "package": "com.curvelead.mobile",
+      "package": "com.curvelead",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/curvelead-adaptive-icon.png",
         "backgroundColor": "#031d50"
