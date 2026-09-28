@@ -1,6 +1,7 @@
 import { GlassBackground, glass } from "@/components/Glass";
 import { SvgCalendar } from "@/components/ReferenceIcons";
 import { AppNotification, fetchNotifications, markAllNotificationsRead, markNotificationRead } from "@/api/notifications";
+import { navigateToNotification } from "@/notifications/navigateToNotification";
 import { colors } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
@@ -32,19 +33,7 @@ function relativeTime(value?: string) {
 }
 
 function openNotification(item: AppNotification) {
-  if (item.lead_id) {
-    router.push({
-      pathname: "/(app)/leads/[id]",
-      params: {
-        id: item.lead_id,
-        name: item.lead_name || "",
-        phone: item.lead_phone || "",
-        stage: item.lead_stage || "new",
-      },
-    });
-    return;
-  }
-  if (item.type === "followup") router.push("/(app)/followups");
+  navigateToNotification(item);
 }
 
 export default function NotificationsScreen() {

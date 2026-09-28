@@ -109,6 +109,11 @@ export async function markNotificationRead(id: string) {
   await apiClient.put(`/notifications/${id}/read`).catch(() => {});
 }
 
+/** Mirrors an incoming push notification into the same local store the in-app list reads from. */
+export async function saveIncomingPushNotification(input: LocalNotificationInput) {
+  await saveLocalNotification(input);
+}
+
 export async function notifyLeadCreated(lead: { id: string; name: string; phone?: string; stage?: string; source?: string }) {
   await saveLocalNotification({
     title: `New lead created - ${lead.name}`,
