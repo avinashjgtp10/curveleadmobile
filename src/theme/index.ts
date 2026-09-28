@@ -5,7 +5,7 @@ export const colors = {
   primaryPressed: "#0284c7",
   primarySoft: "#e0f2fe",
   accent: "#0ea5e9",
-  background: "#f0f9ff",
+  background: "#FFFFFF",
   surface: "#FFFFFF",
   surfaceMuted: "#f1f5f9",
   text: "#1e293b",

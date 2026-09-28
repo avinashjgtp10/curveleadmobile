@@ -1,7 +1,7 @@
 import React, { useId } from "react";
 import { StyleSheet, View, ViewProps } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Defs, RadialGradient, LinearGradient as SvgGradient, Stop, Rect, Circle, Text as SvgText } from "react-native-svg";
+import Svg, { Defs, LinearGradient as SvgGradient, Stop, Circle, Text as SvgText } from "react-native-svg";
 
 export const gradients = {
   sky: ["#38bdf8", "#3b82f6"], violet: ["#a78bfa", "#a855f7"],
@@ -20,13 +20,7 @@ export function GradientNumber({ value, tone = "sky" }: { value: string; tone?: 
 }
 
 export function GlassBackground({ login = false }: { login?: boolean }) {
-  return <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-    <LinearGradient colors={login ? ["#e0f2fe", "#bae6fd", "#f0f9ff"] : ["#f0f9ff", "#e0f2fe", "#f8faff"]} locations={[0, login ? 0.4 : 0.5, 1]} start={{ x: 0, y: 0 }} end={{ x: 0.34, y: 1 }} style={StyleSheet.absoluteFill} />
-    {!login && <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}><Defs>
-      <RadialGradient id="sky"><Stop offset="0" stopColor="#38bdf8" stopOpacity="0.3"/><Stop offset="1" stopColor="#38bdf8" stopOpacity="0"/></RadialGradient>
-      <RadialGradient id="violet"><Stop offset="0" stopColor="#818cf8" stopOpacity="0.2"/><Stop offset="1" stopColor="#818cf8" stopOpacity="0"/></RadialGradient>
-    </Defs><Rect x="55%" y="-80" width="288" height="288" fill="url(#sky)"/><Rect x="-64" y="40%" width="224" height="224" fill="url(#violet)"/></Svg>}
-  </View>;
+  return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: "#FFFFFF" }]} />;
 }
 
 export function GradientIcon({ children, tone = "sky", size = 40, style }: ViewProps & { tone?: GradientName; size?: number }) {
@@ -40,7 +34,7 @@ export function CurveLeadLogo() {
 }
 
 export const glass = {
-  backgroundColor: "rgba(255,255,255,0.70)", borderWidth: 1,
-  borderColor: "rgba(255,255,255,0.60)", borderRadius: 16,
+  backgroundColor: "#FFFFFF", borderWidth: 1,
+  borderColor: "#bae6fd", borderRadius: 16,
   boxShadow: "0 10px 15px -3px rgba(186,230,253,0.25), 0 4px 6px -4px rgba(186,230,253,0.25)",
 } as const;

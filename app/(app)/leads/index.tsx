@@ -1,5 +1,5 @@
 import { IconChevronRight, IconSearch } from "@/components/ReferenceIcons";
-import { GlassBackground, glass } from "@/components/Glass";
+import { glass } from "@/components/Glass";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert, Linking, Modal, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet,
@@ -408,7 +408,6 @@ export default function LeadsScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      <GlassBackground />
       {loading && !leads.length ? (
         <View style={styles.loadingWrap}>{header}<View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.loadingText}>Loading leads…</Text></View></View>
       ) : error && !leads.length ? (
@@ -625,7 +624,7 @@ export default function LeadsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
+  screen: { flex: 1, backgroundColor: colors.surface },
   loadingWrap: { flex: 1, paddingHorizontal: 16 }, listContent: { paddingHorizontal: 16 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 12, marginBottom: 16 },
   titleRowMain: { flexDirection: "row", alignItems: "center" },
