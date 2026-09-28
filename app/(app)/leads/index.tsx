@@ -1,24 +1,26 @@
 import { IconChevronRight, IconSearch } from "@/components/ReferenceIcons";
-import { GlassBackground, glass, GradientIcon } from "@/components/Glass";
+import { glass } from "@/components/Glass";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert, Linking, Modal, Pressable, RefreshControl, SectionList, StyleSheet,
+  Alert, Linking, Modal, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet,
   Text, View,
 } from "react-native";
 import {
   ActivityIndicator, Avatar, Button, Card, Checkbox, Chip, FAB, IconButton, List, Searchbar,
 } from "react-native-paper";
 import axios from "axios";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "@/theme";
+import { colors, tabBarStyleFor } from "@/theme";
 import { usePermission } from "@/hooks/usePermission";
 import { useStages } from "@/hooks/useStages";
 import {
   bulkDeleteLeads, bulkUpdateLeads, fetchLeads, LeadListItem, trackContactActivity,
 } from "@/api/leads";
 import { fetchStaff, StaffMember } from "@/api/staff";
+import { fetchPreferences, updatePreferences } from "@/api/preferences";
+import { notifyLeadsDeleted } from "@/api/notifications";
 
 const PAGE_SIZE = 25;
 const FILTERS = [
@@ -27,9 +29,47 @@ const FILTERS = [
   { value: "warm", label: "Warm" },
   { value: "cold", label: "Cold" },
 ];
+const SOURCES = [
+  { value: "meta_ads", label: "Meta Ads" },
+  { value: "google_ads", label: "Google Ads" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "referral", label: "Referral" },
+  { value: "manual", label: "Manual" },
+  { value: "website", label: "Website" },
+  { value: "walkin", label: "Walk-in" },
+];
 
 function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
+}
+
+function FilterDropdown({ value, options, open, onToggle, onSelect }: {
+  value: string; options: { value: string; label: string }[]; open: boolean; onToggle: () => void; onSelect: (value: string) => void;
+}) {
+  const selected = options.find((item) => item.value === value) || options[0];
+  return (
+    <>
+      <Pressable style={[styles.filterDropdownField, open && styles.filterDropdownFieldActive]} onPress={onToggle}>
+        <Text style={styles.filterDropdownFieldText}>{selected?.label}</Text>
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
+      </Pressable>
+      {open ? (
+        <ScrollView style={styles.filterDropdownPanel} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+          {options.map((item) => {
+            const isSelected = item.value === value;
+            return (
+              <Pressable
+                key={item.value || "all"} style={[styles.filterDropdownItem, isSelected && styles.filterDropdownItemSelected]}
+                onPress={() => onSelect(item.value)}
+              >
+                <Text style={[styles.filterDropdownItemText, isSelected && styles.filterDropdownItemTextSelected]}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+    </>
+  );
 }
 
 function pretty(value?: string) {
@@ -61,8 +101,8 @@ function dateBucket(value: string) {
   return "Earlier";
 }
 
-function LeadRow({ lead, selectMode, selected, onToggleSelect, colorFor, findStage }: {
-  lead: LeadListItem; selectMode: boolean; selected: boolean; onToggleSelect: () => void;
+function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, colorFor, findStage }: {
+  lead: LeadListItem; selectMode: boolean; selected: boolean; onToggleSelect: () => void; onLongPress: () => void;
   colorFor: (stage?: string) => { bg: string; text: string };
   findStage: (name?: string) => { name: string } | undefined;
 }) {
@@ -75,6 +115,7 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, colorFor, findSta
         pathname: "/(app)/leads/[id]",
         params: { id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage || "new", source: lead.source || "" },
       })}
+      onLongPress={() => { if (!selectMode) onLongPress(); }}
     >
       <Card.Content style={styles.leadRowContent}>
         {selectMode ? (
@@ -101,6 +142,7 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, colorFor, findSta
 
 export default function LeadsScreen() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const { isAdmin } = usePermission();
   const { stages, colorFor, findStage } = useStages();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -131,13 +173,39 @@ export default function LeadsScreen() {
   const [callSheetOpen, setCallSheetOpen] = useState(false);
   const [calledIds, setCalledIds] = useState<Set<string>>(new Set());
 
+  const [filtersSheetOpen, setFiltersSheetOpen] = useState(false);
+  const [filterStage, setFilterStage] = useState("");
+  const [filterSource, setFilterSource] = useState("");
+  const [filterAssignedTo, setFilterAssignedTo] = useState("");
+  const [openFilterDropdown, setOpenFilterDropdown] = useState<"score" | "stage" | "source" | "assigned" | null>(null);
+
+  const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
+  const [hiddenStages, setHiddenStages] = useState<string[]>([]);
+
+  useEffect(() => {
+    const parent = navigation.getParent();
+    const hideBar = filtersSheetOpen || settingsSheetOpen;
+    parent?.setOptions({ tabBarStyle: hideBar ? { display: "none" } : tabBarStyleFor(insets.bottom) });
+    return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
+  }, [filtersSheetOpen, settingsSheetOpen, navigation, insets.bottom]);
+
+  const activeFilterCount = [score, filterStage, filterSource, filterAssignedTo].filter(Boolean).length;
+
   const load = useCallback(async (nextPage = 1, append = false) => {
     const id = ++requestId.current;
     if (append) setLoadingMore(true);
     else setLoading(true);
     setError("");
     try {
-      const result = await fetchLeads({ page: nextPage, limit: PAGE_SIZE, ...(query && { search: query }), ...(score && { score }) });
+      const result = await fetchLeads({
+        page: nextPage, limit: PAGE_SIZE,
+        ...(query && { search: query }),
+        ...(score && { score }),
+        ...(filterStage && { stage: filterStage }),
+        ...(filterSource && { source: filterSource }),
+        ...(filterAssignedTo && { assigned_to: filterAssignedTo }),
+        ...(hiddenStages.length && { hide_stages: hiddenStages.join(",") }),
+      });
       if (id !== requestId.current) return;
       setLeads((current) => append ? [...current, ...result.leads.filter((lead) => !current.some((item) => item.id === lead.id))] : result.leads);
       setPage(result.pagination.page);
@@ -149,10 +217,33 @@ export default function LeadsScreen() {
     } finally {
       if (id === requestId.current) { setLoading(false); setLoadingMore(false); setRefreshing(false); }
     }
-  }, [query, score]);
+  }, [query, score, filterStage, filterSource, filterAssignedTo, hiddenStages]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
   useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); }, []);
+
+  useEffect(() => {
+    fetchPreferences().then((prefs) => setHiddenStages(prefs.hidden_lead_stages || [])).catch(() => {});
+  }, []);
+
+  function toggleHiddenStage(stageName: string) {
+    const key = stageName.toLowerCase();
+    const next = hiddenStages.includes(key) ? hiddenStages.filter((s) => s !== key) : [...hiddenStages, key];
+    setHiddenStages(next);
+    updatePreferences({ hidden_lead_stages: next }).catch(() => setHiddenStages(hiddenStages));
+  }
+
+  function openFiltersSheet() {
+    setFiltersSheetOpen(true);
+    setOpenFilterDropdown(null);
+    if (staff.length || staffLoading) return;
+    setStaffLoading(true); setStaffError("");
+    fetchStaff().then(setStaff).catch((staffErr) => setStaffError(errorMessage(staffErr, "Could not load your team."))).finally(() => setStaffLoading(false));
+  }
+
+  function clearFilters() {
+    setScore(""); setFilterStage(""); setFilterSource(""); setFilterAssignedTo("");
+  }
 
   const sections = useMemo(() => {
     const order: string[] = [];
@@ -180,9 +271,10 @@ export default function LeadsScreen() {
     router.push({ pathname: "/(app)/leads/new", params: { returnTo: "leads" } });
   }
 
-  function enterSelectMode() {
+  function enterSelectMode(id: string) {
+    if (!isAdmin) return;
     setSelectMode(true);
-    setSelectedIds(new Set());
+    setSelectedIds(new Set([id]));
   }
 
   function exitSelectMode() {
@@ -253,7 +345,9 @@ export default function LeadsScreen() {
         { text: "Delete", style: "destructive", onPress: async () => {
           setBulkBusy(true);
           try {
+            const deletedLeads = leads.filter((lead) => selectedIds.has(lead.id)).map((lead) => ({ id: lead.id, name: lead.name }));
             await bulkDeleteLeads(Array.from(selectedIds));
+            notifyLeadsDeleted(deletedLeads).catch(() => {});
             exitSelectMode();
             load();
           } catch (deleteError) {
@@ -274,33 +368,46 @@ export default function LeadsScreen() {
         </View>
       ) : (
         <View style={styles.titleRow}>
-          <View><Text style={styles.title}>Leads</Text><Text style={styles.count}>{total.toLocaleString("en-IN")} total contacts</Text></View>
-          <View style={styles.titleActions}>
-            {isAdmin ? (
-              <Button mode="outlined" onPress={enterSelectMode} compact>Select</Button>
-            ) : null}
-            <Button mode="contained" icon="plus" onPress={goToNewLead} compact>Add lead</Button>
+          <View style={styles.titleRowMain}>
+            {router.canGoBack() ? <IconButton icon="arrow-left" size={22} onPress={() => router.back()} style={styles.backButton} /> : null}
+            <View>
+              <Text style={styles.title}>Leads</Text>
+              <Text style={styles.count}>{total.toLocaleString("en-IN")} total contacts</Text>
+            </View>
           </View>
+          <IconButton icon="cog-outline" size={20} onPress={() => setSettingsSheetOpen(true)} style={styles.settingsButton} />
         </View>
       )}
-      <Searchbar
-        icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 14, minHeight: 48 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
-        placeholder="Search Name/Number/Keywords…" onClearIconPress={() => updateSearch("")}
-      />
-      <View style={styles.filtersRow}>
-        {FILTERS.map((item) => (
-          <Chip key={item.value || "all"} textStyle={{ color: score === item.value ? "#fff" : colors.textSecondary, fontFamily: "Inter_600SemiBold" }} showSelectedCheck={false} selected={score === item.value} onPress={() => setScore(item.value)} style={[styles.filterChip, score === item.value && styles.filterActive]}>
-            {item.label}
-          </Chip>
-        ))}
+      <View style={styles.searchRow}>
+        <Searchbar
+          icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 14, minHeight: 48 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
+          placeholder="Search Name/Number/Keywords…" placeholderTextColor={colors.textMuted} onClearIconPress={() => updateSearch("")}
+        />
+        <Pressable
+          style={[styles.filterButton, activeFilterCount > 0 && styles.filterButtonActive]} onPress={openFiltersSheet}
+          accessibilityLabel={activeFilterCount ? `Filters (${activeFilterCount} active)` : "Filters"}
+        >
+          <Ionicons name="options-outline" size={20} color={activeFilterCount ? "#fff" : colors.textSecondary} />
+        </Pressable>
       </View>
+      {activeFilterCount > 0 ? (
+        <View style={styles.activeChipsRow}>
+          {score ? <Chip compact onClose={() => setScore("")} style={styles.activeChip}>Score: {FILTERS.find((f) => f.value === score)?.label || score}</Chip> : null}
+          {filterStage ? <Chip compact onClose={() => setFilterStage("")} style={styles.activeChip}>Stage: {filterStage}</Chip> : null}
+          {filterSource ? <Chip compact onClose={() => setFilterSource("")} style={styles.activeChip}>Source: {SOURCES.find((s) => s.value === filterSource)?.label || filterSource}</Chip> : null}
+          {filterAssignedTo ? (
+            <Chip compact onClose={() => setFilterAssignedTo("")} style={styles.activeChip}>
+              {filterAssignedTo === "unassigned" ? "Unassigned" : `Assigned: ${staff.find((s) => s.id === filterAssignedTo)?.name || filterAssignedTo}`}
+            </Chip>
+          ) : null}
+        </View>
+      ) : null}
       {error && leads.length ? <Pressable style={styles.inlineError} onPress={() => load()}><Text style={styles.inlineErrorText}>{error} Tap to retry.</Text></Pressable> : null}
     </>
   );
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      <GlassBackground />
       {loading && !leads.length ? (
         <View style={styles.loadingWrap}>{header}<View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.loadingText}>Loading leads…</Text></View></View>
       ) : error && !leads.length ? (
@@ -309,7 +416,7 @@ export default function LeadsScreen() {
         <SectionList
           sections={sections} keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <LeadRow lead={item} selectMode={selectMode} selected={selectedIds.has(item.id)} onToggleSelect={() => toggleSelect(item.id)} colorFor={colorFor} findStage={findStage} />
+            <LeadRow lead={item} selectMode={selectMode} selected={selectedIds.has(item.id)} onToggleSelect={() => toggleSelect(item.id)} onLongPress={() => enterSelectMode(item.id)} colorFor={colorFor} findStage={findStage} />
           )}
           renderSectionHeader={({ section }) => <Text style={styles.sectionHeader}>{section.title}</Text>}
           ListHeaderComponent={header}
@@ -353,7 +460,7 @@ export default function LeadsScreen() {
         <FAB icon="plus" style={[styles.fab, { bottom: insets.bottom + 86 }]} onPress={goToNewLead} color={colors.surface} />
       )}
 
-      <Modal visible={reassignOpen} transparent animationType="fade" onRequestClose={() => !bulkBusy && setReassignOpen(false)}>
+      <Modal visible={reassignOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !bulkBusy && setReassignOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !bulkBusy && setReassignOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -363,47 +470,51 @@ export default function LeadsScreen() {
             ) : staffError ? (
               <Text style={styles.sheetErrorText}>{staffError}</Text>
             ) : (
-              <View style={styles.optionsList}>
-                {staff.map((member) => (
-                  <List.Item
-                    key={member.id} title={member.name}
-                    description={`${pretty(member.role)}${typeof member.assigned_leads === "number" ? ` · ${member.assigned_leads} leads` : ""}`}
-                    onPress={() => reassignTo(member)} disabled={bulkBusy}
-                    right={(props) => bulkBusy ? <ActivityIndicator size="small" /> : <List.Icon {...props} icon="chevron-right" />}
-                  />
-                ))}
-              </View>
+              <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+                <View style={styles.optionsList}>
+                  {staff.map((member) => (
+                    <List.Item
+                      key={member.id} title={member.name}
+                      description={`${pretty(member.role)}${typeof member.assigned_leads === "number" ? ` · ${member.assigned_leads} leads` : ""}`}
+                      onPress={() => reassignTo(member)} disabled={bulkBusy}
+                      right={(props) => bulkBusy ? <ActivityIndicator size="small" /> : <List.Icon {...props} icon="chevron-right" />}
+                    />
+                  ))}
+                </View>
+              </ScrollView>
             )}
             <Button mode="outlined" onPress={() => setReassignOpen(false)} disabled={bulkBusy} style={styles.sheetCancel}>Cancel</Button>
           </Pressable>
         </Pressable>
       </Modal>
 
-      <Modal visible={stageSheetOpen} transparent animationType="fade" onRequestClose={() => !bulkBusy && setStageSheetOpen(false)}>
+      <Modal visible={stageSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !bulkBusy && setStageSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !bulkBusy && setStageSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Move {selectedIds.size} lead{selectedIds.size === 1 ? "" : "s"} to…</Text>
-            <View style={styles.optionsList}>
-              {stages.map((stage) => {
-                const stageColors = colorFor(stage.color);
-                return (
-                  <List.Item
-                    key={stage.id || stage.name} title={stage.name}
-                    onPress={() => changeStageTo(stage.name.toLowerCase())} disabled={bulkBusy}
-                    left={() => <View style={[styles.stageDot, { backgroundColor: stageColors.text }]} />}
-                    right={(props) => bulkBusy ? <ActivityIndicator size="small" /> : <List.Icon {...props} icon="chevron-right" />}
-                  />
-                );
-              })}
-              {!stages.length ? <Text style={styles.sheetHintText}>Loading stages…</Text> : null}
-            </View>
+            <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+              <View style={styles.optionsList}>
+                {stages.map((stage) => {
+                  const stageColors = colorFor(stage.color);
+                  return (
+                    <List.Item
+                      key={stage.id || stage.name} title={stage.name}
+                      onPress={() => changeStageTo(stage.name.toLowerCase())} disabled={bulkBusy}
+                      left={() => <View style={[styles.stageDot, { backgroundColor: stageColors.text }]} />}
+                      right={(props) => bulkBusy ? <ActivityIndicator size="small" /> : <List.Icon {...props} icon="chevron-right" />}
+                    />
+                  );
+                })}
+                {!stages.length ? <Text style={styles.sheetHintText}>Loading stages…</Text> : null}
+              </View>
+            </ScrollView>
             <Button mode="outlined" onPress={() => setStageSheetOpen(false)} disabled={bulkBusy} style={styles.sheetCancel}>Cancel</Button>
           </Pressable>
         </Pressable>
       </Modal>
 
-      <Modal visible={callSheetOpen} transparent animationType="fade" onRequestClose={() => setCallSheetOpen(false)}>
+      <Modal visible={callSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setCallSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setCallSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -423,21 +534,128 @@ export default function LeadsScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal visible={filtersSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setFiltersSheetOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setFiltersSheetOpen(false)}>
+          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Filters</Text>
+            <ScrollView style={styles.filterScroll} showsVerticalScrollIndicator={false} nestedScrollEnabled>
+              <Text style={styles.filterSectionLabel}>Score</Text>
+              <FilterDropdown
+                value={score} options={FILTERS}
+                open={openFilterDropdown === "score"}
+                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "score" ? null : "score")}
+                onSelect={(value) => { setScore(value); setOpenFilterDropdown(null); }}
+              />
+
+              <Text style={styles.filterSectionLabel}>Stage</Text>
+              <FilterDropdown
+                value={filterStage} options={[{ value: "", label: "All stages" }, ...stages.map((item) => ({ value: item.name, label: item.name }))]}
+                open={openFilterDropdown === "stage"}
+                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "stage" ? null : "stage")}
+                onSelect={(value) => { setFilterStage(value); setOpenFilterDropdown(null); }}
+              />
+
+              <Text style={styles.filterSectionLabel}>Source</Text>
+              <FilterDropdown
+                value={filterSource} options={[{ value: "", label: "All sources" }, ...SOURCES]}
+                open={openFilterDropdown === "source"}
+                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "source" ? null : "source")}
+                onSelect={(value) => { setFilterSource(value); setOpenFilterDropdown(null); }}
+              />
+
+              <Text style={styles.filterSectionLabel}>Assigned To</Text>
+              {staffLoading ? (
+                <ActivityIndicator size="small" style={styles.filterStaffLoader} />
+              ) : staffError ? (
+                <Text style={styles.sheetErrorText}>{staffError}</Text>
+              ) : (
+                <FilterDropdown
+                  value={filterAssignedTo}
+                  options={[
+                    { value: "", label: "All staff" }, { value: "unassigned", label: "Unassigned" },
+                    ...staff.map((member) => ({ value: member.id, label: member.name })),
+                  ]}
+                  open={openFilterDropdown === "assigned"}
+                  onToggle={() => setOpenFilterDropdown(openFilterDropdown === "assigned" ? null : "assigned")}
+                  onSelect={(value) => { setFilterAssignedTo(value); setOpenFilterDropdown(null); }}
+                />
+              )}
+            </ScrollView>
+            <View style={styles.filterSheetActions}>
+              <Button mode="outlined" onPress={clearFilters} style={styles.filterSheetButton}>Clear</Button>
+              <Button mode="contained" onPress={() => setFiltersSheetOpen(false)} style={styles.filterSheetButton}>Done</Button>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={settingsSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setSettingsSheetOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setSettingsSheetOpen(false)}>
+          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Hide stages</Text>
+            <Text style={styles.sheetHintText}>Hidden stages won&apos;t show up in your leads list. Synced across web and mobile.</Text>
+            <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+              <View style={styles.optionsList}>
+                {stages.map((item, index) => {
+                  const itemColors = colorFor(item.color);
+                  const hidden = hiddenStages.includes(item.name.toLowerCase());
+                  return (
+                    <List.Item
+                      key={item.id || item.name} title={item.name} titleStyle={styles.stageListText}
+                      onPress={() => toggleHiddenStage(item.name)}
+                      style={[styles.hideStageRow, index === stages.length - 1 && styles.hideStageRowLast]}
+                      left={() => <View style={[styles.stageDot, { backgroundColor: itemColors.text }]} />}
+                      right={(props) => <List.Icon {...props} icon={hidden ? "eye-off-outline" : "eye-outline"} color={hidden ? colors.textMuted : colors.primary} />}
+                    />
+                  );
+                })}
+                {!stages.length ? <Text style={styles.sheetHintText}>Loading stages…</Text> : null}
+              </View>
+            </ScrollView>
+            <Button mode="outlined" onPress={() => setSettingsSheetOpen(false)} style={styles.sheetCancel}>Done</Button>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
+  screen: { flex: 1, backgroundColor: colors.surface },
   loadingWrap: { flex: 1, paddingHorizontal: 16 }, listContent: { paddingHorizontal: 16 },
-  titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16 },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 12, marginBottom: 16 },
+  titleRowMain: { flexDirection: "row", alignItems: "center" },
+  backButton: { margin: 0, marginRight: 4 },
   title: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" }, count: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
-  titleActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   selectHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16, height: 40 },
   selectCount: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  searchBox: { ...glass, marginBottom: 4 },
-  filtersRow: { flexDirection: "row", gap: 8, paddingTop: 13, paddingBottom: 6, flexWrap: "wrap" },
-  filterChip: { ...glass, borderRadius: 12 }, filterActive: { backgroundColor: colors.primary },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
+  searchBox: { ...glass, flex: 1 },
+  filterButton: { ...glass, width: 48, height: 48, alignItems: "center", justifyContent: "center" },
+  filterButtonActive: { backgroundColor: colors.primary },
+  settingsButton: { margin: 0 },
+  activeChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
+  activeChip: {},
+  filterScroll: { maxHeight: "70%" },
+  sheetScroll: { maxHeight: "55%" },
+  filterSectionLabel: { color: colors.text, fontSize: 12, fontWeight: "700", marginTop: 14, marginBottom: 8 },
+  filterStaffLoader: { marginVertical: 12 },
+  filterDropdownField: { height: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  filterDropdownFieldActive: { borderColor: colors.primary, borderWidth: 2 },
+  filterDropdownFieldText: { color: colors.text, fontSize: 14, fontWeight: "600" },
+  filterDropdownPanel: {
+    marginTop: 6, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft,
+    paddingVertical: 4, maxHeight: 220,
+  },
+  filterDropdownItem: { paddingHorizontal: 16, paddingVertical: 12 },
+  filterDropdownItemSelected: { backgroundColor: colors.primarySoft },
+  filterDropdownItemText: { color: colors.primary, fontSize: 14, fontWeight: "500" },
+  filterDropdownItemTextSelected: { color: colors.text, fontWeight: "700" },
+  filterSheetActions: { flexDirection: "row", gap: 10, marginTop: 14 },
+  filterSheetButton: { flex: 1 },
   sectionHeader: { color: colors.textMuted, fontSize: 12, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 1.2, paddingVertical: 8, paddingHorizontal: 4, marginTop: 8, marginBottom: 4 },
   leadRow: { ...glass, marginBottom: 8 }, pressed: { opacity: 0.7 },
   leadRowContent: { flexDirection: "row", alignItems: "center", minHeight: 66 },
@@ -469,4 +687,7 @@ const styles = StyleSheet.create({
 
   optionsList: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
   stageDot: { width: 10, height: 10, borderRadius: 5, alignSelf: "center", marginLeft: 16, marginRight: -8 },
+  stageListText: { color: colors.text, fontSize: 14, fontWeight: "600" },
+  hideStageRow: { borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
+  hideStageRowLast: { borderBottomWidth: 0 },
 });

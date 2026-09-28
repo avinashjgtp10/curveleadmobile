@@ -113,7 +113,9 @@ function ActionBox({ icon, value, chip, placeholder = "Not set", onPress }: {
     <View style={styles.inputArea}>
       <Ionicons name={icon} size={16} color={colors.textSecondary} style={styles.inputIcon} />
       {chip ? (
-        <View style={[styles.statusChip, { backgroundColor: chip.bg }]}><Text style={[styles.statusChipText, { color: chip.text }]}>{chip.label}</Text></View>
+        <View style={styles.chipWrap}>
+          <View style={[styles.statusChip, { backgroundColor: chip.bg }]}><Text style={[styles.statusChipText, { color: chip.text }]}>{chip.label}</Text></View>
+        </View>
       ) : (
         <Text style={styles.inputAreaText} numberOfLines={1}>{value || placeholder}</Text>
       )}
@@ -520,7 +522,7 @@ export default function LeadDetailScreen() {
         )}
       </ScrollView>
 
-      <Modal visible={stageSheetOpen} transparent animationType="fade" onRequestClose={closeStageSheet}>
+      <Modal visible={stageSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeStageSheet}>
         <Pressable style={styles.sheetBackdrop} onPress={closeStageSheet}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -572,7 +574,7 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={statusSheetOpen} transparent animationType="fade" onRequestClose={() => !updatingStatus && setStatusSheetOpen(false)}>
+      <Modal visible={statusSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !updatingStatus && setStatusSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !updatingStatus && setStatusSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -598,7 +600,7 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={followupSheetOpen} transparent animationType="fade" onRequestClose={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
+      <Modal visible={followupSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -628,7 +630,7 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={activityOptionsOpen} transparent animationType="fade" onRequestClose={() => setActivityOptionsOpen(false)}>
+      <Modal visible={activityOptionsOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setActivityOptionsOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setActivityOptionsOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -647,7 +649,7 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={logSheetOpen} transparent animationType="fade" onRequestClose={() => !loggingActivity && setLogSheetOpen(false)}>
+      <Modal visible={logSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !loggingActivity && setLogSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !loggingActivity && setLogSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -736,7 +738,8 @@ const styles = StyleSheet.create({
   inputActions: { flexDirection: "row", alignItems: "center", marginLeft: 8 },
   inputActionButton: { margin: 0 },
 
-  statusChip: { flex: 1, alignSelf: "flex-start", borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
+  chipWrap: { flex: 1, alignItems: "flex-start" },
+  statusChip: { borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
   statusChipText: { fontSize: 13, fontWeight: "700" },
   moneyHint: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginTop: -12, marginBottom: 18 },
 

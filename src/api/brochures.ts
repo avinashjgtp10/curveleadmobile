@@ -9,6 +9,8 @@ export interface Brochure {
   file_size: number;
   mime_type: string;
   created_at: string;
+  views?: number;
+  times_shared?: number;
 }
 
 export async function fetchBrochures() {

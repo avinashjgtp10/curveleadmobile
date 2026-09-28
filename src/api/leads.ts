@@ -63,6 +63,9 @@ export async function fetchLeads(params?: {
   search?: string;
   score?: string;
   stage?: string;
+  source?: string;
+  assigned_to?: string;
+  hide_stages?: string;
   page?: number;
   limit?: number;
 }) {

@@ -1,14 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View,
+  Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, View,
 } from "react-native";
 import { Appbar, Button, Card, Chip, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
-import { router } from "expo-router";
+import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "@/theme";
-import { createQuotation, QuotationItem } from "@/api/quotations";
+import { colors, tabBarStyleFor } from "@/theme";
+import { createQuotation, CreateQuotationInput, Quotation, QuotationItem, sendQuotation } from "@/api/quotations";
 import { fetchLeads, LeadListItem } from "@/api/leads";
 
 const VALID_UNTIL_OPTIONS = [
@@ -31,7 +31,16 @@ function money(value: number) {
 
 export default function NewQuotationScreen() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const parent = navigation.getParent();
+      parent?.setOptions({ tabBarStyle: { display: "none" } });
+      return () => parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) });
+    }, [navigation, insets.bottom])
+  );
   const [leadQuery, setLeadQuery] = useState("");
   const [leadResults, setLeadResults] = useState<LeadListItem[]>([]);
   const [selectedLead, setSelectedLead] = useState<LeadListItem | null>(null);
@@ -42,8 +51,10 @@ export default function NewQuotationScreen() {
   const [validUntilDays, setValidUntilDays] = useState<number | null>(null);
   const [terms, setTerms] = useState("");
   const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const saving = savingDraft || sending;
 
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -67,37 +78,66 @@ export default function NewQuotationScreen() {
   const taxAmount = ((subtotal - discountAmount) * (Number(taxPercent) || 0)) / 100;
   const total = subtotal - discountAmount + taxAmount;
 
-  async function save() {
-    if (!selectedLead) { setError("Search and select a lead first."); return; }
+  function buildInput(): CreateQuotationInput | null {
+    if (!selectedLead) { setError("Search and select a lead first."); return null; }
     const validItems = items.filter((item) => item.name.trim());
-    if (!validItems.length) { setError("Add at least one item with a name."); return; }
-    setSaving(true); setError("");
+    if (!validItems.length) { setError("Add at least one item with a name."); return null; }
+    const validUntil = validUntilDays ? new Date(Date.now() + validUntilDays * 86400000).toISOString().slice(0, 10) : undefined;
+    return {
+      lead_id: selectedLead.id,
+      title: title.trim() || undefined,
+      items: validItems,
+      discount_percent: Number(discountPercent) || 0,
+      tax_percent: Number(taxPercent) || 0,
+      valid_until: validUntil,
+      terms: terms.trim() || undefined,
+      notes: notes.trim() || undefined,
+    };
+  }
+
+  async function saveDraft() {
+    const input = buildInput();
+    if (!input) return;
+    setSavingDraft(true); setError("");
     try {
-      const validUntil = validUntilDays ? new Date(Date.now() + validUntilDays * 86400000).toISOString().slice(0, 10) : undefined;
-      const quotation = await createQuotation({
-        lead_id: selectedLead.id,
-        title: title.trim() || undefined,
-        items: validItems,
-        discount_percent: Number(discountPercent) || 0,
-        tax_percent: Number(taxPercent) || 0,
-        valid_until: validUntil,
-        terms: terms.trim() || undefined,
-        notes: notes.trim() || undefined,
-      });
+      const quotation = await createQuotation(input);
       router.replace(`/(app)/more/quotations/${quotation.id}`);
     } catch (saveError) {
       setError(errorMessage(saveError, "Could not create this quotation."));
-    } finally { setSaving(false); }
+    } finally { setSavingDraft(false); }
+  }
+
+  async function saveAndSend() {
+    const input = buildInput();
+    if (!input) return;
+    setSending(true); setError("");
+    let quotation: Quotation | null = null;
+    try {
+      quotation = await createQuotation(input);
+    } catch (saveError) {
+      setError(errorMessage(saveError, "Could not create this quotation."));
+      setSending(false);
+      return;
+    }
+    try {
+      const { whatsapp_url } = await sendQuotation(quotation.id);
+      if (whatsapp_url) await Linking.openURL(whatsapp_url);
+    } catch (sendError) {
+      Alert.alert("Created, but couldn't send", errorMessage(sendError, "The quotation was saved as a draft — you can send it from its detail page."));
+    } finally {
+      setSending(false);
+      router.replace(`/(app)/more/quotations/${quotation.id}`);
+    }
   }
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Create Quotation" titleStyle={styles.headerTitle} />
+        <Appbar.Content title="New Quotation" titleStyle={styles.headerTitle} />
       </Appbar.Header>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         {error ? <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{error}</Text></View> : null}
 
         <Text style={styles.label}>Lead <Text style={styles.required}>*</Text></Text>
@@ -121,7 +161,10 @@ export default function NewQuotationScreen() {
 
         <TextInput mode="outlined" label="Title (optional)" value={title} onChangeText={setTitle} placeholder="e.g. Website Redesign Project" style={styles.field} />
 
-        <Text style={styles.label}>Items <Text style={styles.required}>*</Text></Text>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={[styles.label, styles.sectionHeaderLabel]}>Line Items <Text style={styles.required}>*</Text></Text>
+          <Button mode="text" icon="plus" compact onPress={() => setItems((current) => [...current, emptyItem()])}>Add Item</Button>
+        </View>
         {items.map((item, index) => (
           <Card key={index} mode="outlined" style={styles.itemRow}>
             <Card.Content>
@@ -129,6 +172,7 @@ export default function NewQuotationScreen() {
                 <TextInput mode="outlined" dense value={item.name} onChangeText={(value) => updateItem(index, { name: value })} placeholder="Item name" style={styles.itemNameInput} />
                 <IconButton icon="close-circle" size={20} iconColor={colors.danger} style={styles.removeItemButton} onPress={() => removeItem(index)} />
               </View>
+              <TextInput mode="outlined" dense value={item.description || ""} onChangeText={(value) => updateItem(index, { description: value })} placeholder="Description (optional)" style={styles.itemDescriptionInput} />
               <View style={styles.itemBottom}>
                 <TextInput mode="outlined" dense value={String(item.quantity)} onChangeText={(value) => updateItem(index, { quantity: Number(value.replace(/[^\d]/g, "")) || 0 })} placeholder="Qty" keyboardType="number-pad" style={styles.itemQtyInput} />
                 <TextInput mode="outlined" dense value={String(item.price)} onChangeText={(value) => updateItem(index, { price: Number(value.replace(/[^\d.]/g, "")) || 0 })} placeholder="Price" keyboardType="decimal-pad" style={styles.itemPriceInput} />
@@ -137,11 +181,11 @@ export default function NewQuotationScreen() {
             </Card.Content>
           </Card>
         ))}
-        <Button mode="text" icon="plus" compact style={styles.addItemButton} onPress={() => setItems((current) => [...current, emptyItem()])}>Add item</Button>
 
+        <Text style={[styles.label, styles.sectionHeaderLabel]}>Totals &amp; Terms</Text>
         <View style={styles.twoUp}>
           <TextInput mode="outlined" label="Discount %" value={discountPercent} onChangeText={(value) => setDiscountPercent(value.replace(/[^\d.]/g, ""))} keyboardType="decimal-pad" style={styles.twoUpItem} />
-          <TextInput mode="outlined" label="Tax %" value={taxPercent} onChangeText={(value) => setTaxPercent(value.replace(/[^\d.]/g, ""))} keyboardType="decimal-pad" style={styles.twoUpItem} />
+          <TextInput mode="outlined" label="Tax % (GST)" value={taxPercent} onChangeText={(value) => setTaxPercent(value.replace(/[^\d.]/g, ""))} keyboardType="decimal-pad" style={styles.twoUpItem} />
         </View>
 
         <Text style={styles.label}>Valid Until</Text>
@@ -153,21 +197,27 @@ export default function NewQuotationScreen() {
           ))}
         </View>
 
-        <TextInput mode="outlined" label="Terms (optional)" value={terms} onChangeText={setTerms} placeholder="Payment terms, delivery timeline…" multiline numberOfLines={3} style={styles.field} />
-        <TextInput mode="outlined" label="Notes (optional)" value={notes} onChangeText={setNotes} placeholder="Internal notes…" multiline numberOfLines={3} style={styles.field} />
+        <TextInput mode="outlined" label="Terms & Conditions (optional)" value={terms} onChangeText={setTerms} placeholder="e.g. 50% advance, balance on delivery." multiline numberOfLines={3} style={styles.field} />
+        <TextInput mode="outlined" label="Notes, visible to client (optional)" value={notes} onChangeText={setNotes} multiline numberOfLines={3} style={styles.field} />
 
         <Card mode="outlined" style={styles.summaryCard}>
           <Card.Content>
             <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Subtotal</Text><Text style={styles.summaryValue}>{money(subtotal)}</Text></View>
             <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Discount ({discountPercent || 0}%)</Text><Text style={styles.summaryValue}>-{money(discountAmount)}</Text></View>
-            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Tax ({taxPercent || 0}%)</Text><Text style={styles.summaryValue}>{money(taxAmount)}</Text></View>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Tax ({taxPercent || 0}%)</Text><Text style={styles.summaryValue}>+{money(taxAmount)}</Text></View>
             <View style={[styles.summaryRow, styles.summaryTotalRow]}><Text style={styles.summaryTotalLabel}>Total</Text><Text style={styles.summaryTotalValue}>{money(total)}</Text></View>
           </Card.Content>
         </Card>
       </ScrollView>
 
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-        <Button mode="contained" onPress={save} loading={saving} disabled={saving} contentStyle={styles.saveButtonContent}>Create Quotation</Button>
+        <View style={styles.bottomBarRow}>
+          <Button mode="outlined" onPress={() => router.back()} disabled={saving} style={styles.cancelButton} contentStyle={styles.saveButtonContent}>Cancel</Button>
+          <Button mode="contained-tonal" icon="content-save-outline" onPress={saveDraft} loading={savingDraft} disabled={saving} style={styles.draftButton} contentStyle={styles.saveButtonContent}>Save Draft</Button>
+        </View>
+        <Button mode="contained" icon="send" onPress={saveAndSend} loading={sending} disabled={saving} contentStyle={styles.saveButtonContent} style={styles.sendButton}>
+          Save & Send on WhatsApp
+        </Button>
       </View>
     </KeyboardAvoidingView>
   );
@@ -177,41 +227,48 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   header: { backgroundColor: colors.surface },
   headerTitle: { fontSize: 16, fontWeight: "700" },
-  content: { padding: 18 },
-  errorBanner: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 12, marginBottom: 12 },
+  scroll: { flex: 1 },
+  content: { padding: 14 },
+  errorBanner: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10, marginBottom: 10 },
   errorBannerText: { color: colors.danger, fontSize: 12, fontWeight: "600", textAlign: "center" },
 
-  label: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 7, marginTop: 16 },
+  label: { color: colors.text, fontSize: 12, fontWeight: "700", marginBottom: 5, marginTop: 12 },
   required: { color: colors.danger },
-  field: { marginTop: 16 },
+  field: { marginTop: 12 },
+  sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sectionHeaderLabel: { fontSize: 14, fontWeight: "800", marginBottom: 2 },
 
-  searchInput: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8 },
-  suggestions: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, marginTop: 8, overflow: "hidden" },
-  selectedLead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 46, paddingHorizontal: 14, backgroundColor: colors.primarySoft, borderRadius: 8 },
-  selectedLeadText: { flex: 1, color: colors.primary, fontSize: 14, fontWeight: "700" },
+  searchInput: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, minHeight: 42 },
+  suggestions: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, marginTop: 6, overflow: "hidden" },
+  selectedLead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 42, paddingHorizontal: 12, backgroundColor: colors.primarySoft, borderRadius: 8 },
+  selectedLeadText: { flex: 1, color: colors.primary, fontSize: 13, fontWeight: "700" },
 
-  itemRow: { marginTop: 10 },
+  itemRow: { marginTop: 8 },
   itemTop: { flexDirection: "row", alignItems: "center" },
   itemNameInput: { flex: 1 },
+  itemDescriptionInput: { marginTop: 6 },
   removeItemButton: { margin: 0 },
-  itemBottom: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
-  itemQtyInput: { width: 70 },
+  itemBottom: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
+  itemQtyInput: { width: 64 },
   itemPriceInput: { flex: 1 },
-  itemLineTotal: { width: 80, textAlign: "right", color: colors.text, fontSize: 13, fontWeight: "700" },
-  addItemButton: { alignSelf: "flex-start", marginTop: 4 },
+  itemLineTotal: { width: 72, textAlign: "right", color: colors.text, fontSize: 12, fontWeight: "700" },
 
-  twoUp: { flexDirection: "row", gap: 12, marginTop: 16 },
+  twoUp: { flexDirection: "row", gap: 10, marginTop: 12 },
   twoUpItem: { flex: 1 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
 
-  summaryCard: { marginTop: 22 },
-  summaryRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 5 },
+  summaryCard: { marginTop: 16 },
+  summaryRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 4 },
   summaryLabel: { color: colors.textSecondary, fontSize: 12 },
   summaryValue: { color: colors.text, fontSize: 12, fontWeight: "700" },
-  summaryTotalRow: { borderTopWidth: 1, borderTopColor: colors.borderSoft, marginTop: 6, paddingTop: 10 },
-  summaryTotalLabel: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  summaryTotalValue: { color: colors.primary, fontSize: 16, fontWeight: "800" },
+  summaryTotalRow: { borderTopWidth: 1, borderTopColor: colors.borderSoft, marginTop: 4, paddingTop: 8 },
+  summaryTotalLabel: { color: colors.text, fontSize: 13, fontWeight: "800" },
+  summaryTotalValue: { color: colors.primary, fontSize: 15, fontWeight: "800" },
 
-  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 12, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSoft },
-  saveButtonContent: { height: 50 },
+  bottomBar: { paddingHorizontal: 14, paddingTop: 10, gap: 8, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSoft },
+  bottomBarRow: { flexDirection: "row", gap: 8 },
+  cancelButton: { flex: 1 },
+  draftButton: { flex: 1 },
+  sendButton: {},
+  saveButtonContent: { height: 42 },
 });

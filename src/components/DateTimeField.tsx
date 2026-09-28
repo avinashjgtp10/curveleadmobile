@@ -16,9 +16,16 @@ function formatDateTime(date: Date) {
   return date.toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export function DateTimeField({ value, onChange, minimumDate }: { value: Date; onChange: (date: Date) => void; minimumDate?: Date }) {
+function formatDateOnly(date: Date) {
+  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+export function DateTimeField({ value, onChange, minimumDate, mode = "datetime" }: {
+  value: Date; onChange: (date: Date) => void; minimumDate?: Date; mode?: "date" | "datetime";
+}) {
   const [iosPickerOpen, setIosPickerOpen] = useState(false);
   const [draft, setDraft] = useState(value);
+  const dateOnly = mode === "date";
 
   function open() {
     if (Platform.OS === "android") {
@@ -28,6 +35,7 @@ export function DateTimeField({ value, onChange, minimumDate }: { value: Date; o
         minimumDate,
         onChange: (dateEvent, pickedDate) => {
           if (dateEvent.type !== "set" || !pickedDate) return;
+          if (dateOnly) { onChange(pickedDate); return; }
           DateTimePickerAndroid.open({
             value: pickedDate,
             mode: "time",
@@ -50,7 +58,7 @@ export function DateTimeField({ value, onChange, minimumDate }: { value: Date; o
     <>
       <Pressable style={styles.field} onPress={open}>
         <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} style={styles.icon} />
-        <Text style={styles.fieldText}>{formatDateTime(value)}</Text>
+        <Text style={styles.fieldText}>{dateOnly ? formatDateOnly(value) : formatDateTime(value)}</Text>
         <Ionicons name="pencil" size={13} color={colors.textSecondary} />
       </Pressable>
 
@@ -59,7 +67,7 @@ export function DateTimeField({ value, onChange, minimumDate }: { value: Date; o
           <Pressable style={styles.backdrop} onPress={() => setIosPickerOpen(false)}>
             <Pressable style={styles.sheet} onPress={() => {}}>
               <View style={styles.sheetHandle} />
-              <DateTimePicker value={draft} mode="datetime" display="spinner" minimumDate={minimumDate} onChange={(_, date) => date && setDraft(date)} />
+              <DateTimePicker value={draft} mode={dateOnly ? "date" : "datetime"} display="spinner" minimumDate={minimumDate} onChange={(_, date) => date && setDraft(date)} />
               <Button mode="contained" onPress={() => { onChange(draft); setIosPickerOpen(false); }} style={styles.doneButton} contentStyle={styles.doneButtonContent}>Done</Button>
             </Pressable>
           </Pressable>

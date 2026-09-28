@@ -1,13 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View,
+  Alert, Linking, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View, useWindowDimensions,
 } from "react-native";
-import { ActivityIndicator, Appbar, Button, Card, Chip, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
+import { ActivityIndicator, Appbar, Button, Card, Chip, HelperText, IconButton, List, Searchbar, Text } from "react-native-paper";
 import axios from "axios";
-import { router } from "expo-router";
+import { router, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "@/theme";
+import { colors, tabBarStyleFor } from "@/theme";
 import {
   createTemplate, deleteTemplate, fetchTemplates, MessageTemplate, sendTemplate,
   TemplateChannel, updateTemplate,
@@ -19,10 +19,6 @@ const CHANNELS: { key: TemplateChannel; label: string; icon: keyof typeof Ionico
   { key: "sms", label: "SMS", icon: "chatbubble-outline", color: "#A01439" },
   { key: "email", label: "Email", icon: "mail-outline", color: "#1D61E7" },
 ];
-
-function channelMeta(channel: string) {
-  return CHANNELS.find((item) => item.key === channel) || CHANNELS[0];
-}
 
 function relativeTime(value?: string) {
   if (!value) return "";
@@ -39,8 +35,30 @@ function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
 
+function LabeledInput({ label, required, value, onChangeText, placeholder, error, helperText, multiline, numberOfLines, ...inputProps }: {
+  label: string; required?: boolean; value: string; onChangeText: (value: string) => void; placeholder?: string;
+  error?: boolean; helperText?: string; multiline?: boolean; numberOfLines?: number;
+} & Omit<React.ComponentProps<typeof RNTextInput>, "value" | "onChangeText" | "placeholder" | "multiline" | "numberOfLines" | "style">) {
+  return (
+    <>
+      <Text style={styles.fieldLabel}>{label}{required ? <Text style={styles.required}> *</Text> : null}</Text>
+      <View style={[styles.inputBox, multiline && styles.inputBoxMultiline, error && styles.inputError]}>
+        <RNTextInput
+          style={[styles.inputBoxText, multiline && styles.inputBoxTextMultiline]}
+          value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.textMuted}
+          multiline={multiline} numberOfLines={numberOfLines} textAlignVertical={multiline ? "top" : "center"}
+          {...inputProps}
+        />
+      </View>
+      {helperText ? <HelperText type="error" visible={!!error}>{helperText}</HelperText> : null}
+    </>
+  );
+}
+
 export default function TemplatesScreen() {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const navigation = useNavigation();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +72,7 @@ export default function TemplatesScreen() {
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; message?: string }>({});
 
   const [sendOpen, setSendOpen] = useState(false);
   const [sendTarget, setSendTarget] = useState<MessageTemplate | null>(null);
@@ -71,6 +90,13 @@ export default function TemplatesScreen() {
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
+    const parent = navigation.getParent();
+    const hideBar = editOpen || sendOpen;
+    parent?.setOptions({ tabBarStyle: hideBar ? { display: "none" } : tabBarStyleFor(insets.bottom) });
+    return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
+  }, [editOpen, sendOpen, navigation, insets.bottom]);
+
+  useEffect(() => {
     if (!sendOpen) return;
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (!leadQuery.trim()) { setLeadResults([]); return; }
@@ -81,17 +107,32 @@ export default function TemplatesScreen() {
   }, [leadQuery, sendOpen]);
 
   function openCreate() {
-    setEditing(null); setName(""); setCategory(""); setChannel("whatsapp"); setMessage(""); setFormError("");
+    setEditing(null); setName(""); setCategory(""); setChannel("whatsapp"); setMessage(""); setFormError(""); setFieldErrors({});
     setEditOpen(true);
   }
 
   function openEdit(template: MessageTemplate) {
-    setEditing(template); setName(template.name); setCategory(template.category); setChannel(template.channel); setMessage(template.message); setFormError("");
+    setEditing(template); setName(template.name); setCategory(template.category); setChannel(template.channel); setMessage(template.message); setFormError(""); setFieldErrors({});
     setEditOpen(true);
   }
 
+  function errorFor(field: "name" | "message"): string | undefined {
+    if (field === "name") return !name.trim() ? "Enter a template name" : undefined;
+    return !message.trim() ? "Enter a message" : undefined;
+  }
+
+  function validateField(field: "name" | "message") {
+    setFieldErrors((current) => ({ ...current, [field]: errorFor(field) }));
+  }
+
+  function validate() {
+    const next = { name: errorFor("name"), message: errorFor("message") };
+    setFieldErrors(next);
+    return !next.name && !next.message;
+  }
+
   async function save() {
-    if (!name.trim() || !message.trim()) { setFormError("Name and message are required."); return; }
+    if (!validate()) return;
     setSaving(true); setFormError("");
     try {
       const input = { name: name.trim(), category: category.trim() || "general", channel, message: message.trim() };
@@ -150,15 +191,10 @@ export default function TemplatesScreen() {
       ) : (
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
           {templates.length ? templates.map((template) => {
-            const meta = channelMeta(template.channel);
             return (
               <Card key={template.id} mode="outlined" style={styles.card} onPress={() => openEdit(template)}>
                 <Card.Content>
                   <View style={styles.cardTopRow}>
-                    <View style={[styles.channelPill, { backgroundColor: `${meta.color}1A` }]}>
-                      <Ionicons name={meta.icon} size={13} color={meta.color} />
-                      <Text style={[styles.channelPillText, { color: meta.color }]}>{meta.label}</Text>
-                    </View>
                     <View style={styles.cardActions}>
                       <IconButton icon="send-outline" size={16} iconColor={colors.primary} style={styles.iconButton} onPress={() => openSend(template)} />
                       <IconButton icon="trash-can-outline" size={16} iconColor={colors.danger} style={styles.iconButton} onPress={() => confirmDelete(template)} />
@@ -180,42 +216,49 @@ export default function TemplatesScreen() {
         </ScrollView>
       )}
 
-      <Modal visible={editOpen} transparent animationType="fade" onRequestClose={() => !saving && setEditOpen(false)}>
+      {editOpen ? (
         <Pressable style={styles.sheetBackdrop} onPress={() => !saving && setEditOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+          <Pressable style={[styles.sheet, { maxHeight: windowHeight * 0.88, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>{editing ? "Edit Template" : "New Template"}</Text>
-            {formError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{formError}</Text></View> : null}
+            <ScrollView
+              style={{ maxHeight: windowHeight * 0.68 }}
+              showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"
+            >
+              {formError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{formError}</Text></View> : null}
 
-            <TextInput mode="outlined" label="Name *" value={name} onChangeText={setName} placeholder="e.g. First Follow-up" style={styles.sheetField} />
-            <TextInput mode="outlined" label="Category" value={category} onChangeText={setCategory} placeholder="e.g. Follow-up, Greeting, Offer" style={styles.sheetField} />
+              <LabeledInput
+                label="Name" required value={name} onChangeText={setName} placeholder="e.g. First Follow-up"
+                onBlur={() => validateField("name")} error={!!fieldErrors.name} helperText={fieldErrors.name}
+              />
+              <LabeledInput label="Category" value={category} onChangeText={setCategory} placeholder="e.g. Follow-up, Greeting, Offer" />
 
-            <Text style={styles.sheetSectionLabel}>Channel</Text>
-            <View style={styles.chipRow}>
-              {CHANNELS.map((item) => (
-                <Chip
-                  key={item.key} selected={channel === item.key} onPress={() => setChannel(item.key)}
-                  mode={channel === item.key ? "flat" : "outlined"} icon={item.icon}
-                >
-                  {item.label}
-                </Chip>
-              ))}
-            </View>
+              <Text style={styles.sheetSectionLabel}>Channel</Text>
+              <View style={styles.chipRow}>
+                {CHANNELS.map((item) => (
+                  <Chip
+                    key={item.key} selected={channel === item.key} onPress={() => setChannel(item.key)}
+                    mode={channel === item.key ? "flat" : "outlined"} icon={item.icon}
+                  >
+                    {item.label}
+                  </Chip>
+                ))}
+              </View>
 
-            <TextInput
-              mode="outlined" label="Message *" value={message} onChangeText={setMessage} placeholder="Hi {{name}}, ..."
-              multiline numberOfLines={4} style={[styles.sheetField, styles.sheetTextarea]}
-            />
-            <Text style={styles.hint}>Use {"{{name}}"}, {"{{phone}}"}, {"{{email}}"}, {"{{city}}"} or {"{{source}}"} — filled in automatically when you send.</Text>
-
+              <LabeledInput
+                label="Message" required value={message} onChangeText={setMessage} placeholder="Hi {{name}}, ..."
+                multiline numberOfLines={4} onBlur={() => validateField("message")} error={!!fieldErrors.message} helperText={fieldErrors.message}
+              />
+              <Text style={styles.hint}>Use {"{{name}}"}, {"{{phone}}"}, {"{{email}}"}, {"{{city}}"} or {"{{source}}"} — filled in automatically when you send.</Text>
+            </ScrollView>
             <Button mode="contained" onPress={save} loading={saving} disabled={saving} style={styles.sheetPrimaryButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
           </Pressable>
         </Pressable>
-      </Modal>
+      ) : null}
 
-      <Modal visible={sendOpen} transparent animationType="fade" onRequestClose={() => !sending && setSendOpen(false)}>
+      {sendOpen ? (
         <Pressable style={styles.sheetBackdrop} onPress={() => !sending && setSendOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+          <Pressable style={[styles.sheet, { maxHeight: windowHeight * 0.88, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Send &quot;{sendTarget?.name}&quot;</Text>
             <Searchbar
@@ -231,7 +274,7 @@ export default function TemplatesScreen() {
             )}
           </Pressable>
         </Pressable>
-      </Modal>
+      ) : null}
     </View>
   );
 }
@@ -246,9 +289,7 @@ const styles = StyleSheet.create({
   content: { padding: 18 },
 
   card: { marginBottom: 12 },
-  cardTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  channelPill: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 6, paddingHorizontal: 9, paddingVertical: 4 },
-  channelPillText: { fontSize: 11, fontWeight: "800" },
+  cardTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
   cardActions: { flexDirection: "row" },
   iconButton: { margin: 0 },
   cardName: { color: colors.text, fontSize: 16, fontWeight: "800", marginTop: 10 },
@@ -260,17 +301,22 @@ const styles = StyleSheet.create({
   emptyTitle: { color: colors.text, fontSize: 15, fontWeight: "800", marginTop: 14 },
   emptyButton: { marginTop: 12 },
 
-  sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
-  sheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "88%" },
+  sheetBackdrop: { ...StyleSheet.absoluteFill, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
+  sheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden" },
   sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 14 },
-  sheetSectionLabel: { color: colors.text, fontSize: 12, fontWeight: "700", marginTop: 4, marginBottom: 8 },
+  sheetSectionLabel: { color: colors.text, fontSize: 12, fontWeight: "700", marginTop: 14, marginBottom: 8 },
   sheetError: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, marginBottom: 6, borderRadius: 8, backgroundColor: colors.dangerSoft },
   sheetErrorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "700" },
-  sheetField: { marginBottom: 12 },
-  sheetTextarea: { minHeight: 110 },
+  fieldLabel: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 7, marginTop: 14 },
+  required: { color: colors.danger },
+  inputBox: { minHeight: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, justifyContent: "center" },
+  inputBoxMultiline: { paddingVertical: 12, minHeight: 110 },
+  inputBoxText: { color: colors.text, fontSize: 14 },
+  inputBoxTextMultiline: { minHeight: 90 },
+  inputError: { borderColor: colors.danger },
   hint: { color: colors.textMuted, fontSize: 11, marginTop: 6, lineHeight: 16 },
-  chipRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  chipRow: { flexDirection: "row", gap: 8, marginTop: 4, marginBottom: 12 },
   sheetPrimaryButton: { marginTop: 20 },
   sheetPrimaryButtonContent: { height: 48 },
 

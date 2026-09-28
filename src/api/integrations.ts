@@ -56,3 +56,19 @@ export async function connectFacebookPage(page: FacebookPage) {
   });
   return data;
 }
+
+export interface FacebookSyncResult {
+  message: string;
+  created: number;
+  skipped: number;
+}
+
+export async function facebookSyncLeads() {
+  const { data } = await apiClient.post<FacebookSyncResult>("/integrations/facebook/sync-leads");
+  return data;
+}
+
+export async function syncAdInsights() {
+  const { data } = await apiClient.post<{ message: string }>("/integrations/facebook/sync-ad-insights");
+  return data;
+}
