@@ -12,6 +12,7 @@ import {
 import {
   ActivityIndicator,
   Button,
+  HelperText,
   List,
   Searchbar,
   Text,
@@ -34,6 +35,7 @@ import { fetchLeads, LeadListItem } from "@/api/leads";
 
 const FILE_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
 type FilterKey = "all" | "products" | "services" | "pricing" | "company";
+const CATEGORY_OPTIONS = ["Products", "Services", "Pricing", "Company", "General"];
 
 function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string"
@@ -90,6 +92,7 @@ export default function BrochuresScreen() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [createChoiceOpen, setCreateChoiceOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [pickedFile, setPickedFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [coverImage, setCoverImage] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
@@ -99,6 +102,9 @@ export default function BrochuresScreen() {
   const [uploadStep, setUploadStep] = useState(1);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [uploadNameError, setUploadNameError] = useState(false);
+  const [uploadCategoryError, setUploadCategoryError] = useState(false);
+  const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareTarget, setShareTarget] = useState<Brochure | null>(null);
   const [leadQuery, setLeadQuery] = useState("");
@@ -140,6 +146,16 @@ export default function BrochuresScreen() {
     };
   }, [leadQuery, shareOpen]);
 
+  function chooseUploadFile() {
+    setCreateChoiceOpen(false);
+    openUpload();
+  }
+
+  function chooseCreateManually() {
+    setCreateChoiceOpen(false);
+    Alert.alert("Coming soon", "Building a brochure inside CurveLead isn't available yet — upload a ready-made PDF or image for now.");
+  }
+
   function openUpload() {
     setPickedFile(null);
     setCoverImage(null);
@@ -148,6 +164,8 @@ export default function BrochuresScreen() {
     setUploadDescription("");
     setUploadStep(1);
     setUploadError("");
+    setUploadNameError(false);
+    setUploadCategoryError(false);
     setUploadOpen(true);
   }
 
@@ -295,10 +313,10 @@ export default function BrochuresScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding, paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding, paddingBottom: insets.bottom + 120 }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.pageHeader}>
+        <View style={[styles.pageHeader, isCompact && styles.pageHeaderCompact]}>
           <Text style={styles.pageTitle}>CurveLead</Text>
         </View>
 
@@ -323,7 +341,7 @@ export default function BrochuresScreen() {
                           ? "eye-outline"
                           : "document-outline"
                   }
-                  size={22}
+                  size={17}
                   color="#1f2937"
                 />
               </View>
@@ -344,13 +362,6 @@ export default function BrochuresScreen() {
             iconColor="#64748b"
             elevation={0}
           />
-
-          <View style={styles.filterToggleWrap}>
-            <Text style={styles.filterToggleLabel}>Filters</Text>
-            <Pressable style={styles.gridButton} onPress={() => {}}>
-              <Ionicons name="apps-outline" size={18} color="#ffffff" />
-            </Pressable>
-          </View>
         </View>
 
         <View style={styles.filterRow}>
@@ -365,172 +376,220 @@ export default function BrochuresScreen() {
           ))}
         </View>
 
-        <View style={styles.gallery}>
+        <View style={styles.list}>
           {visibleBrochures.length ? (
             visibleBrochures.map((brochure, index) => {
               const isPink = index % 2 === 1;
+              const openBrochure = () => {
+                if (brochure.file_url) {
+                  Linking.openURL(brochure.file_url).catch(() => {
+                    Alert.alert("Could not open brochure", "This brochure link is not available right now.");
+                  });
+                } else {
+                  Alert.alert("Brochure preview unavailable", "This brochure does not have a preview link.");
+                }
+              };
+
               return (
-                <Pressable
-                  key={brochure.id}
-                  style={[
-                    styles.brochureCard,
-                    { width: cardWidth },
-                    isPink ? styles.pinkCard : styles.neutralCard,
-                  ]}
-                  onPress={() => {
-                    if (brochure.file_url) {
-                      Linking.openURL(brochure.file_url).catch(() => {
-                        Alert.alert("Could not open brochure", "This brochure link is not available right now.");
-                      });
-                    } else {
-                      Alert.alert("Brochure preview unavailable", "This brochure does not have a preview link.");
-                    }
-                  }}
-                >
-                  <Pressable style={styles.brochureMenu} onPress={() => confirmDelete(brochure)}>
-                    <Ionicons name="ellipsis-vertical" size={18} color="#475569" />
-                  </Pressable>
-
-                  <View style={styles.brochureIconWrap}>
-                    <Ionicons name={fileIcon(brochure.mime_type)} size={26} color="#1f2937" />
+                <Pressable key={brochure.id} style={styles.listRow} onPress={openBrochure}>
+                  <View style={[styles.listIconWrap, isPink ? styles.pinkCard : styles.neutralCard]}>
+                    <Ionicons name={fileIcon(brochure.mime_type)} size={22} color="#1f2937" />
                   </View>
-
-                  <Text style={styles.brochureName} numberOfLines={2}>{brochure.name.toUpperCase()}</Text>
-
-                  <View style={styles.metaRow}>
-                    <Text style={styles.metaTitle}>{brochure.category === "company" ? "Company" : "Brochure"}</Text>
-                    <Text style={styles.metaTag}>{brochure.category === "company" ? "Company" : "Products"}</Text>
-                  </View>
-
-                  <View style={styles.cardFooter}>
-                    <Text style={styles.cardFooterText}>Created: {new Date(brochure.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</Text>
-                    <View style={styles.smallStats}>
-                      <Ionicons name="eye-outline" size={12} color="#64748b" />
-                      <Text style={styles.smallStatText}>0 Views</Text>
-                      <Ionicons name="share-social-outline" size={12} color="#64748b" />
-                      <Text style={styles.smallStatText}>0 Shares</Text>
+                  <View style={styles.listBody}>
+                    <Text style={styles.listName} numberOfLines={1}>{brochure.name}</Text>
+                    <View style={styles.listMetaRow}>
+                      <View style={styles.listCategoryTag}><Text style={styles.listCategoryText}>{brochure.category === "company" ? "Company" : "Products"}</Text></View>
+                      <Text style={styles.listMetaText}>
+                        Created {new Date(brochure.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · 0 Views · 0 Shares
+                      </Text>
                     </View>
                   </View>
-
-                  <Pressable style={styles.shareButton} onPress={() => openShare(brochure)}>
-                    <Ionicons name="share-outline" size={16} color="#0f172a" />
-                    <Text style={styles.shareButtonText}>Share</Text>
+                  <Pressable style={styles.listShareButton} onPress={() => openShare(brochure)}>
+                    <Text style={styles.listShareButtonText}>Share</Text>
+                  </Pressable>
+                  <Pressable style={styles.listDeleteButton} onPress={() => confirmDelete(brochure)} hitSlop={6}>
+                    <Ionicons name="trash-outline" size={18} color={colors.danger} />
                   </Pressable>
                 </Pressable>
               );
             })
           ) : null}
 
-          <Pressable
-            style={[styles.brochureCard, { width: cardWidth }, styles.addCard]}
-            onPress={openUpload}
-          >
-            <View style={styles.addCardInner}>
-              <View style={styles.addCardIcon}>
-                <Ionicons name="document-outline" size={24} color="#4f46e5" />
-              </View>
-              <Text style={styles.addCardTitle}>Add Another</Text>
-              <Text style={styles.addCardText}>Create and upload brochures to share with your leads and customers.</Text>
-              <Button mode="contained" icon="plus" style={styles.addButton} buttonColor="#4f46e5" onPress={openUpload}>
-                Create Brochure
-              </Button>
-            </View>
+          <Pressable style={styles.listAddRow} onPress={() => setCreateChoiceOpen(true)}>
+            <Ionicons name="add" size={18} color="#4f46e5" />
+            <Text style={styles.listAddRowText}>Create Brochure</Text>
           </Pressable>
         </View>
       </ScrollView>
 
+      <Modal visible={createChoiceOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setCreateChoiceOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setCreateChoiceOpen(false)}>
+          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.sheetTitle}>Choose how you want to create</Text>
+              <Pressable onPress={() => setCreateChoiceOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={20} color="#1f2937" />
+              </Pressable>
+            </View>
+
+            <Pressable style={styles.choiceRow} onPress={chooseUploadFile}>
+              <View style={styles.choiceIconWrap}>
+                <Ionicons name="cloud-upload-outline" size={20} color="#4f46e5" />
+              </View>
+              <View style={styles.choiceBody}>
+                <Text style={styles.choiceTitle}>Upload File</Text>
+                <Text style={styles.choiceText}>Upload PDF, DOC, or other files</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+            </Pressable>
+
+            <Pressable style={styles.choiceRow} onPress={chooseCreateManually}>
+              <View style={styles.choiceIconWrap}>
+                <Ionicons name="sparkles-outline" size={20} color="#4f46e5" />
+              </View>
+              <View style={styles.choiceBody}>
+                <Text style={styles.choiceTitle}>Create Manually</Text>
+                <Text style={styles.choiceText}>Build brochure inside CurveLead</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <Modal visible={uploadOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !uploading && setUploadOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !uploading && setUploadOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <View style={styles.modalHeader}>
               <Text style={styles.sheetTitle}>Create Brochure</Text>
               <Pressable onPress={() => !uploading && setUploadOpen(false)} hitSlop={10}>
-                <Ionicons name="close" size={22} color="#1f2937" />
+                <Ionicons name="close" size={20} color="#1f2937" />
               </Pressable>
             </View>
-            <View style={styles.stepper}>
-              {["Basic Information", "Upload File", "Preview"].map((label, index) => (
-                <React.Fragment key={label}>
-                  <View style={styles.stepItem}>
-                    <View style={[styles.stepCircle, uploadStep >= index + 1 && styles.stepCircleActive]}>
-                      <Text style={[styles.stepNumber, uploadStep >= index + 1 && styles.stepNumberActive]}>{index + 1}</Text>
+
+            <ScrollView contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 14) }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <View style={styles.stepper}>
+                {["Basic Information", "Upload File", "Preview"].map((label, index) => (
+                  <React.Fragment key={label}>
+                    <View style={styles.stepItem}>
+                      <View style={[styles.stepCircle, uploadStep >= index + 1 && styles.stepCircleActive]}>
+                        <Text style={[styles.stepNumber, uploadStep >= index + 1 && styles.stepNumberActive]}>{index + 1}</Text>
+                      </View>
+                      <Text style={[styles.stepLabel, uploadStep >= index + 1 && styles.stepLabelActive]}>{label}</Text>
                     </View>
-                    <Text style={[styles.stepLabel, uploadStep >= index + 1 && styles.stepLabelActive]}>{label}</Text>
-                  </View>
-                  {index < 2 ? <View style={styles.stepLine} /> : null}
-                </React.Fragment>
-              ))}
-            </View>
-            {uploadError ? (
-              <View style={styles.sheetError}>
-                <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
-                <Text style={styles.sheetErrorText}>{uploadError}</Text>
+                    {index < 2 ? <View style={styles.stepLine} /> : null}
+                  </React.Fragment>
+                ))}
               </View>
-            ) : null}
-            <View style={styles.formColumns}>
-              <View style={styles.formColumn}>
-                <TextInput
-                  mode="outlined"
-                  label="Brochure Name *"
-                  value={uploadName}
-                  onChangeText={setUploadName}
-                  placeholder="Enter brochure name"
-                  style={styles.sheetField}
-                />
-                <TextInput
-                  mode="outlined"
-                  label="Category *"
-                  value={uploadCategory}
-                  onChangeText={setUploadCategory}
-                  placeholder="Product, Services, Company"
-                  style={styles.sheetField}
-                />
-                <TextInput
-                  mode="outlined"
-                  label="Description"
-                  value={uploadDescription}
-                  onChangeText={(value) => setUploadDescription(value.slice(0, 250))}
-                  placeholder="Enter description (optional)"
-                  multiline
-                  numberOfLines={4}
-                  style={[styles.sheetField, styles.descriptionField]}
-                />
-                <Text style={styles.characterCount}>{uploadDescription.length}/250</Text>
+              {uploadError ? (
+                <View style={styles.sheetError}>
+                  <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
+                  <Text style={styles.sheetErrorText}>{uploadError}</Text>
+                </View>
+              ) : null}
+              <View style={[styles.formColumns, isCompact && styles.formColumnsCompact]}>
+                <View style={styles.formColumn}>
+                  <Text maxFontSizeMultiplier={1.1} style={styles.formFieldLabel}>Brochure Name <Text style={styles.requiredMark}>*</Text></Text>
+                  <TextInput
+                    mode="outlined"
+                    value={uploadName}
+                    onChangeText={(value) => { setUploadName(value); if (value.trim()) setUploadNameError(false); }}
+                    placeholder="Enter brochure name"
+                    error={uploadNameError}
+                    maxFontSizeMultiplier={1.1}
+                    dense
+                    style={[styles.sheetField, styles.compactTextInput]}
+                  />
+                  <HelperText type="error" visible={uploadNameError} style={styles.compactHelperText}>Brochure name is required.</HelperText>
+                  <Text maxFontSizeMultiplier={1.1} style={styles.formFieldLabel}>Category <Text style={styles.requiredMark}>*</Text></Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Select brochure category"
+                    accessibilityState={{ expanded: categoryMenuOpen }}
+                    style={[styles.categorySelector, uploadCategoryError && styles.categorySelectorError]}
+                    onPress={() => setCategoryMenuOpen((open) => !open)}
+                  >
+                    <Text maxFontSizeMultiplier={1.1} style={[styles.categorySelectorText, !uploadCategory && styles.categoryPlaceholder]}>
+                      {uploadCategory || "Select category"}
+                    </Text>
+                    <Ionicons name={categoryMenuOpen ? "chevron-up" : "chevron-down"} size={20} color="#64748b" />
+                  </Pressable>
+                  {categoryMenuOpen ? (
+                    <View style={styles.categoryOptions}>
+                      {["Select category", ...CATEGORY_OPTIONS].map((option) => {
+                        const isSelected = option === (uploadCategory || "Select category");
+                        return (
+                          <Pressable
+                            key={option}
+                            onPress={() => {
+                              setUploadCategory(option === "Select category" ? "" : option);
+                              setUploadCategoryError(false);
+                              setCategoryMenuOpen(false);
+                            }}
+                            style={[styles.categoryOption, isSelected && styles.categoryOptionSelected]}
+                          >
+                            <Text maxFontSizeMultiplier={1.1} style={[styles.categoryOptionText, isSelected && styles.categoryOptionTextSelected]}>{option}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                  <HelperText type="error" visible={uploadCategoryError} style={styles.compactHelperText}>Category is required.</HelperText>
+                  <TextInput
+                    mode="outlined"
+                    label="Description"
+                    value={uploadDescription}
+                    onChangeText={(value) => setUploadDescription(value.slice(0, 250))}
+                    placeholder="Enter description (optional)"
+                    maxFontSizeMultiplier={1.1}
+                    multiline
+                    numberOfLines={3}
+                    dense
+                    style={[styles.sheetField, styles.descriptionField]}
+                  />
+                  <Text style={styles.characterCount}>{uploadDescription.length}/250</Text>
+                </View>
+                <View style={styles.formColumn}>
+                  <Text maxFontSizeMultiplier={1.1} style={styles.formFieldLabel}>Cover Image (Optional)</Text>
+                  <Pressable style={styles.coverPicker} onPress={pickCoverImage}>
+                    <Ionicons name={coverImage ? "checkmark-circle" : "image-outline"} size={24} color={colors.primary} />
+                    <Text style={styles.coverPickerTitle}>{coverImage ? coverImage.name : "Add cover image"}</Text>
+                    <Text style={styles.coverPickerText}>JPG, PNG or WEBP</Text>
+                    <Text style={styles.coverPickerAction}>Browse Image</Text>
+                  </Pressable>
+                  <Pressable style={styles.filePicker} onPress={pickBrochureFile}>
+                    <Ionicons name={pickedFile ? fileIcon(pickedFile.mimeType || "") : "document-attach-outline"} size={20} color={colors.primary} />
+                    <Text style={styles.filePickerText} numberOfLines={1}>{pickedFile?.name || "Choose brochure PDF or image"}</Text>
+                  </Pressable>
+                </View>
               </View>
-              <View style={styles.formColumn}>
-                <Pressable style={styles.coverPicker} onPress={pickCoverImage}>
-                  <Ionicons name={coverImage ? "checkmark-circle" : "image-outline"} size={30} color={colors.primary} />
-                  <Text style={styles.coverPickerTitle}>{coverImage ? coverImage.name : "Add cover image"}</Text>
-                  <Text style={styles.coverPickerText}>JPG, PNG or WEBP</Text>
-                  <Text style={styles.coverPickerAction}>Browse Image</Text>
-                </Pressable>
-                <Pressable style={styles.filePicker} onPress={pickBrochureFile}>
-                  <Ionicons name={pickedFile ? fileIcon(pickedFile.mimeType || "") : "document-attach-outline"} size={22} color={colors.primary} />
-                  <Text style={styles.filePickerText} numberOfLines={1}>{pickedFile?.name || "Choose brochure PDF or image"}</Text>
-                </Pressable>
+              <View style={styles.modalActions}>
+                <Button mode="outlined" onPress={() => setUploadOpen(false)} disabled={uploading} contentStyle={styles.modalActionContent}>Cancel</Button>
+                <Button
+                  mode="contained"
+                  onPress={uploadStep === 1 ? () => {
+                    const nameMissing = !uploadName.trim();
+                    const categoryMissing = !uploadCategory.trim();
+                    setUploadNameError(nameMissing);
+                    setUploadCategoryError(categoryMissing);
+                    if (nameMissing || categoryMissing) {
+                      setUploadError("Enter a brochure name and category.");
+                      return;
+                    }
+                    setUploadError("");
+                    setUploadStep(2);
+                  } : pickedFile ? confirmUpload : pickBrochureFile}
+                  loading={uploading}
+                  disabled={uploading}
+                  style={styles.sheetPrimaryButton}
+                  contentStyle={styles.sheetPrimaryButtonContent}
+                >
+                  {uploadStep === 1 ? "Next  →" : "Upload"}
+                </Button>
               </View>
-            </View>
-            <View style={styles.modalActions}>
-              <Button mode="outlined" onPress={() => setUploadOpen(false)} disabled={uploading}>Cancel</Button>
-              <Button
-                mode="contained"
-                onPress={uploadStep === 1 ? () => {
-                  if (!uploadName.trim() || !uploadCategory.trim()) {
-                    setUploadError("Enter a brochure name and category.");
-                    return;
-                  }
-                  setUploadError("");
-                  setUploadStep(2);
-                } : pickedFile ? confirmUpload : pickBrochureFile}
-                loading={uploading}
-                disabled={uploading}
-                style={styles.sheetPrimaryButton}
-                contentStyle={styles.sheetPrimaryButtonContent}
-              >
-                {uploadStep === 1 ? "Next  →" : "Upload"}
-              </Button>
-            </View>
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -635,8 +694,33 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   pageHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
     marginBottom: 18,
   },
+  pageHeaderCompact: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+  },
+  choiceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8,
+  },
+  choiceIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#eef2ff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  choiceBody: { flex: 1 },
+  choiceTitle: { color: colors.text, fontSize: 13, fontWeight: "700" },
+  choiceText: { color: colors.textSecondary, fontSize: 11, marginTop: 1 },
   pageTitle: {
     color: "#1f2937",
     fontSize: 32,
@@ -654,41 +738,41 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    minHeight: 132,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    minHeight: 92,
   },
   blueCard: { backgroundColor: "#eef4ff" },
   greenCard: { backgroundColor: "#ecfdf5" },
   orangeCard: { backgroundColor: "#fff7ed" },
   slateCard: { backgroundColor: "#f8fafc" },
   statIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     backgroundColor: "rgba(255,255,255,0.7)",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   statValue: {
     color: "#111827",
-    fontSize: 30,
-    lineHeight: 34,
+    fontSize: 22,
+    lineHeight: 26,
     fontWeight: "800",
-    letterSpacing: -0.8,
+    letterSpacing: -0.5,
   },
   statLabel: {
     color: "#475569",
-    fontSize: 12,
-    marginTop: 6,
+    fontSize: 11,
+    marginTop: 4,
     fontWeight: "600",
   },
   statSub: {
     color: "#64748b",
-    fontSize: 11,
-    marginTop: 4,
+    fontSize: 10,
+    marginTop: 2,
   },
   toolbar: {
     flexDirection: "row",
@@ -706,6 +790,8 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 12,
     backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
     shadowOpacity: 0,
   },
   searchBarCompact: {
@@ -722,22 +808,6 @@ const styles = StyleSheet.create({
     gap: 12,
     marginLeft: "auto",
   },
-  filterToggleLabel: {
-    color: "#1f2937",
-    fontWeight: "700",
-    fontSize: 15,
-  },
-  gridButton: {
-    width: 52,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: "#4f46e5",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 0,
-    shadowOpacity: 0,
-    elevation: 0,
-  },
   toolbarActions: {
     flexDirection: "row",
     alignItems: "center",
@@ -753,11 +823,15 @@ const styles = StyleSheet.create({
   filterRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    justifyContent: "space-between",
+    rowGap: 10,
     marginBottom: 16,
   },
   filterChip: {
-    paddingHorizontal: 14,
+    flexGrow: 1,
+    flexBasis: "31%",
+    alignItems: "center",
+    paddingHorizontal: 10,
     paddingVertical: 10,
     backgroundColor: "#f8fafc",
     borderWidth: 1,
@@ -782,6 +856,47 @@ const styles = StyleSheet.create({
     gap: 12,
     justifyContent: "space-between",
   },
+  list: {
+    gap: 10,
+  },
+  listRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 14,
+    padding: 12,
+  },
+  listIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listBody: { flex: 1 },
+  listName: { color: "#0f172a", fontSize: 15, fontWeight: "700" },
+  listMetaRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  listCategoryTag: { backgroundColor: "#eef2ff", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  listCategoryText: { color: "#4f46e5", fontSize: 11, fontWeight: "700" },
+  listMetaText: { color: "#94a3b8", fontSize: 11 },
+  listShareButton: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7 },
+  listShareButtonText: { color: "#1f2937", fontSize: 12, fontWeight: "700" },
+  listDeleteButton: { padding: 4 },
+  listAddRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: "#c7d2fe",
+    borderStyle: "dashed",
+    borderRadius: 14,
+    paddingVertical: 16,
+  },
+  listAddRowText: { color: "#4f46e5", fontSize: 14, fontWeight: "700" },
   brochureCard: {
     minHeight: 248,
     borderRadius: 18,
@@ -938,22 +1053,23 @@ const styles = StyleSheet.create({
   },
   sheet: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    paddingTop: 12,
-    paddingHorizontal: 18,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 8,
+    paddingHorizontal: 14,
+    maxHeight: "68%",
   },
   sheetHandle: {
-    width: 40,
+    width: 36,
     height: 4,
     borderRadius: 99,
     backgroundColor: "#cbd5e1",
     alignSelf: "center",
-    marginBottom: 14,
+    marginBottom: 10,
   },
   sheetTitle: {
     color: colors.text,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "800",
     marginBottom: 0,
   },
@@ -961,12 +1077,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 14,
+    marginBottom: 8,
   },
   stepper: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 8,
   },
   stepItem: {
     flexDirection: "row",
@@ -974,9 +1090,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   stepCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#eef0f4",
@@ -986,7 +1102,7 @@ const styles = StyleSheet.create({
   },
   stepNumber: {
     color: "#94a3b8",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
   },
   stepNumberActive: {
@@ -1011,32 +1127,100 @@ const styles = StyleSheet.create({
   },
   formColumns: {
     flexDirection: "row",
-    gap: 14,
+    gap: 10,
+  },
+  formColumnsCompact: {
+    flexDirection: "column",
   },
   formColumn: {
     flex: 1,
     minWidth: 0,
   },
+  formFieldLabel: {
+    color: "#475569",
+    fontSize: 11,
+    marginBottom: 4,
+  },
+  compactTextInput: {
+    height: 46,
+  },
+  categoryOptions: {
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 8,
+    marginTop: -4,
+    marginBottom: 8,
+    overflow: "hidden",
+  },
+  categorySelector: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+    borderRadius: 7,
+    backgroundColor: "#f0f9ff",
+    paddingHorizontal: 14,
+    marginBottom: 4,
+  },
+  categorySelectorError: {
+    borderColor: colors.danger,
+  },
+  categorySelectorText: {
+    color: "#1f2937",
+    fontSize: 14,
+  },
+  categoryPlaceholder: {
+    color: "#64748b",
+  },
+  categoryOption: {
+    minHeight: 34,
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  categoryOptionSelected: {
+    backgroundColor: colors.primary,
+  },
+  categoryOptionText: {
+    color: "#1f2937",
+    fontSize: 13,
+  },
+  categoryOptionTextSelected: {
+    color: "#ffffff",
+    fontWeight: "700",
+  },
+  requiredMark: {
+    color: "#dc2626",
+    fontWeight: "700",
+  },
   descriptionField: {
-    minHeight: 104,
+    minHeight: 64,
+  },
+  compactHelperText: {
+    marginTop: -4,
+    marginBottom: 2,
+    paddingHorizontal: 0,
   },
   characterCount: {
     color: "#94a3b8",
     fontSize: 11,
     textAlign: "right",
-    marginTop: -6,
-    marginBottom: 8,
+    marginTop: -4,
+    marginBottom: 4,
   },
   coverPicker: {
-    minHeight: 166,
+    minHeight: 80,
     borderWidth: 2,
     borderStyle: "dashed",
     borderColor: "#d8dee8",
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    padding: 14,
-    marginBottom: 10,
+    padding: 8,
+    marginBottom: 6,
   },
   coverPickerTitle: {
     color: "#475569",
@@ -1073,7 +1257,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 6,
+    marginTop: 4,
+  },
+  modalActionContent: {
+    height: 40,
   },
   sheetError: {
     flexDirection: "row",
@@ -1106,15 +1293,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   sheetField: {
-    marginBottom: 10,
+    marginBottom: 4,
     backgroundColor: "#fff",
   },
   sheetPrimaryButton: {
-    marginTop: 8,
-    borderRadius: 12,
+    marginTop: 4,
+    borderRadius: 10,
   },
   sheetPrimaryButtonContent: {
-    height: 48,
+    height: 42,
   },
   suggestions: {
     marginTop: 8,
