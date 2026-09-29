@@ -15,6 +15,10 @@ export interface LeadListItem {
   lead_score?: "hot" | "warm" | "cold";
   assigned_to_name?: string;
   next_followup_at?: string;
+  last_incoming_message?: string | null;
+  is_24h_window_active?: boolean;
+  last_message?: string | null;
+  total_messages?: number;
   created_at: string;
 }
 
