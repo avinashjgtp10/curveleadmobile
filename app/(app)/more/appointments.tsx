@@ -2,7 +2,7 @@ import { PlaceholderScreen } from "@/components/PlaceholderScreen";
 import { GlassBackground, glass } from "@/components/Glass";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Appbar, Button, List, Searchbar, Text, TextInput } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -108,9 +108,11 @@ function AppointmentsContent() {
   useEffect(() => {
     if (!sheetOpen || selectedLead) return;
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (!leadQuery.trim()) { setLeadResults([]); return; }
     searchTimer.current = setTimeout(async () => {
-      try { setLeadResults((await fetchLeads({ search: leadQuery.trim(), limit: 6 })).leads); }
+      try {
+        const searchText = leadQuery.trim();
+        setLeadResults((await fetchLeads({ search: searchText || undefined, limit: 8 })).leads);
+      }
       catch { setLeadResults([]); }
     }, 300);
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
@@ -139,17 +141,33 @@ function AppointmentsContent() {
     setLeadQuery(""); setLeadResults([]); setSelectedLead(null);
     setAppointmentAt(defaultFollowupDate()); setAppointmentType("call"); setNotes(""); setFormError("");
     setSheetOpen(true);
+    fetchLeads({ limit: 8 }).then((result) => setLeadResults(result.leads)).catch(() => setLeadResults([]));
   }
 
   async function schedule() {
     if (!selectedLead) { setFormError("Select a lead first."); return; }
     setSaving(true); setFormError("");
     try {
-      await createLeadFollowup(selectedLead.id, {
+      const created = await createLeadFollowup(selectedLead.id, {
         followup_type: appointmentType,
         next_followup_at: appointmentAt.toISOString(),
         notes: notes.trim() || undefined,
       });
+      const newAppointment: TodayFollowup = {
+        id: created.id,
+        lead_id: selectedLead.id,
+        lead_name: selectedLead.name,
+        lead_phone: selectedLead.phone,
+        lead_stage: selectedLead.stage,
+        followup_type: created.followup_type || appointmentType,
+        next_followup_at: created.next_followup_at || appointmentAt.toISOString(),
+        notes: created.notes || notes.trim() || undefined,
+      };
+      setAppointments((current) => [newAppointment, ...current.filter((item) => item.id !== newAppointment.id)]);
+      setActiveTab("all");
+      setQuery("");
+      setTypeFilter("");
+      setFilterOpen(false);
       setSheetOpen(false);
       load(true);
     } catch {
@@ -270,53 +288,57 @@ function AppointmentsContent() {
         </View>
       </ScrollView>
 
-      <Modal visible={sheetOpen} transparent animationType="fade" onRequestClose={() => !saving && setSheetOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => !saving && setSheetOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>New Appointment</Text>
-            {formError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{formError}</Text></View> : null}
+      <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={() => !saving && setSheetOpen(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.sheetKeyboard}>
+          <Pressable style={styles.sheetBackdrop} onPress={() => !saving && setSheetOpen(false)}>
+            <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetTitle}>New Appointment</Text>
+              {formError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{formError}</Text></View> : null}
 
-            <Text style={styles.sheetLabel}>Lead <Text style={styles.required}>*</Text></Text>
-            {selectedLead ? (
-              <View style={styles.selectedLead}>
-                <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name}</Text>
-                <Pressable onPress={() => setSelectedLead(null)}><Text style={styles.changeLeadText}>Change</Text></Pressable>
-              </View>
-            ) : (
-              <>
-                <Searchbar style={styles.sheetSearch} value={leadQuery} onChangeText={setLeadQuery} placeholder="Search lead" elevation={0} />
-                {leadResults.length ? (
-                  <View style={styles.suggestions}>
-                    {leadResults.map((lead) => (
-                      <List.Item key={lead.id} title={lead.name} description={lead.phone} onPress={() => { setSelectedLead(lead); setLeadResults([]); }} />
-                    ))}
+              <ScrollView style={styles.sheetBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <Text style={styles.sheetLabel}>Lead <Text style={styles.required}>*</Text></Text>
+                {selectedLead ? (
+                  <View style={styles.selectedLead}>
+                    <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name}</Text>
+                    <Pressable onPress={() => setSelectedLead(null)}><Text style={styles.changeLeadText}>Change</Text></Pressable>
                   </View>
-                ) : null}
-              </>
-            )}
+                ) : (
+                  <>
+                    <Searchbar style={styles.sheetSearch} value={leadQuery} onChangeText={setLeadQuery} placeholder="Search leads by name or phone..." elevation={0} />
+                    {leadResults.length ? (
+                      <ScrollView style={styles.suggestions} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                        {leadResults.map((lead) => (
+                          <List.Item key={lead.id} title={lead.name} description={lead.phone} onPress={() => { setSelectedLead(lead); setLeadResults([]); }} />
+                        ))}
+                      </ScrollView>
+                    ) : null}
+                  </>
+                )}
 
-            <Text style={styles.sheetLabel}>Date & Time <Text style={styles.required}>*</Text></Text>
-            <DateTimeField value={appointmentAt} onChange={setAppointmentAt} minimumDate={new Date()} />
+                <Text style={styles.sheetLabel}>Date & Time <Text style={styles.required}>*</Text></Text>
+                <DateTimeField value={appointmentAt} onChange={setAppointmentAt} minimumDate={new Date()} />
 
-            <Text style={styles.sheetLabel}>Type</Text>
-            <View style={styles.typeRow}>
-              {TYPES.map((item) => (
-                <Pressable key={item.key} style={[styles.typeChip, appointmentType === item.key && styles.typeChipActive]} onPress={() => setAppointmentType(item.key)}>
-                  <Text style={[styles.typeChipText, appointmentType === item.key && styles.typeChipTextActive]}>{item.label}</Text>
-                </Pressable>
-              ))}
-            </View>
+                <Text style={styles.sheetLabel}>Type</Text>
+                <View style={styles.typeRow}>
+                  {TYPES.map((item) => (
+                    <Pressable key={item.key} style={[styles.typeChip, appointmentType === item.key && styles.typeChipActive]} onPress={() => setAppointmentType(item.key)}>
+                      <Text style={[styles.typeChipText, appointmentType === item.key && styles.typeChipTextActive]}>{item.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
 
-            <Text style={styles.sheetLabel}>Notes (optional)</Text>
-            <TextInput mode="outlined" value={notes} onChangeText={setNotes} placeholder="e.g. Discuss pricing" style={styles.notesInput} />
+                <Text style={styles.sheetLabel}>Notes (optional)</Text>
+                <TextInput mode="outlined" value={notes} onChangeText={setNotes} placeholder="e.g. Discuss pricing" style={styles.notesInput} />
+              </ScrollView>
 
-            <View style={styles.sheetActions}>
-              <Button mode="outlined" onPress={() => setSheetOpen(false)} style={styles.sheetAction}>Cancel</Button>
-              <Button mode="contained" onPress={schedule} loading={saving} disabled={saving} style={styles.sheetAction}>Schedule</Button>
-            </View>
+              <View style={styles.sheetActions}>
+                <Button mode="outlined" onPress={() => setSheetOpen(false)} style={styles.sheetAction}>Cancel</Button>
+                <Button mode="contained" onPress={schedule} loading={saving} disabled={saving} style={styles.sheetAction}>Schedule</Button>
+              </View>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -379,8 +401,10 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingVertical: 42 },
   emptyTitle: { color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold", marginTop: 10 },
   emptyText: { color: colors.textMuted, fontSize: 12, textAlign: "center", marginTop: 4 },
-  sheetBackdrop: { flex: 1, justifyContent: "center", backgroundColor: "rgba(15,23,42,0.38)", paddingHorizontal: 18 },
-  sheet: { backgroundColor: colors.surface, borderRadius: 16, padding: 18, maxHeight: "88%" },
+  sheetKeyboard: { flex: 1 },
+  sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,0.38)" },
+  sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: "86%" },
+  sheetBody: { maxHeight: 500 },
   sheetHandle: { width: 42, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
   sheetTitle: { color: colors.text, fontSize: 18, fontFamily: "Inter_700Bold", marginBottom: 14 },
   sheetError: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10, marginBottom: 8 },
@@ -390,8 +414,8 @@ const styles = StyleSheet.create({
   selectedLead: { height: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: colors.borderSoft, borderRadius: 8, paddingHorizontal: 12, backgroundColor: colors.surfaceMuted },
   selectedLeadText: { flex: 1, color: colors.text, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   changeLeadText: { color: colors.textMuted, fontSize: 11, fontFamily: "Inter_700Bold" },
-  sheetSearch: { height: 42, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8 },
-  suggestions: { borderWidth: 1, borderColor: colors.borderSoft, borderRadius: 8, overflow: "hidden", marginTop: 6 },
+  sheetSearch: { minHeight: 48, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12 },
+  suggestions: { maxHeight: 178, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: 10, marginTop: 6, backgroundColor: colors.surface },
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   typeChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 11, paddingVertical: 8, backgroundColor: colors.surface },
   typeChipActive: { backgroundColor: "#4f46e5", borderColor: "#4f46e5" },

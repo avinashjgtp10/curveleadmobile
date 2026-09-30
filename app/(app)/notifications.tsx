@@ -74,7 +74,7 @@ export default function NotificationsScreen() {
     const previous = items;
     setItems((current) => current.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })));
     try {
-      await markAllNotificationsRead();
+      await markAllNotificationsRead(items.map((item) => item.id));
     } catch {
       setItems(previous);
       setError("");

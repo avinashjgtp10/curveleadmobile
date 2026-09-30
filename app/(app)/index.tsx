@@ -2,7 +2,7 @@ import { IconBell, SvgUserAdd, SvgCalendar, SvgFolder } from "@/components/Refer
 import { glass, GradientIcon, GradientNumber } from "@/components/Glass";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ImageBackground, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
+  ImageBackground, InteractionManager, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card, TextInput } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -260,6 +260,7 @@ const MANAGE_BUSINESS: GridItem[] = [
   { icon: "extension-puzzle-outline", label: "Integrations", ...TONE.pink, href: "/(app)/more/integrations" },
   { icon: "card-outline", label: "Billing", ...TONE.sky, href: "/(app)/more/billing" },
   { icon: "settings-outline", label: "Settings", ...TONE.emerald, href: "/(app)/more/settings" },
+  { icon: "help-buoy-outline", label: "Help & Support", ...TONE.indigo, href: "/(app)/more/help-support" },
   { icon: "help-circle-outline", label: "User Guide", ...TONE.amber, href: "/(app)/more/user-guide" },
 ];
 
@@ -270,7 +271,6 @@ const OTHER_DESTINATIONS: GridItem[] = [
   { icon: "language-outline", label: "Language", ...TONE.amber, href: "/(app)/more/language" },
   { icon: "person-circle-outline", label: "Account", ...TONE.emerald, href: "/(app)/more/account" },
   { icon: "bulb-outline", label: "Submit Feedback", ...TONE.pink, href: "/(app)/more/feedback" },
-  { icon: "call-outline", label: "Help & Support", ...TONE.emerald, href: "/(app)/more/help-support" },
   { icon: "albums-outline", label: "Content Library", ...TONE.indigo, href: "/(app)/content" },
 ];
 
@@ -318,24 +318,32 @@ export default function DashboardScreen() {
   }, []);
 
   const [leadSources, setLeadSources] = useState<LeadSourceRow[] | null>(null);
+  const dashboardReady = !!data;
   useEffect(() => {
     // No dedicated "lead sources" aggregate endpoint exists yet — fetch a large page of
     // real leads and compute the breakdown client-side rather than showing fake numbers.
-    fetchLeads({ limit: 500 }).then((page) => {
-      const bySource = new Map<string, { leads: number; won: number }>();
-      for (const lead of page.leads) {
-        const key = lead.source || "manual";
-        const entry = bySource.get(key) || { leads: 0, won: 0 };
-        entry.leads += 1;
-        if (lead.stage?.toLowerCase() === "won") entry.won += 1;
-        bySource.set(key, entry);
-      }
-      const rows = Array.from(bySource.entries())
-        .map(([source, { leads, won }]) => ({ source, leads, won, conversion: leads ? (won / leads) * 100 : 0 }))
-        .sort((a, b) => b.leads - a.leads);
-      setLeadSources(rows);
-    }).catch(() => setLeadSources(null));
-  }, []);
+    // That's a big download, so it waits until the dashboard has painted instead of competing with it.
+    if (!dashboardReady) return;
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchLeads({ limit: 500 }).then((page) => {
+        if (cancelled) return;
+        const bySource = new Map<string, { leads: number; won: number }>();
+        for (const lead of page.leads) {
+          const key = lead.source || "manual";
+          const entry = bySource.get(key) || { leads: 0, won: 0 };
+          entry.leads += 1;
+          if (lead.stage?.toLowerCase() === "won") entry.won += 1;
+          bySource.set(key, entry);
+        }
+        const rows = Array.from(bySource.entries())
+          .map(([source, { leads, won }]) => ({ source, leads, won, conversion: leads ? (won / leads) * 100 : 0 }))
+          .sort((a, b) => b.leads - a.leads);
+        setLeadSources(rows);
+      }).catch(() => { if (!cancelled) setLeadSources(null); });
+    });
+    return () => { cancelled = true; task.cancel(); };
+  }, [dashboardReady]);
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setRefreshing(true) : setLoading(true);
@@ -347,9 +355,12 @@ export default function DashboardScreen() {
       ]);
       setData(summary);
       setUpcomingFollowups(todayFollowups);
-      fetchNotifications()
-        .then((latestNotifications) => setNotificationCount(latestNotifications.filter((item) => !item.read_at).length))
-        .catch(() => setNotificationCount(todayFollowups.length));
+      // The focus effect below already fetches notifications on first open; only pull-to-refresh needs it here.
+      if (refresh) {
+        fetchNotifications()
+          .then((latestNotifications) => setNotificationCount(latestNotifications.filter((item) => !item.read_at).length))
+          .catch(() => setNotificationCount(todayFollowups.length));
+      }
     } catch (loadError) {
       setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string"
         ? loadError.response.data.error : "Could not load your dashboard.");
