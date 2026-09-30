@@ -81,26 +81,56 @@ async function saveLocalNotification(input: LocalNotificationInput) {
   await AsyncStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(next));
 }
 
-export async function fetchNotifications() {
-  const localNotifications = await getLocalNotifications();
+/**
+ * Ids the user has already read on this phone. The server doesn't always remember a read
+ * (the request can fail, or it doesn't cover items like overdue follow-ups), so the list and the
+ * home bell badge both apply this — otherwise the two screens show different unread counts.
+ */
+const READ_IDS_KEY = "curvelead_read_notification_ids";
+const MAX_READ_IDS = 500;
+
+async function getReadIds() {
   try {
-    const { data } = await apiClient.get<{ notifications?: AppNotification[] } | AppNotification[]>("/notifications");
-    const items = Array.isArray(data) ? data : data.notifications || [];
-    return [...localNotifications, ...items.map((item) => normalizeNotification(item as Partial<AppNotification> & Record<string, unknown>))];
+    const raw = await AsyncStorage.getItem(READ_IDS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set<string>(Array.isArray(parsed) ? parsed.map(String) : []);
   } catch {
-    const followups = await fetchTodayFollowups();
-    return [...localNotifications, ...followups.map(followupToNotification)];
+    return new Set<string>();
   }
 }
 
-export async function markAllNotificationsRead() {
+async function rememberRead(ids: string[]) {
+  const current = await getReadIds();
+  ids.forEach((id) => current.add(id));
+  await AsyncStorage.setItem(READ_IDS_KEY, JSON.stringify(Array.from(current).slice(-MAX_READ_IDS)));
+}
+
+export async function fetchNotifications() {
+  const [localNotifications, readIds] = await Promise.all([getLocalNotifications(), getReadIds()]);
+  const withReadState = (list: AppNotification[]) => list.map((item) => (
+    item.read_at || !readIds.has(item.id) ? item : { ...item, read_at: new Date().toISOString() }
+  ));
+  try {
+    const { data } = await apiClient.get<{ notifications?: AppNotification[] } | AppNotification[]>("/notifications");
+    const items = Array.isArray(data) ? data : data.notifications || [];
+    return withReadState([...localNotifications, ...items.map((item) => normalizeNotification(item as Partial<AppNotification> & Record<string, unknown>))]);
+  } catch {
+    const followups = await fetchTodayFollowups();
+    return withReadState([...localNotifications, ...followups.map(followupToNotification)]);
+  }
+}
+
+/** Pass the ids currently on screen so they stay read here even if the server ignores the request. */
+export async function markAllNotificationsRead(ids: string[] = []) {
   const localNotifications = await getLocalNotifications();
   const readAt = new Date().toISOString();
+  await rememberRead([...ids, ...localNotifications.map((item) => item.id)]);
   await AsyncStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(localNotifications.map((item) => ({ ...item, read_at: item.read_at || readAt }))));
   await apiClient.put("/notifications/read-all").catch(() => {});
 }
 
 export async function markNotificationRead(id: string) {
+  await rememberRead([id]);
   const localNotifications = await getLocalNotifications();
   if (localNotifications.some((item) => item.id === id)) {
     const readAt = new Date().toISOString();
