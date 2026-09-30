@@ -1,12 +1,12 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Appbar, IconButton, Searchbar, Text, TextInput } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { GlassBackground, glass } from "@/components/Glass";
-import { fetchLeads, LeadListItem, trackContactActivity } from "@/api/leads";
+import { fetchLeads, LeadListItem } from "@/api/leads";
 import { fetchTemplates, MessageTemplate } from "@/api/templates";
 import { fetchSendableWhatsAppTemplates, SendableWhatsAppTemplate, sendWhatsAppMessage, sendWhatsAppTemplate, WhatsAppMessage } from "@/api/whatsapp";
 
@@ -128,13 +128,6 @@ export default function WhatsAppScreen() {
     return template.message
       .replace(/\{name\}/gi, lead.name)
       .replace(/\{phone\}/gi, lead.phone);
-  }
-
-  function openWhatsAppMessage(lead: LeadListItem, body: string) {
-    trackContactActivity(lead.id, "whatsapp").catch(() => {});
-    const phone = lead.phone.replace(/\D/g, "");
-    const url = `https://wa.me/${phone}?text=${encodeURIComponent(body)}`;
-    Linking.openURL(url).catch(() => Alert.alert("Could not open WhatsApp", "Please check this device has WhatsApp installed."));
   }
 
   function addSentMessage(leadId: string, sent: WhatsAppMessage) {
