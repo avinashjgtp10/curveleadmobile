@@ -443,14 +443,14 @@ export default function ReportsScreen() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={styles.tableWrap}>
                     <TableHeader columns={[
-                      { label: "Lead #", width: 70 }, { label: "Name", width: 130 }, { label: "Phone", width: 110 },
+                      { label: "Lead #", width: 80 }, { label: "Name", width: 190 }, { label: "Phone", width: 125 },
                       { label: "Stage", width: 100 }, { label: "Assigned", width: 90 }, { label: "Created", width: 90, align: "right" },
                     ]} />
                     {leads.map((lead) => (
                       <Pressable key={lead.id} style={styles.tableRow} onPress={() => router.push(`/(app)/leads/${lead.id}`)}>
-                        <Text style={[styles.tableCell, { width: 70, color: colors.textMuted }]}>{lead.lead_number || "—"}</Text>
-                        <Text style={[styles.tableCell, { width: 130, fontWeight: "700" }]} numberOfLines={1}>{lead.name}</Text>
-                        <Text style={[styles.tableCell, { width: 110 }]}>{lead.phone}</Text>
+                        <Text style={[styles.tableCell, { width: 80, color: colors.textMuted }]}>{lead.lead_number || "—"}</Text>
+                        <Text style={[styles.tableCell, { width: 190, paddingRight: 16, fontWeight: "700" }]} numberOfLines={1}>{lead.name}</Text>
+                        <Text style={[styles.tableCell, { width: 125 }]}>{lead.phone}</Text>
                         <Text style={[styles.tableCell, { width: 100 }]} numberOfLines={1}>{pretty(lead.stage)}</Text>
                         <Text style={[styles.tableCell, { width: 90 }]} numberOfLines={1}>{lead.assigned_to_name || "—"}</Text>
                         <Text style={[styles.tableCell, { width: 90, textAlign: "right", color: colors.textMuted }]}>
