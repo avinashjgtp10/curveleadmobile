@@ -14,7 +14,7 @@ import { colors } from "@/theme";
 import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboard";
 import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads, fetchIntegrationSettings, IntegrationSettings } from "@/api/integrations";
-import { fetchNotifications } from "@/api/notifications";
+import { fetchNotifications, notifyLeadsAdded } from "@/api/notifications";
 import { useAuth } from "@/contexts/AuthContext";
 
 const AI_IMAGE_SAMPLES = [
@@ -380,6 +380,7 @@ export default function DashboardScreen() {
       if (cancelled) return;
       try {
         const result = await facebookSyncLeads();
+        if (result.created) notifyLeadsAdded(result.created, "Facebook").catch(() => {});
         if (!cancelled && result.created) load();
       } catch { /* silently ignore — e.g. no Facebook page connected for this tenant */ }
     })();
