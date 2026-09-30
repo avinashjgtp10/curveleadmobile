@@ -632,7 +632,7 @@ export default function BrochuresScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#f0f2f5",
+    backgroundColor: "#ffffff",
   },
   topBar: {
     flexDirection: "row",
@@ -640,7 +640,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#ffffff",
     borderBottomWidth: 1,
     borderBottomColor: "#e2e8f0",
     minHeight: 72,
