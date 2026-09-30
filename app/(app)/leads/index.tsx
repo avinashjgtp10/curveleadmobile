@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { usePermission } from "@/hooks/usePermission";
 import { useStages } from "@/hooks/useStages";
+import { telUrl } from "@/api/phone";
 import {
   bulkDeleteLeads, bulkUpdateLeads, fetchLeads, LeadListItem, trackContactActivity,
 } from "@/api/leads";
@@ -333,7 +334,7 @@ export default function LeadsScreen() {
   function callLead(lead: LeadListItem) {
     trackContactActivity(lead.id, "call").catch(() => {});
     setCalledIds((current) => new Set(current).add(lead.id));
-    Linking.openURL(`tel:${lead.phone}`).catch(() => Alert.alert("Unable to call", "Calling is not supported on this device."));
+    Linking.openURL(telUrl(lead.phone)).catch(() => Alert.alert("Unable to call", "Calling is not supported on this device."));
   }
 
   function confirmBulkDelete() {
