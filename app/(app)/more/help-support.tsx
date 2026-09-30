@@ -17,6 +17,12 @@ const PRIORITIES: { key: Priority; label: string; color: string; soft: string }[
   { key: "high", label: "High", color: colors.danger, soft: colors.dangerSoft },
 ];
 
+const RECENT_UPDATES = [
+  { title: "Lead Intent Index launched", time: "2 days ago" },
+  { title: "WhatsApp inbox performance improvements", time: "1 week ago" },
+  { title: "New quotation templates added", time: "2 weeks ago" },
+];
+
 interface Ticket {
   id: string;
   subject: string;
@@ -227,6 +233,24 @@ export default function HelpSupportScreen() {
             </View>
           </Card.Content>
         </Card>
+
+        <Card mode="outlined" style={styles.card}>
+          <Card.Content>
+            <View style={styles.infoHeaderRow}>
+              <Ionicons name="notifications-outline" size={16} color={colors.primary} />
+              <Text style={styles.cardTitle}>Recent Updates</Text>
+            </View>
+            {RECENT_UPDATES.map((item) => (
+              <View key={item.title} style={styles.updateRow}>
+                <View style={styles.updateDot} />
+                <View style={styles.updateBody}>
+                  <Text style={styles.updateTitle}>{item.title}</Text>
+                  <Text style={styles.updateTime}>{item.time}</Text>
+                </View>
+              </View>
+            ))}
+          </Card.Content>
+        </Card>
       </ScrollView>
     </View>
   );
@@ -288,5 +312,11 @@ const styles = StyleSheet.create({
   infoValue: { color: colors.text, fontSize: 12, fontWeight: "700" },
 
   contactRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
+  updateRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 5 },
+  updateDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary, marginTop: 6 },
+  updateBody: { flex: 1 },
+  updateTitle: { color: colors.text, fontSize: 12, fontWeight: "600" },
+  updateTime: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+
   contactText: { color: colors.primary, fontSize: 13, fontWeight: "700" },
 });
