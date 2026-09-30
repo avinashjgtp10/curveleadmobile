@@ -166,6 +166,42 @@ function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () =
   );
 }
 
+function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
+  const items = [
+    { icon: "person-add-outline", label: "New Leads", value: data.leads_today, tone: TONE.sky },
+    { icon: "calendar-outline", label: "Follow-ups", value: data.followups_today, tone: TONE.emerald },
+    { icon: "videocam-outline", label: "Demos", value: data.demos_today, tone: TONE.violet },
+    { icon: "alert-circle-outline", label: "Overdue", value: data.overdue_followups, tone: TONE.pink },
+    { icon: "flame-outline", label: "Hot Leads", value: data.hot_leads, tone: TONE.amber },
+    { icon: "warning-outline", label: "Critical Follow-ups", value: data.critical_followups, tone: TONE.pink },
+  ];
+
+  return (
+    <View style={styles.activityCard}>
+      <View style={styles.activityHeaderRow}>
+        <View style={styles.activityIconWrap}><Ionicons name="calendar-outline" size={18} color={colors.primary} /></View>
+        <Text style={styles.activityTitle}>Today&apos;s Activity</Text>
+        <Pressable style={{ marginLeft: "auto" }} onPress={onPress}>
+          <Text style={styles.activityViewAll}>View all</Text>
+        </Pressable>
+      </View>
+      <View style={styles.activityGrid}>
+        {items.map((item) => (
+          <View key={item.label} style={styles.activityTile}>
+            <View style={styles.activityTileTop}>
+              <View style={[styles.activityTileIcon, { backgroundColor: item.tone.bg }]}>
+                <Ionicons name={item.icon as IconName} size={14} color={item.tone.iconColor} />
+              </View>
+              <Text style={styles.activityTileLabel} numberOfLines={1}>{item.label}</Text>
+            </View>
+            <Text style={styles.activityTileValue}>{fmt(item.value)}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 const START_HERE: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; href: string }[] = [
   { icon: "megaphone-outline", label: "Campaigns", bg: colors.successSoft, iconColor: colors.success, href: "/(app)/more/campaigns" },
   { icon: "git-network-outline", label: "Lead Automation", bg: colors.primarySoft, iconColor: colors.primary, badges: [{ text: "NEW", bg: colors.success }], href: "/(app)/more/lead-automation" },
@@ -461,6 +497,9 @@ export default function DashboardScreen() {
               </View>
             </View>
 
+            <TodayActivityCard data={data} onPress={() => router.push("/(app)/leads")} />
+            <InsightsCard data={data} onPress={() => router.push("/(app)/more/reports")} />
+
             <View style={styles.aiImagesCard}>
               <View style={styles.aiImagesHeaderRow}>
                 <View style={styles.aiImagesIconWrap}>
@@ -493,6 +532,7 @@ export default function DashboardScreen() {
               <StatTile label="Follow-ups Due Today" value={fmt(data.followups_today)} />
             </View>
 
+            {false ? (
             <View style={styles.activityCard}>
               <View style={styles.activityHeaderRow}>
                 <View style={styles.activityIconWrap}><Ionicons name="calendar-outline" size={18} color={colors.primary} /></View>
@@ -503,12 +543,12 @@ export default function DashboardScreen() {
               </View>
               <View style={styles.activityGrid}>
                 {[
-                  { icon: "person-add-outline", label: "New Leads", value: data.leads_today, tone: TONE.sky },
-                  { icon: "calendar-outline", label: "Follow-ups", value: data.followups_today, tone: TONE.emerald },
-                  { icon: "videocam-outline", label: "Demos", value: data.demos_today, tone: TONE.violet },
-                  { icon: "alert-circle-outline", label: "Overdue", value: data.overdue_followups, tone: TONE.pink },
-                  { icon: "flame-outline", label: "Hot Leads", value: data.hot_leads, tone: TONE.amber },
-                  { icon: "warning-outline", label: "Critical Follow-ups", value: data.critical_followups, tone: TONE.pink },
+                  { icon: "person-add-outline", label: "New Leads", value: data?.leads_today, tone: TONE.sky },
+                  { icon: "calendar-outline", label: "Follow-ups", value: data?.followups_today, tone: TONE.emerald },
+                  { icon: "videocam-outline", label: "Demos", value: data?.demos_today, tone: TONE.violet },
+                  { icon: "alert-circle-outline", label: "Overdue", value: data?.overdue_followups, tone: TONE.pink },
+                  { icon: "flame-outline", label: "Hot Leads", value: data?.hot_leads, tone: TONE.amber },
+                  { icon: "warning-outline", label: "Critical Follow-ups", value: data?.critical_followups, tone: TONE.pink },
                 ].map((item) => (
                   <View key={item.label} style={styles.activityTile}>
                     <View style={styles.activityTileTop}>
@@ -522,6 +562,7 @@ export default function DashboardScreen() {
                 ))}
               </View>
             </View>
+            ) : null}
 
             {leadSources?.length ? (
               <View style={styles.sourcesCard}>
@@ -589,7 +630,6 @@ export default function DashboardScreen() {
             <LeadsByStageCard stages={data.pipeline || []} onPress={() => router.push("/(app)/leads")} />
             <UrgentFollowupsCard count={data.critical_followups || data.overdue_followups || 0} onPress={() => router.push("/(app)/followups")} />
             <UpcomingFollowupsCard followups={upcomingFollowups} onPress={() => router.push("/(app)/followups")} />
-            <InsightsCard data={data} onPress={() => router.push("/(app)/more/reports")} />
 
           </>
         ) : null}

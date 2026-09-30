@@ -6,9 +6,9 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { GlassBackground, glass } from "@/components/Glass";
-import { fetchLeads, LeadListItem, trackContactActivity } from "@/api/leads";
+import { fetchLeads, LeadListItem } from "@/api/leads";
 import { fetchTemplates, MessageTemplate } from "@/api/templates";
-import { sendWhatsAppMessage, WhatsAppMessage } from "@/api/whatsapp";
+import { fetchSendableWhatsAppTemplates, SendableWhatsAppTemplate, sendWhatsAppMessage, sendWhatsAppTemplate, WhatsAppMessage } from "@/api/whatsapp";
 
 type Tab = "chats" | "saved";
 type Filter = "all" | "unread" | "starred";
@@ -60,11 +60,12 @@ export default function WhatsAppScreen() {
   const [search, setSearch] = useState("");
   const [leads, setLeads] = useState<LeadListItem[]>([]);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [sendableTemplates, setSendableTemplates] = useState<SendableWhatsAppTemplate[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
   const [manualIds, setManualIds] = useState<Set<string>>(new Set());
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
-  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [templateLeadId, setTemplateLeadId] = useState("");
   const [sendingTemplateId, setSendingTemplateId] = useState("");
   const [sentMessages, setSentMessages] = useState<Record<string, WhatsAppMessage[]>>({});
   const [message, setMessage] = useState("");
@@ -75,12 +76,14 @@ export default function WhatsAppScreen() {
     setLoading(true);
     setError("");
     try {
-      const [leadPage, savedTemplates] = await Promise.all([
+      const [leadPage, savedTemplates, approvedTemplates] = await Promise.all([
         fetchLeads({ limit: 80 }),
         fetchTemplates().catch(() => []),
+        fetchSendableWhatsAppTemplates().catch(() => []),
       ]);
       setLeads(leadPage.leads);
       setTemplates(savedTemplates.filter((item) => item.channel === "whatsapp"));
+      setSendableTemplates(approvedTemplates);
     } catch {
       setError("Could not load WhatsApp inbox.");
     } finally {
@@ -89,10 +92,7 @@ export default function WhatsAppScreen() {
   }
 
   useEffect(() => { load(); }, []);
-  useEffect(() => {
-    setContactInfoOpen(false);
-    setTemplatePickerOpen(false);
-  }, [selectedId]);
+  useEffect(() => { setContactInfoOpen(false); }, [selectedId]);
 
   const filteredLeads = useMemo(() => {
     const text = search.trim().toLowerCase();
@@ -105,6 +105,7 @@ export default function WhatsAppScreen() {
   }, [filter, leads, search, starredIds]);
 
   const selected = selectedId ? leads.find((lead) => lead.id === selectedId) : undefined;
+  const templateLead = templateLeadId ? leads.find((lead) => lead.id === templateLeadId) : undefined;
   const totalUnread = leads.filter((_, index) => index % 5 === 0).length;
   const canReply = canReplyTo(selected);
   const manualMode = selected ? manualIds.has(selected.id) : false;
@@ -137,23 +138,65 @@ export default function WhatsAppScreen() {
   }
 
   function openTemplates() {
-    setTemplatePickerOpen(true);
+    if (selected) setTemplateLeadId(selected.id);
     setContactInfoOpen(false);
+    setSelectedId("");
+    setTab("saved");
+  }
+
+  function templateParamsFor(template: SendableWhatsAppTemplate, lead: LeadListItem) {
+    return Array.from({ length: template.variable_count }, (_, index) => {
+      if (index === 0) return lead.name.trim().split(/\s+/)[0] || lead.name;
+      return "";
+    });
+  }
+
+  function previewSendableTemplate(template: SendableWhatsAppTemplate, lead: LeadListItem) {
+    const params = templateParamsFor(template, lead);
+    return template.body_text.replace(/\{\{(\d+)\}\}/g, (match, value) => params[Number(value) - 1] || match);
+  }
+
+  async function useSendableTemplate(template: SendableWhatsAppTemplate) {
+    const templateLead = templateLeadId ? leads.find((lead) => lead.id === templateLeadId) : undefined;
+    if (!templateLead || template.unsupported) return;
+    setSendingTemplateId(`${template.name}:${template.language}`);
+    try {
+      const result = await sendWhatsAppTemplate(templateLead.id, {
+        template_name: template.name,
+        language_code: template.language,
+        template_params: templateParamsFor(template, templateLead),
+        body_text: template.body_text,
+      });
+      addSentMessage(templateLead.id, result.message);
+      setTemplateLeadId("");
+      setSelectedId(templateLead.id);
+      setTab("chats");
+      if (result.delivery?.success === false) {
+        Alert.alert("Message not delivered", result.delivery.error || "WhatsApp rejected this template.");
+      }
+    } catch {
+      Alert.alert("Template not sent", "Could not send this template. Please check WhatsApp integration and try again.");
+    } finally {
+      setSendingTemplateId("");
+    }
   }
 
   async function useTemplate(template: MessageTemplate) {
-    if (selected) {
-      const body = templateTextFor(template, selected);
+    const templateLead = templateLeadId ? leads.find((lead) => lead.id === templateLeadId) : undefined;
+    if (templateLead) {
+      const body = templateTextFor(template, templateLead);
       setSendingTemplateId(template.id);
       try {
-        const result = await sendWhatsAppMessage(selected.id, body);
-        addSentMessage(selected.id, result.message);
-        setTemplatePickerOpen(false);
+        const result = await sendWhatsAppMessage(templateLead.id, body);
+        addSentMessage(templateLead.id, result.message);
+        setTemplateLeadId("");
+        setSelectedId(templateLead.id);
+        setTab("chats");
         if (result.delivery?.success === false) {
           Alert.alert("Message not delivered", result.delivery.error || "WhatsApp rejected this message.");
         }
       } catch {
-        Alert.alert("Template not sent", "Could not send this template. Please try again.");
+        Alert.alert("Template not sent", "This saved reply could not be sent directly. Use an approved WhatsApp template to start a locked conversation.");
       } finally {
         setSendingTemplateId("");
       }
@@ -165,17 +208,16 @@ export default function WhatsAppScreen() {
 
   async function sendMessage() {
     if (!selected) return;
+    if (!canReplyTo(selected)) {
+      Alert.alert("Send a template first", "This lead hasn't messaged you yet. Send a template and reply manually after they respond.");
+      return;
+    }
     const body = message.trim();
     if (!body) {
       Alert.alert("Add message", "Type a message or choose a saved reply.");
       return;
     }
-    if (!canReplyTo(selected)) {
-      Alert.alert("Send a template first", "This lead hasn't messaged you yet. Send an approved template to start the conversation.");
-      return;
-    }
     try {
-      trackContactActivity(selected.id, "whatsapp").catch(() => {});
       const result = await sendWhatsAppMessage(selected.id, body);
       addSentMessage(selected.id, result.message);
       setMessage("");
@@ -221,11 +263,28 @@ export default function WhatsAppScreen() {
               <Text style={styles.heroSubtitle}>Use your WhatsApp templates in chats</Text>
             </View>
           </View>
-          {templates.length ? templates.map((template) => (
-            <Pressable key={template.id} style={styles.replyCard} onPress={() => useTemplate(template)}>
+          {templateLeadId && sendableTemplates.length ? sendableTemplates.map((template) => {
+            const key = `${template.name}:${template.language}`;
+            return (
+              <Pressable
+                key={key}
+                style={[styles.replyCard, (sendingTemplateId === key || template.unsupported) && styles.replyCardDisabled]}
+                onPress={() => useSendableTemplate(template)}
+                disabled={!!sendingTemplateId || !!template.unsupported}
+              >
+                <View style={styles.replyTop}>
+                  <Text style={styles.replyName} numberOfLines={1}>{template.name}</Text>
+                  <Text style={styles.replyCount}>{sendingTemplateId === key ? "Sending..." : template.language}</Text>
+                </View>
+                <Text style={styles.replyMessage} numberOfLines={3}>{templateLead ? previewSendableTemplate(template, templateLead) : template.body_text}</Text>
+                {template.unsupported ? <Text style={styles.replyWarning}>{template.unsupported}</Text> : null}
+              </Pressable>
+            );
+          }) : templates.length ? templates.map((template) => (
+            <Pressable key={template.id} style={[styles.replyCard, sendingTemplateId === template.id && styles.replyCardDisabled]} onPress={() => useTemplate(template)} disabled={!!sendingTemplateId}>
               <View style={styles.replyTop}>
                 <Text style={styles.replyName} numberOfLines={1}>{template.name}</Text>
-                <Text style={styles.replyCount}>{template.use_count || 0} uses</Text>
+                <Text style={styles.replyCount}>{sendingTemplateId === template.id ? "Sending..." : `${template.use_count || 0} uses`}</Text>
               </View>
               <Text style={styles.replyMessage} numberOfLines={3}>{template.message}</Text>
             </Pressable>
@@ -310,7 +369,7 @@ export default function WhatsAppScreen() {
               </View>
             ) : null}
 
-            <ScrollView contentContainerStyle={styles.chatContent} showsVerticalScrollIndicator={false}>
+            <ScrollView contentContainerStyle={[styles.chatContent, { paddingBottom: 24 }]} showsVerticalScrollIndicator={false}>
               <View style={styles.dayPill}><Text style={styles.dayPillText}>Today</Text></View>
               <View style={styles.messageBubbleIn}>
                 <Text style={styles.messageText}>Hello! Can I get more info on this?</Text>
@@ -328,35 +387,6 @@ export default function WhatsAppScreen() {
             </ScrollView>
 
             <View style={[styles.composer, { paddingBottom: insets.bottom + 10 }]}>
-              {templatePickerOpen ? (
-                <View style={styles.templateMenu}>
-                  <View style={styles.templateMenuHeader}>
-                    <Text style={styles.templateMenuTitle}>Send template</Text>
-                    <Pressable style={styles.menuCloseButton} onPress={() => setTemplatePickerOpen(false)}>
-                      <Ionicons name="close" size={16} color={colors.textMuted} />
-                    </Pressable>
-                  </View>
-                  <ScrollView style={styles.templateMenuList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                    {templates.length ? templates.map((template) => (
-                      <Pressable
-                        key={template.id}
-                        style={[styles.templateMenuItem, sendingTemplateId === template.id && styles.templateMenuItemDisabled]}
-                        onPress={() => useTemplate(template)}
-                        disabled={!!sendingTemplateId}
-                      >
-                        <Ionicons name="send-outline" size={15} color={colors.primary} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.templateMenuName} numberOfLines={1}>{template.name}</Text>
-                          <Text style={styles.templateMenuMessage} numberOfLines={1}>{selected ? templateTextFor(template, selected) : template.message}</Text>
-                        </View>
-                        <Text style={styles.templateMenuMeta}>{sendingTemplateId === template.id ? "Sending..." : "Send"}</Text>
-                      </Pressable>
-                    )) : (
-                      <Text style={styles.templateMenuEmpty}>No WhatsApp templates available.</Text>
-                    )}
-                  </ScrollView>
-                </View>
-              ) : null}
               {!canReply ? (
                 <View style={styles.templatePrompt}>
                   <Text style={styles.templatePromptText}>This lead hasn't messaged you yet</Text>
@@ -428,7 +458,7 @@ const styles = StyleSheet.create({
   unreadBadge: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.success, alignItems: "center", justifyContent: "center" },
   unreadText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
   chatScreen: { flex: 1, backgroundColor: colors.background },
-  chatContent: { padding: 16, paddingBottom: 24 },
+  chatContent: { padding: 16 },
   chatName: { color: colors.text, fontSize: 15, fontFamily: "Inter_700Bold" },
   chatMeta: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   dayPill: { alignSelf: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 5, marginVertical: 12 },
@@ -458,22 +488,13 @@ const styles = StyleSheet.create({
   templatePromptText: { flex: 1, color: colors.text, fontSize: 12, fontFamily: "Inter_600SemiBold" },
   templateButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
   templateButtonText: { color: "#fff", fontSize: 12, fontFamily: "Inter_700Bold" },
-  templateMenu: { position: "absolute", right: 16, bottom: 122, zIndex: 20, width: 318, maxHeight: 300, backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: colors.borderSoft, shadowColor: "#0f172a", shadowOpacity: 0.18, shadowRadius: 16, shadowOffset: { width: 0, height: 10 }, elevation: 7, overflow: "hidden" },
-  templateMenuHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
-  templateMenuTitle: { color: colors.text, fontSize: 13, fontFamily: "Inter_700Bold" },
-  menuCloseButton: { width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#f8fafc" },
-  templateMenuList: { maxHeight: 244 },
-  templateMenuItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
-  templateMenuItemDisabled: { opacity: 0.6 },
-  templateMenuName: { color: colors.text, fontSize: 12, fontFamily: "Inter_700Bold" },
-  templateMenuMessage: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
-  templateMenuMeta: { color: colors.success, fontSize: 11, fontFamily: "Inter_700Bold" },
-  templateMenuEmpty: { color: colors.textMuted, fontSize: 12, textAlign: "center", padding: 16 },
   replyCard: { ...glass, padding: 14, marginBottom: 12 },
+  replyCardDisabled: { opacity: 0.65 },
   replyTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   replyName: { flex: 1, color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold" },
   replyCount: { color: colors.textMuted, fontSize: 11 },
   replyMessage: { color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 },
+  replyWarning: { color: colors.warning, fontSize: 11, marginTop: 6, fontFamily: "Inter_600SemiBold" },
   emptyCard: { ...glass, alignItems: "center", padding: 30, marginTop: 20 },
   emptyTitle: { color: colors.text, fontSize: 15, fontFamily: "Inter_700Bold", marginTop: 12 },
   emptyText: { color: colors.textMuted, fontSize: 12, textAlign: "center", marginTop: 6, lineHeight: 18 },
