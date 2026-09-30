@@ -260,6 +260,7 @@ const MANAGE_BUSINESS: GridItem[] = [
   { icon: "extension-puzzle-outline", label: "Integrations", ...TONE.pink, href: "/(app)/more/integrations" },
   { icon: "card-outline", label: "Billing", ...TONE.sky, href: "/(app)/more/billing" },
   { icon: "settings-outline", label: "Settings", ...TONE.emerald, href: "/(app)/more/settings" },
+  { icon: "help-buoy-outline", label: "Help & Support", ...TONE.indigo, href: "/(app)/more/help-support" },
   { icon: "help-circle-outline", label: "User Guide", ...TONE.amber, href: "/(app)/more/user-guide" },
 ];
 
@@ -270,7 +271,6 @@ const OTHER_DESTINATIONS: GridItem[] = [
   { icon: "language-outline", label: "Language", ...TONE.amber, href: "/(app)/more/language" },
   { icon: "person-circle-outline", label: "Account", ...TONE.emerald, href: "/(app)/more/account" },
   { icon: "bulb-outline", label: "Submit Feedback", ...TONE.pink, href: "/(app)/more/feedback" },
-  { icon: "call-outline", label: "Help & Support", ...TONE.emerald, href: "/(app)/more/help-support" },
   { icon: "albums-outline", label: "Content Library", ...TONE.indigo, href: "/(app)/content" },
 ];
 
