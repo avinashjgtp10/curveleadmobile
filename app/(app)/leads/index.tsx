@@ -2,11 +2,11 @@ import { IconChevronRight, IconSearch } from "@/components/ReferenceIcons";
 import { glass } from "@/components/Glass";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert, Linking, Modal, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet,
+  Alert, Dimensions, Linking, Modal, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet,
   Text, View,
 } from "react-native";
 import {
-  ActivityIndicator, Avatar, Button, Card, Checkbox, Chip, FAB, IconButton, List, Searchbar,
+  ActivityIndicator, Avatar, Button, Card, Checkbox, Chip, FAB, IconButton, List, Menu, Searchbar,
 } from "react-native-paper";
 import axios from "axios";
 import { router, useFocusEffect, useNavigation } from "expo-router";
@@ -101,20 +101,38 @@ function dateBucket(value: string) {
   return "Earlier";
 }
 
-function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, colorFor, findStage }: {
+function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDelete, colorFor, findStage }: {
   lead: LeadListItem; selectMode: boolean; selected: boolean; onToggleSelect: () => void; onLongPress: () => void;
+  /** Omitted for users who can't delete, which hides the Delete item. */
+  onDelete?: () => void;
   colorFor: (stage?: string) => { bg: string; text: string };
   findStage: (name?: string) => { name: string } | undefined;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ y: 0, right: 16 });
+  const anchorRef = useRef<View>(null);
+  function openMenu() {
+    // Open the popover just under the ⋮ button, right-aligned with it.
+    anchorRef.current?.measureInWindow((x, y, width, height) => {
+      setMenuPos({ y: y + height, right: Math.max(8, Dimensions.get("window").width - (x + width)) });
+      setMenuOpen(true);
+    });
+  }
+  function closeMenu() { setMenuOpen(false); }
+  function runAfterClose(action: () => void) {
+    setMenuOpen(false);
+    setTimeout(action, 300);
+  }
   const stageColors = colorFor(lead.stage);
   const stageLabel = findStage(lead.stage)?.name || pretty(lead.stage);
+  const openLead = () => router.push({
+    pathname: "/(app)/leads/[id]",
+    params: { id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage || "new", source: lead.source || "" },
+  });
   return (
     <Card
       mode="outlined" style={styles.leadRow}
-      onPress={() => selectMode ? onToggleSelect() : router.push({
-        pathname: "/(app)/leads/[id]",
-        params: { id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage || "new", source: lead.source || "" },
-      })}
+      onPress={() => selectMode ? onToggleSelect() : openLead()}
       onLongPress={() => { if (!selectMode) onLongPress(); }}
     >
       <Card.Content style={styles.leadRowContent}>
@@ -134,7 +152,31 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, colo
             <Chip compact style={[styles.stagePill, { backgroundColor: stageColors.bg }]} textStyle={[styles.stagePillText, { color: stageColors.text }]}>{stageLabel}</Chip>
           </View>
         </View>
-        {!selectMode ? <IconChevronRight /> : null}
+        {!selectMode ? (
+          <>
+            <View ref={anchorRef} collapsable={false}>
+              <IconButton icon="dots-vertical" size={20} onPress={openMenu} style={styles.rowMenuButton} accessibilityLabel="Lead actions" />
+            </View>
+            {/* A plain Modal popover: Paper's Menu swallowed taps here. Actions run after it closes,
+                because Android drops navigation/Alerts fired while a Modal is still dismissing. */}
+            <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={closeMenu}>
+              <Pressable style={StyleSheet.absoluteFill} onPress={closeMenu}>
+                <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
+                  <Pressable style={styles.popoverItem} onPress={() => runAfterClose(openLead)}>
+                    <Ionicons name="pencil-outline" size={16} color={colors.text} />
+                    <Text style={styles.popoverText}>Edit</Text>
+                  </Pressable>
+                  {onDelete ? (
+                    <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onDelete)}>
+                      <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                      <Text style={[styles.popoverText, { color: colors.danger }]}>Delete</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </Pressable>
+            </Modal>
+          </>
+        ) : null}
       </Card.Content>
     </Card>
   );
@@ -184,10 +226,11 @@ export default function LeadsScreen() {
 
   useEffect(() => {
     const parent = navigation.getParent();
-    const hideBar = filtersSheetOpen || settingsSheetOpen;
+    // The tab bar floats over the screen, so in select mode it would cover the Delete/Stage action bar.
+    const hideBar = filtersSheetOpen || settingsSheetOpen || selectMode;
     parent?.setOptions({ tabBarStyle: hideBar ? { display: "none" } : tabBarStyleFor(insets.bottom) });
     return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
-  }, [filtersSheetOpen, settingsSheetOpen, navigation, insets.bottom]);
+  }, [filtersSheetOpen, settingsSheetOpen, selectMode, navigation, insets.bottom]);
 
   const activeFilterCount = [score, filterStage, filterSource, filterAssignedTo].filter(Boolean).length;
 
@@ -336,6 +379,21 @@ export default function LeadsScreen() {
     Linking.openURL(`tel:${lead.phone}`).catch(() => Alert.alert("Unable to call", "Calling is not supported on this device."));
   }
 
+  function confirmDeleteOne(lead: LeadListItem) {
+    Alert.alert("Delete this lead?", `${lead.name} will be permanently deleted.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: async () => {
+        try {
+          await bulkDeleteLeads([lead.id]);
+          notifyLeadsDeleted([{ id: lead.id, name: lead.name }]).catch(() => {});
+          load();
+        } catch (deleteError) {
+          Alert.alert("Couldn't delete", errorMessage(deleteError, "You may not have permission to do this."));
+        }
+      } },
+    ]);
+  }
+
   function confirmBulkDelete() {
     Alert.alert(
       "Delete selected leads?",
@@ -416,7 +474,7 @@ export default function LeadsScreen() {
         <SectionList
           sections={sections} keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <LeadRow lead={item} selectMode={selectMode} selected={selectedIds.has(item.id)} onToggleSelect={() => toggleSelect(item.id)} onLongPress={() => enterSelectMode(item.id)} colorFor={colorFor} findStage={findStage} />
+            <LeadRow lead={item} selectMode={selectMode} selected={selectedIds.has(item.id)} onToggleSelect={() => toggleSelect(item.id)} onLongPress={() => enterSelectMode(item.id)} onDelete={isAdmin ? () => confirmDeleteOne(item) : undefined} colorFor={colorFor} findStage={findStage} />
           )}
           renderSectionHeader={({ section }) => <Text style={styles.sectionHeader}>{section.title}</Text>}
           ListHeaderComponent={header}
@@ -630,7 +688,7 @@ const styles = StyleSheet.create({
   titleRowMain: { flexDirection: "row", alignItems: "center" },
   backButton: { margin: 0, marginRight: 4 },
   title: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" }, count: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
-  selectHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16, height: 40 },
+  selectHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16, minHeight: 52 },
   selectCount: { color: colors.text, fontSize: 14, fontWeight: "800" },
   searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
   searchBox: { ...glass, flex: 1 },
@@ -660,6 +718,13 @@ const styles = StyleSheet.create({
   leadRow: { ...glass, marginBottom: 8 }, pressed: { opacity: 0.7 },
   leadRowContent: { flexDirection: "row", alignItems: "center", minHeight: 66 },
   avatar: { backgroundColor: colors.primary, marginRight: 11 }, avatarText: { fontSize: 16, fontWeight: "800" },
+  rowMenuButton: { margin: 0 },
+  popover: {
+    position: "absolute", minWidth: 150, paddingVertical: 6, borderRadius: 12, backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.borderSoft, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
+  },
+  popoverItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
+  popoverText: { color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
   leadContent: { flex: 1 }, nameRow: { flexDirection: "row", alignItems: "center", gap: 6 }, leadName: { flex: 1, color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold" }, hotDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.danger },
   subtitle: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" },
