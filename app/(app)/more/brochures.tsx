@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Linking,
@@ -10,10 +10,8 @@ import {
   useWindowDimensions,
 } from "react-native";
 import {
-  ActivityIndicator,
   Button,
   HelperText,
-  List,
   Searchbar,
   Text,
   TextInput,
@@ -28,10 +26,8 @@ import {
   Brochure,
   deleteBrochure,
   fetchBrochures,
-  shareBrochure,
   uploadBrochure,
 } from "@/api/brochures";
-import { fetchLeads, LeadListItem } from "@/api/leads";
 
 const FILE_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
 type FilterKey = "all" | "products" | "services" | "pricing" | "company";
@@ -86,7 +82,6 @@ export default function BrochuresScreen() {
   const gridColumns = width >= 900 ? 3 : 2;
   const gridGap = width >= 700 ? 16 : 12;
   const cardWidth = (width - horizontalPadding * 2 - gridGap * (gridColumns - 1)) / gridColumns;
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [brochures, setBrochures] = useState<Brochure[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -105,11 +100,6 @@ export default function BrochuresScreen() {
   const [uploadNameError, setUploadNameError] = useState(false);
   const [uploadCategoryError, setUploadCategoryError] = useState(false);
   const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
-  const [shareTarget, setShareTarget] = useState<Brochure | null>(null);
-  const [leadQuery, setLeadQuery] = useState("");
-  const [leadResults, setLeadResults] = useState<LeadListItem[]>([]);
-  const [sharing, setSharing] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -126,25 +116,6 @@ export default function BrochuresScreen() {
   useEffect(() => {
     load();
   }, []);
-
-  useEffect(() => {
-    if (!shareOpen) return;
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (!leadQuery.trim()) {
-      setLeadResults([]);
-      return;
-    }
-    searchTimer.current = setTimeout(async () => {
-      try {
-        setLeadResults((await fetchLeads({ search: leadQuery.trim(), limit: 6 })).leads);
-      } catch {
-        // best effort
-      }
-    }, 300);
-    return () => {
-      if (searchTimer.current) clearTimeout(searchTimer.current);
-    };
-  }, [leadQuery, shareOpen]);
 
   function chooseUploadFile() {
     setCreateChoiceOpen(false);
@@ -228,28 +199,13 @@ export default function BrochuresScreen() {
     ]);
   }
 
-  function openShare(brochure: Brochure) {
-    setShareTarget(brochure);
-    setLeadQuery("");
-    setLeadResults([]);
-    setShareOpen(true);
-  }
-
-  async function shareTo(lead: LeadListItem) {
-    if (!shareTarget) return;
-    setSharing(true);
+  /** Share goes straight to WhatsApp with the brochure link typed in; the user picks the chat there. */
+  async function openShare(brochure: Brochure) {
+    const text = brochure.file_url ? `${brochure.name}: ${brochure.file_url}` : brochure.name;
     try {
-      const result = await shareBrochure(shareTarget.id, lead.id);
-      setShareOpen(false);
-      if (result.whatsapp_url) {
-        Linking.openURL(result.whatsapp_url);
-      } else {
-        Alert.alert("No phone number", "This lead has no phone number to share via WhatsApp.");
-      }
-    } catch (shareError) {
-      Alert.alert("Couldn't share", errorMessage(shareError, "Please try again."));
-    } finally {
-      setSharing(false);
+      await Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`);
+    } catch {
+      Alert.alert("Couldn't open WhatsApp", "Make sure WhatsApp is installed on this phone.");
     }
   }
 
@@ -302,13 +258,7 @@ export default function BrochuresScreen() {
           <Pressable onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={28} color="#111827" />
           </Pressable>
-          <View style={styles.urlBar}>
-            <Ionicons name="globe-outline" size={16} color="#374151" />
-            <Text style={styles.urlText}>curvelead.com/brochures</Text>
-          </View>
-        </View>
-        <View style={styles.topBarActions}>
-          <View style={styles.avatarBubble}><Text style={styles.avatarText}>S</Text></View>
+          <Text style={styles.topTitle}>Brochures</Text>
         </View>
       </View>
 
@@ -594,37 +544,6 @@ export default function BrochuresScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={shareOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !sharing && setShareOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => !sharing && setShareOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Share &quot;{shareTarget?.name}&quot;</Text>
-            <Searchbar
-              value={leadQuery}
-              onChangeText={setLeadQuery}
-              placeholder="Search & Select Lead"
-              autoFocus
-              elevation={0}
-              style={styles.searchInput}
-            />
-            {sharing ? (
-              <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 14 }} />
-            ) : (
-              <View style={styles.suggestions}>
-                {leadResults.map((lead) => (
-                  <List.Item
-                    key={lead.id}
-                    title={lead.name}
-                    titleNumberOfLines={1}
-                    description={lead.phone}
-                    onPress={() => shareTo(lead)}
-                  />
-                ))}
-              </View>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
     </View>
   );
 }
@@ -658,36 +577,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  urlBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: "#f1f5f9",
-    flex: 1,
-  },
-  urlText: {
-    color: "#334155",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  topBarActions: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarBubble: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "#f59e0b",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: {
-    color: "#ffffff",
-    fontSize: 14,
+  topTitle: {
+    color: "#111827",
+    fontSize: 18,
     fontWeight: "800",
   },
   content: {
