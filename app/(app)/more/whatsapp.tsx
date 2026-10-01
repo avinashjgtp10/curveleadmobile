@@ -8,6 +8,7 @@ import { colors } from "@/theme";
 import { GlassBackground, glass } from "@/components/Glass";
 import { fetchLeads, LeadListItem } from "@/api/leads";
 import { fetchTemplates, MessageTemplate } from "@/api/templates";
+import { notifyMessageSent } from "@/api/notifications";
 import { fetchSendableWhatsAppTemplates, SendableWhatsAppTemplate, sendWhatsAppMessage, sendWhatsAppTemplate, WhatsAppMessage } from "@/api/whatsapp";
 
 type Tab = "chats" | "saved";
@@ -173,6 +174,8 @@ export default function WhatsAppScreen() {
       setTab("chats");
       if (result.delivery?.success === false) {
         Alert.alert("Message not delivered", result.delivery.error || "WhatsApp rejected this template.");
+      } else {
+        notifyMessageSent(templateLead).catch(() => {});
       }
     } catch {
       Alert.alert("Template not sent", "Could not send this template. Please check WhatsApp integration and try again.");
@@ -194,6 +197,8 @@ export default function WhatsAppScreen() {
         setTab("chats");
         if (result.delivery?.success === false) {
           Alert.alert("Message not delivered", result.delivery.error || "WhatsApp rejected this message.");
+        } else {
+          notifyMessageSent(templateLead).catch(() => {});
         }
       } catch {
         Alert.alert("Template not sent", "This saved reply could not be sent directly. Use an approved WhatsApp template to start a locked conversation.");
@@ -223,6 +228,8 @@ export default function WhatsAppScreen() {
       setMessage("");
       if (result.delivery?.success === false) {
         Alert.alert("Message not delivered", result.delivery.error || "WhatsApp rejected this message.");
+      } else {
+        notifyMessageSent(selected).catch(() => {});
       }
     } catch {
       Alert.alert("Message not sent", "Could not send this message. Please try again.");
