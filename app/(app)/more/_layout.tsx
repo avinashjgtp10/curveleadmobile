@@ -1,6 +1,11 @@
 import { router, Stack } from "expo-router";
 import { homeOrigin } from "@/navigation/homeOrigin";
 
+// When a feature is opened straight from Home, the More tab's stack must still start with the menu.
+// Without this the feature becomes the stack's only screen, so it is never popped and tapping More
+// later shows that feature instead of the menu.
+export const unstable_settings = { initialRouteName: "index" };
+
 export default function MoreLayout() {
   return (
     <Stack
