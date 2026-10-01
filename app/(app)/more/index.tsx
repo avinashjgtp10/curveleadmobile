@@ -1,9 +1,10 @@
 import { GlassBackground, glass, GradientIcon, GradientName } from "@/components/Glass";
 import * as Icons from "@/components/ReferenceIcons";
-import React from "react";
+import React, { useCallback } from "react";
 import { View, StyleSheet, ScrollView, Pressable } from "react-native";
 import { Button, List, Text } from "react-native-paper";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
+import { homeOrigin } from "@/navigation/homeOrigin";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
@@ -43,6 +44,9 @@ export default function MoreScreen() {
   const { user, tenant, logout } = useAuth();
   const { can } = usePermission();
   const insets = useSafeAreaInsets();
+
+  // Showing the More menu means features opened from here go Back to here, not to Home.
+  useFocusEffect(useCallback(() => { homeOrigin.current = false; }, []));
 
   const visibleItems = MENU.filter((item) => !item.roles || can(item.roles));
 

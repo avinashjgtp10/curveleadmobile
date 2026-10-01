@@ -15,6 +15,7 @@ import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboa
 import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads, fetchIntegrationSettings, IntegrationSettings } from "@/api/integrations";
 import { fetchNotifications } from "@/api/notifications";
+import { homeOrigin } from "@/navigation/homeOrigin";
 import { useAuth } from "@/contexts/AuthContext";
 
 const AI_IMAGE_SAMPLES = [
@@ -276,6 +277,13 @@ const OTHER_DESTINATIONS: GridItem[] = [
 
 const SEARCH_ITEMS: GridItem[] = [...GROW_BUSINESS, ...MANAGE_BUSINESS, ...OTHER_DESTINATIONS];
 
+function openGridItem(item: GridItem) {
+  // Features under More open inside the More tab's stack; remember they came from Home so Back returns here
+  // (see more/_layout.tsx) and the More tab isn't left showing this feature.
+  homeOrigin.current = item.href.startsWith("/(app)/more/");
+  router.push(item.href as never);
+}
+
 function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; onPress: () => void }) {
   return (
     <Pressable style={styles.gridTile} onPress={onPress}>
@@ -503,7 +511,7 @@ export default function DashboardScreen() {
               <Text style={styles.startHereSubtitle}>Your everyday actions</Text>
               <View style={styles.startHereRow}>
                 {START_HERE.map((item) => (
-                  <StartHereTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => router.push(item.href as never)} />
+                  <StartHereTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
                 ))}
               </View>
             </View>
@@ -613,7 +621,7 @@ export default function DashboardScreen() {
               <Text style={styles.startHereSubtitle}>Reach, engage and convert customers</Text>
               <View style={styles.gridWrap}>
                 {GROW_BUSINESS.map((item) => (
-                  <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => router.push(item.href as never)} />
+                  <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
                 ))}
               </View>
             </View>
@@ -623,7 +631,7 @@ export default function DashboardScreen() {
               <Text style={styles.startHereSubtitle}>People, data and workspace tools</Text>
               <View style={styles.gridWrap}>
                 {MANAGE_BUSINESS.map((item) => (
-                  <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => router.push(item.href as never)} />
+                  <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
                 ))}
               </View>
             </View>
@@ -669,7 +677,7 @@ export default function DashboardScreen() {
             ).map((item) => (
               <Pressable
                 key={item.href} style={styles.searchResultRow}
-                onPress={() => { setSearchOpen(false); setSearchQuery(""); router.push(item.href as never); }}
+                onPress={() => { setSearchOpen(false); setSearchQuery(""); openGridItem(item); }}
               >
                 <View style={[styles.searchResultIcon, { backgroundColor: item.bg }]}>
                   <Ionicons name={item.icon} size={18} color={item.iconColor} />
