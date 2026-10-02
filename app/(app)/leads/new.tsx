@@ -8,7 +8,6 @@ import axios from "axios";
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
-import { GlassBackground } from "@/components/Glass";
 import { usePermission } from "@/hooks/usePermission";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { createLead, createLeadFollowup } from "@/api/leads";
@@ -109,8 +108,10 @@ export default function NewLeadScreen() {
     fetchStaff().then(setStaff).catch(() => {});
   }, [isAdmin]);
 
+  // Close the page and land back where the person came from, with the list exactly as they left it.
   function closeForm() {
-    router.navigate(returnTo === "dashboard" ? "/(app)" : "/(app)/leads");
+    if (router.canGoBack()) router.back();
+    else router.replace(returnTo === "dashboard" ? "/(app)" : "/(app)/leads");
   }
 
   function update(field: keyof FormState, value: string) {
@@ -195,7 +196,6 @@ export default function NewLeadScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <GlassBackground />
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={closeForm} />
         <Appbar.Content title="Add lead" titleStyle={styles.headerTitle} />
@@ -367,8 +367,8 @@ export default function NewLeadScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: "transparent" },
+  screen: { flex: 1, backgroundColor: "#f4f9fc" },
+  header: { backgroundColor: "#ffffff" },
   headerTitle: { fontSize: 15, fontWeight: "700" },
   content: { paddingHorizontal: 16, paddingTop: 10 },
   errorBanner: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 12, marginBottom: 12 }, errorBannerText: { color: colors.danger, fontSize: 12, fontWeight: "600", lineHeight: 18 },

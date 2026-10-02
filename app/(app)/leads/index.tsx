@@ -485,7 +485,7 @@ export default function LeadsScreen() {
           <Ionicons name="options-outline" size={20} color={activeFilterCount ? "#fff" : colors.textSecondary} />
         </Pressable>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow} keyboardShouldPersistTaps="handled">
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickScroll} contentContainerStyle={styles.quickRow} keyboardShouldPersistTaps="handled">
         {FILTERS.map((item) => {
           const active = score === item.value;
           const icon = item.value === "hot" ? "flame" : item.value === "warm" ? "sunny" : item.value === "cold" ? "snow" : "people";
@@ -767,7 +767,9 @@ const styles = StyleSheet.create({
   filterDropdownItemTextSelected: { color: colors.text, fontWeight: "700" },
   filterSheetActions: { flexDirection: "row", gap: 10, marginTop: 14 },
   filterSheetButton: { flex: 1 },
-  quickRow: { gap: 8, paddingVertical: 10 },
+  // A horizontal ScrollView inside a list header otherwise grows to fill the screen height.
+  quickScroll: { flexGrow: 0, flexShrink: 0 },
+  quickRow: { gap: 8, paddingVertical: 10, alignItems: "center" },
   quickChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#d7e6f1" },
   quickChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   quickChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
