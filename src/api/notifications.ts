@@ -190,6 +190,19 @@ export async function notifyLeadsAdded(count: number, source: string) {
   await presentLocalNotification(input.title, input.message, { type: input.type });
 }
 
+/** A WhatsApp message was sent from this app. Replies and automation messages come from the server, not here. */
+export async function notifyMessageSent(lead: { id: string; name: string; phone?: string; stage?: string }) {
+  await saveLocalNotification({
+    title: `WhatsApp message sent - ${lead.name}`,
+    message: "Your message was sent.",
+    type: "message_sent",
+    lead_id: lead.id,
+    lead_name: lead.name,
+    lead_phone: lead.phone,
+    lead_stage: lead.stage,
+  });
+}
+
 export async function notifyLeadsDeleted(leads: { id: string; name: string }[]) {
   for (const lead of leads) {
     await saveLocalNotification({

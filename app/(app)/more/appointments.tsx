@@ -2,13 +2,13 @@ import { PlaceholderScreen } from "@/components/PlaceholderScreen";
 import { GlassBackground, glass } from "@/components/Glass";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Appbar, Button, List, Searchbar, Text, TextInput } from "react-native-paper";
+import { Alert, Dimensions, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Appbar, Button, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "@/theme";
-import { createLeadFollowup, fetchLeads, fetchTodayFollowups, FollowupType, LeadListItem, TodayFollowup } from "@/api/leads";
+import { colors, tabBarStyleFor } from "@/theme";
+import { completeLeadFollowup, createLeadFollowup, fetchLeads, fetchTodayFollowups, FollowupType, LeadListItem, TodayFollowup } from "@/api/leads";
 
 type AppointmentTab = "all" | "upcoming" | "today" | "overdue" | "completed";
 type TypeOption = { key: FollowupType; label: string; icon: keyof typeof Ionicons.glyphMap };
@@ -42,6 +42,10 @@ function typeMeta(type?: string) {
   return TYPES.find((item) => item.key === type) || TYPES[0];
 }
 
+function followupTypeOrDefault(type?: string): FollowupType {
+  return typeMeta(type).key;
+}
+
 function statusFor(item: TodayFollowup) {
   const when = new Date(item.next_followup_at);
   const now = new Date();
@@ -65,8 +69,92 @@ function initials(name?: string) {
   return words.length > 1 ? `${words[0][0]}${words[1][0]}`.toUpperCase() : words[0][0].toUpperCase();
 }
 
+function AppointmentRow({ item, completing, onView, onComplete, onReschedule, onCancel }: {
+  item: TodayFollowup;
+  completing: boolean;
+  onView: () => void;
+  onComplete: () => void;
+  onReschedule: () => void;
+  onCancel: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ y: 0, right: 16 });
+  const anchorRef = useRef<View>(null);
+  const meta = typeMeta(item.followup_type);
+  const date = formatDate(item.next_followup_at);
+  const status = statusFor(item);
+
+  function openMenu() {
+    anchorRef.current?.measureInWindow((x, y, width, height) => {
+      setMenuPos({ y: y + height + 2, right: Math.max(8, Dimensions.get("window").width - (x + width)) });
+      setMenuOpen(true);
+    });
+  }
+
+  function runAfterClose(action: () => void) {
+    setMenuOpen(false);
+    setTimeout(action, 250);
+  }
+
+  return (
+    <Pressable style={styles.row} onPress={onView}>
+      <View style={styles.avatar}><Text style={styles.avatarText}>{initials(item.lead_name)}</Text></View>
+      <View style={styles.rowMain}>
+        <Text style={styles.rowName} numberOfLines={1}>{item.lead_name}</Text>
+        <Text style={styles.rowPhone}>{item.lead_phone}</Text>
+        <View style={styles.rowType}>
+          <Ionicons name={meta.icon} size={13} color={status === "overdue" ? colors.danger : colors.primary} />
+          <Text style={styles.rowTypeText}>{meta.label}</Text>
+        </View>
+      </View>
+      <View style={styles.rowSide}>
+        <Text style={styles.rowDate}>{date.date}</Text>
+        <Text style={styles.rowTime}>{date.time}</Text>
+        <Text style={[styles.statusPill, status === "overdue" ? styles.statusOverdue : status === "today" ? styles.statusToday : styles.statusUpcoming]}>{status === "overdue" ? "Overdue" : status === "today" ? "Today" : "Upcoming"}</Text>
+      </View>
+      {completing ? (
+        <ActivityIndicator size="small" color={colors.primary} style={styles.actionButton} />
+      ) : (
+        <View ref={anchorRef} collapsable={false}>
+          <IconButton
+            icon="dots-vertical"
+            iconColor={colors.textSecondary}
+            size={20}
+            style={styles.actionButton}
+            onPress={(event) => { event.stopPropagation(); openMenu(); }}
+            accessibilityLabel="Appointment actions"
+          />
+        </View>
+      )}
+      <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMenuOpen(false)}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
+          <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
+            <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onView)}>
+              <Ionicons name="eye-outline" size={16} color={colors.textSecondary} />
+              <Text style={styles.popoverText}>View Details</Text>
+            </Pressable>
+            <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onReschedule)}>
+              <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+              <Text style={styles.popoverText}>Reschedule</Text>
+            </Pressable>
+            <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onComplete)}>
+              <Ionicons name="checkmark-circle-outline" size={16} color={colors.success} />
+              <Text style={[styles.popoverText, styles.popoverSuccessText]}>Mark Completed</Text>
+            </Pressable>
+            <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onCancel)}>
+              <Ionicons name="close-circle-outline" size={16} color={colors.danger} />
+              <Text style={[styles.popoverText, styles.popoverDangerText]}>Cancel Appointment</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+    </Pressable>
+  );
+}
+
 function AppointmentsContent() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [appointments, setAppointments] = useState<TodayFollowup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,6 +164,7 @@ function AppointmentsContent() {
   const [query, setQuery] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<FollowupType | "">("");
+  const [completingId, setCompletingId] = useState<string | null>(null);
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [leadQuery, setLeadQuery] = useState("");
@@ -86,6 +175,13 @@ function AppointmentsContent() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [reschedulingAppointment, setReschedulingAppointment] = useState<TodayFollowup | null>(null);
+
+  useEffect(() => {
+    const parent = navigation.getParent();
+    parent?.setOptions({ tabBarStyle: sheetOpen ? { display: "none" } : tabBarStyleFor(insets.bottom) });
+    return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
+  }, [sheetOpen, navigation, insets.bottom]);
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setRefreshing(true) : setLoading(true);
@@ -140,8 +236,15 @@ function AppointmentsContent() {
   function openCreate() {
     setLeadQuery(""); setLeadResults([]); setSelectedLead(null);
     setAppointmentAt(defaultFollowupDate()); setAppointmentType("call"); setNotes(""); setFormError("");
+    setReschedulingAppointment(null);
     setSheetOpen(true);
     fetchLeads({ limit: 8 }).then((result) => setLeadResults(result.leads)).catch(() => setLeadResults([]));
+  }
+
+  function closeSheet() {
+    if (saving) return;
+    setSheetOpen(false);
+    setReschedulingAppointment(null);
   }
 
   async function schedule() {
@@ -163,25 +266,76 @@ function AppointmentsContent() {
         next_followup_at: created.next_followup_at || appointmentAt.toISOString(),
         notes: created.notes || notes.trim() || undefined,
       };
-      setAppointments((current) => [newAppointment, ...current.filter((item) => item.id !== newAppointment.id)]);
+      if (reschedulingAppointment) {
+        await completeLeadFollowup(reschedulingAppointment.id, "Rescheduled");
+      }
+      setAppointments((current) => [
+        newAppointment,
+        ...current.filter((item) => item.id !== newAppointment.id && item.id !== reschedulingAppointment?.id),
+      ]);
       setActiveTab("all");
       setQuery("");
       setTypeFilter("");
       setFilterOpen(false);
       setSheetOpen(false);
+      setReschedulingAppointment(null);
       load(true);
     } catch {
-      setFormError("Could not schedule this appointment.");
+      setFormError(reschedulingAppointment ? "Could not reschedule this appointment." : "Could not schedule this appointment.");
     } finally {
       setSaving(false);
     }
+  }
+
+  function viewAppointment(item: TodayFollowup) {
+    router.push({ pathname: "/(app)/leads/[id]", params: { id: item.lead_id, name: item.lead_name, phone: item.lead_phone, stage: item.lead_stage || "new" } });
+  }
+
+  async function markCompleted(item: TodayFollowup) {
+    setCompletingId(item.id);
+    try {
+      await completeLeadFollowup(item.id);
+      setAppointments((current) => current.filter((appointment) => appointment.id !== item.id));
+    } catch {
+      Alert.alert("Couldn't update appointment", "Please try again.");
+    } finally {
+      setCompletingId(null);
+    }
+  }
+
+  function openReschedule(item: TodayFollowup) {
+    const existingDate = new Date(item.next_followup_at);
+    setReschedulingAppointment(item);
+    setLeadQuery("");
+    setLeadResults([]);
+    setSelectedLead({
+      id: item.lead_id,
+      name: item.lead_name,
+      phone: item.lead_phone,
+      stage: item.lead_stage,
+      created_at: new Date().toISOString(),
+    });
+    setAppointmentAt(Number.isNaN(existingDate.getTime()) ? defaultFollowupDate() : existingDate);
+    setAppointmentType(followupTypeOrDefault(item.followup_type));
+    setNotes(item.notes || "");
+    setFormError("");
+    setSheetOpen(true);
+  }
+
+  function showCancelUnavailable() {
+    Alert.alert("Cancel appointment", "Cancelling appointments will be available when the cancel endpoint is connected.");
+  }
+
+  // Going back to Home (when opened from a Home tile) is handled for every More screen in more/_layout.tsx.
+  function goBack() {
+    router.back();
   }
 
   return (
     <View style={styles.screen}>
       <GlassBackground />
       <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
+        <Appbar.BackAction onPress={goBack} />
         <Appbar.Content title="Appointments" titleStyle={styles.headerTitle} />
         <Appbar.Action icon="refresh" color={colors.primary} onPress={() => load(true)} />
       </Appbar.Header>
@@ -256,29 +410,17 @@ function AppointmentsContent() {
             <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>
           ) : error ? (
             <View style={styles.state}><Text style={styles.errorText}>{error}</Text><Button mode="contained" onPress={() => load()}>Try again</Button></View>
-          ) : visibleAppointments.length ? visibleAppointments.map((item) => {
-            const meta = typeMeta(item.followup_type);
-            const date = formatDate(item.next_followup_at);
-            const status = statusFor(item);
-            return (
-              <Pressable key={item.id} style={styles.row} onPress={() => router.push({ pathname: "/(app)/leads/[id]", params: { id: item.lead_id, name: item.lead_name, phone: item.lead_phone, stage: item.lead_stage || "new" } })}>
-                <View style={styles.avatar}><Text style={styles.avatarText}>{initials(item.lead_name)}</Text></View>
-                <View style={styles.rowMain}>
-                  <Text style={styles.rowName} numberOfLines={1}>{item.lead_name}</Text>
-                  <Text style={styles.rowPhone}>{item.lead_phone}</Text>
-                  <View style={styles.rowType}>
-                    <Ionicons name={meta.icon} size={13} color={status === "overdue" ? colors.danger : colors.primary} />
-                    <Text style={styles.rowTypeText}>{meta.label}</Text>
-                  </View>
-                </View>
-                <View style={styles.rowSide}>
-                  <Text style={styles.rowDate}>{date.date}</Text>
-                  <Text style={styles.rowTime}>{date.time}</Text>
-                  <Text style={[styles.statusPill, status === "overdue" ? styles.statusOverdue : status === "today" ? styles.statusToday : styles.statusUpcoming]}>{status === "overdue" ? "Overdue" : status === "today" ? "Today" : "Upcoming"}</Text>
-                </View>
-              </Pressable>
-            );
-          }) : (
+          ) : visibleAppointments.length ? visibleAppointments.map((item) => (
+            <AppointmentRow
+              key={item.id}
+              item={item}
+              completing={completingId === item.id}
+              onView={() => viewAppointment(item)}
+              onComplete={() => markCompleted(item)}
+              onReschedule={() => openReschedule(item)}
+              onCancel={showCancelUnavailable}
+            />
+          )) : (
             <View style={styles.empty}>
               <Ionicons name="calendar-clear-outline" size={34} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>No appointments found</Text>
@@ -288,56 +430,62 @@ function AppointmentsContent() {
         </View>
       </ScrollView>
 
-      <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={() => !saving && setSheetOpen(false)}>
+      <Modal visible={sheetOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={closeSheet}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.sheetKeyboard}>
-          <Pressable style={styles.sheetBackdrop} onPress={() => !saving && setSheetOpen(false)}>
-            <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-              <View style={styles.sheetHandle} />
-              <Text style={styles.sheetTitle}>New Appointment</Text>
-              {formError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{formError}</Text></View> : null}
+          <View style={[styles.fullSheet, { paddingTop: insets.top }]}>
+            <View style={styles.fullSheetHeader}>
+              <Pressable onPress={closeSheet} hitSlop={10} style={styles.fullSheetBack}>
+                <Ionicons name="arrow-back" size={24} color={colors.text} />
+              </Pressable>
+              <Text style={styles.fullSheetTitle}>{reschedulingAppointment ? "Reschedule Appointment" : "New Appointment"}</Text>
+            </View>
+            {formError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{formError}</Text></View> : null}
 
-              <ScrollView style={styles.sheetBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                <Text style={styles.sheetLabel}>Lead <Text style={styles.required}>*</Text></Text>
-                {selectedLead ? (
-                  <View style={styles.selectedLead}>
-                    <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name}</Text>
+            <ScrollView contentContainerStyle={styles.fullSheetBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <Text style={styles.sheetLabel}>Lead <Text style={styles.required}>*</Text></Text>
+              {selectedLead ? (
+                <View style={styles.selectedLead}>
+                  <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name}</Text>
+                  {reschedulingAppointment ? null : (
                     <Pressable onPress={() => setSelectedLead(null)}><Text style={styles.changeLeadText}>Change</Text></Pressable>
-                  </View>
-                ) : (
-                  <>
-                    <Searchbar style={styles.sheetSearch} value={leadQuery} onChangeText={setLeadQuery} placeholder="Search leads by name or phone..." elevation={0} />
-                    {leadResults.length ? (
-                      <ScrollView style={styles.suggestions} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                        {leadResults.map((lead) => (
-                          <List.Item key={lead.id} title={lead.name} description={lead.phone} onPress={() => { setSelectedLead(lead); setLeadResults([]); }} />
-                        ))}
-                      </ScrollView>
-                    ) : null}
-                  </>
-                )}
-
-                <Text style={styles.sheetLabel}>Date & Time <Text style={styles.required}>*</Text></Text>
-                <DateTimeField value={appointmentAt} onChange={setAppointmentAt} minimumDate={new Date()} />
-
-                <Text style={styles.sheetLabel}>Type</Text>
-                <View style={styles.typeRow}>
-                  {TYPES.map((item) => (
-                    <Pressable key={item.key} style={[styles.typeChip, appointmentType === item.key && styles.typeChipActive]} onPress={() => setAppointmentType(item.key)}>
-                      <Text style={[styles.typeChipText, appointmentType === item.key && styles.typeChipTextActive]}>{item.label}</Text>
-                    </Pressable>
-                  ))}
+                  )}
                 </View>
+              ) : (
+                <>
+                  <Searchbar style={styles.sheetSearch} value={leadQuery} onChangeText={setLeadQuery} placeholder="Search leads by name or phone..." elevation={0} />
+                  {leadResults.length ? (
+                    <ScrollView style={styles.suggestions} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                      {leadResults.map((lead) => (
+                        <List.Item key={lead.id} title={lead.name} description={lead.phone} onPress={() => { setSelectedLead(lead); setLeadResults([]); }} />
+                      ))}
+                    </ScrollView>
+                  ) : null}
+                </>
+              )}
 
-                <Text style={styles.sheetLabel}>Notes (optional)</Text>
-                <TextInput mode="outlined" value={notes} onChangeText={setNotes} placeholder="e.g. Discuss pricing" style={styles.notesInput} />
-              </ScrollView>
+              <Text style={styles.sheetLabel}>Date & Time <Text style={styles.required}>*</Text></Text>
+              <DateTimeField value={appointmentAt} onChange={setAppointmentAt} minimumDate={new Date()} />
 
-              <View style={styles.sheetActions}>
-                <Button mode="outlined" onPress={() => setSheetOpen(false)} style={styles.sheetAction}>Cancel</Button>
-                <Button mode="contained" onPress={schedule} loading={saving} disabled={saving} style={styles.sheetAction}>Schedule</Button>
+              <Text style={styles.sheetLabel}>Type</Text>
+              <View style={styles.typeRow}>
+                {TYPES.map((item) => (
+                  <Pressable key={item.key} style={[styles.typeChip, appointmentType === item.key && styles.typeChipActive]} onPress={() => setAppointmentType(item.key)}>
+                    <Text style={[styles.typeChipText, appointmentType === item.key && styles.typeChipTextActive]}>{item.label}</Text>
+                  </Pressable>
+                ))}
               </View>
-            </Pressable>
-          </Pressable>
+
+              <Text style={styles.sheetLabel}>Notes (optional)</Text>
+              <TextInput mode="outlined" value={notes} onChangeText={setNotes} placeholder="e.g. Discuss pricing" style={styles.notesInput} />
+            </ScrollView>
+
+            <View style={[styles.sheetActions, styles.fullSheetActions, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+              <Button mode="outlined" onPress={closeSheet} style={styles.sheetAction}>Cancel</Button>
+              <Button mode="contained" onPress={schedule} loading={saving} disabled={saving} style={styles.sheetAction}>
+                {reschedulingAppointment ? "Reschedule" : "Schedule"}
+              </Button>
+            </View>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
     </View>
@@ -398,10 +546,25 @@ const styles = StyleSheet.create({
   statusOverdue: { color: colors.danger, backgroundColor: colors.dangerSoft },
   statusToday: { color: colors.warning, backgroundColor: colors.warningSoft },
   statusUpcoming: { color: colors.primary, backgroundColor: colors.primarySoft },
+  actionButton: { width: 34, height: 34, borderRadius: 9, margin: 0, alignSelf: "center", borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.surface },
+  popover: {
+    position: "absolute", minWidth: 190, paddingVertical: 6, borderRadius: 10, backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.borderSoft, shadowColor: "#000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9,
+  },
+  popoverItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10 },
+  popoverText: { color: colors.textSecondary, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  popoverSuccessText: { color: colors.success },
+  popoverDangerText: { color: colors.danger },
   empty: { alignItems: "center", paddingVertical: 42 },
   emptyTitle: { color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold", marginTop: 10 },
   emptyText: { color: colors.textMuted, fontSize: 12, textAlign: "center", marginTop: 4 },
   sheetKeyboard: { flex: 1 },
+  fullSheet: { flex: 1, backgroundColor: colors.surface },
+  fullSheetHeader: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
+  fullSheetBack: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
+  fullSheetTitle: { flex: 1, color: colors.text, fontSize: 22, fontFamily: "Inter_700Bold" },
+  fullSheetBody: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 24 },
+  fullSheetActions: { paddingHorizontal: 18, paddingTop: 12, marginTop: 0, borderTopWidth: 1, borderTopColor: colors.borderSoft, backgroundColor: colors.surface },
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,0.38)" },
   sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: "86%" },
   sheetBody: { maxHeight: 500 },
