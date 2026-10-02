@@ -307,7 +307,7 @@ export default function IntegrationsScreen() {
 
       <Modal visible={waSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !waSaving && setWaSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !waSaving && setWaSheetOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>WhatsApp Business API</Text>
             {waError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{waError}</Text></View> : null}
@@ -365,6 +365,7 @@ const styles = StyleSheet.create({
   contactBanner: { textAlign: "center", color: colors.primary, fontSize: 13, fontWeight: "700", backgroundColor: colors.primarySoft, borderRadius: 10, paddingVertical: 14 },
 
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
+  fullSheet: { height: "100%", maxHeight: "100%", borderTopLeftRadius: 0, borderTopRightRadius: 0 },
   sheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "88%" },
   sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 14 },

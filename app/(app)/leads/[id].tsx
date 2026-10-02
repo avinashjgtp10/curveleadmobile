@@ -603,7 +603,7 @@ export default function LeadDetailScreen() {
 
       <Modal visible={followupSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Schedule Follow-up</Text>
 
@@ -652,7 +652,7 @@ export default function LeadDetailScreen() {
 
       <Modal visible={logSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !loggingActivity && setLogSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !loggingActivity && setLogSheetOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Log {ACTIVITY_TYPE_LABEL[logType]} Activity</Text>
 
@@ -767,6 +767,7 @@ const styles = StyleSheet.create({
   emptyText: { color: colors.textMuted, fontSize: 12, lineHeight: 17, textAlign: "center", marginTop: 4, paddingHorizontal: 30 },
 
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
+  fullSheet: { height: "100%", maxHeight: "100%", borderTopLeftRadius: 0, borderTopRightRadius: 0 },
   sheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "88%" },
   sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 14 },

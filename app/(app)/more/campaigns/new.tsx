@@ -162,7 +162,7 @@ export default function NewCampaignScreen() {
         <View style={styles.loadingState}><Text style={styles.loadingText}>Loading…</Text></View>
       ) : (
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 120 }]}
+          contentContainerStyle={[styles.content, { paddingBottom: 16 }]}
           keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
         >
           {error ? <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{error}</Text></View> : null}

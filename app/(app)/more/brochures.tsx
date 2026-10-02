@@ -410,7 +410,7 @@ export default function BrochuresScreen() {
 
       <Modal visible={uploadOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !uploading && setUploadOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !uploading && setUploadOpen(false)}>
-          <Pressable style={styles.sheet} onPress={() => {}}>
+          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8 }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <View style={styles.modalHeader}>
               <Text style={styles.sheetTitle}>Create Brochure</Text>
@@ -951,6 +951,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     maxHeight: "68%",
   },
+  fullSheet: { height: "100%", maxHeight: "100%", borderTopLeftRadius: 0, borderTopRightRadius: 0 },
   sheetHandle: {
     width: 36,
     height: 4,
