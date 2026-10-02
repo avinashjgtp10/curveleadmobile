@@ -5,6 +5,7 @@ import {
   ImageBackground, InteractionManager, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card, TextInput } from "react-native-paper";
+import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { router, useFocusEffect } from "expo-router";
@@ -408,6 +409,7 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.screen}>
+      <LinearGradient pointerEvents="none" colors={["#e0f2fe", "#f0f9ff", "#FFFFFF"]} style={styles.topGlow} />
       <Appbar.Header style={styles.header} elevated={false}>
         <View style={styles.profileRow}>
           <View style={styles.profileAvatar}>
@@ -697,13 +699,14 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.surfaceMuted },
+  screen: { flex: 1, backgroundColor: "#FFFFFF" },
+  topGlow: { position: "absolute", top: 0, left: 0, right: 0, height: 280 },
   header: { height: 80, paddingHorizontal: 12, backgroundColor: "transparent" },
   profileRow: { flexDirection: "row", alignItems: "center", gap: 8, maxWidth: "45%" },
   profileAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.success, alignItems: "center", justifyContent: "center" },
   profileAvatarText: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" },
   profileName: { color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold", flexShrink: 1 },
-  roleBadge: { backgroundColor: colors.surfaceMuted, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8, borderWidth: 1, borderColor: colors.border },
+  roleBadge: { backgroundColor: "#FFFFFF", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8, borderWidth: 1, borderColor: colors.border },
   roleBadgeText: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "capitalize" },
   notificationButton: {
     ...glass,
