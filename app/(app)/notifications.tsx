@@ -64,7 +64,7 @@ export default function NotificationsScreen() {
 
   async function handleMarkAllRead() {
     setItems((current) => current.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })));
-    await markAllNotificationsRead();
+    await markAllNotificationsRead(items.map((item) => item.id));
   }
 
   async function handlePress(item: AppNotification) {

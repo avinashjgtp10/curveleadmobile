@@ -53,7 +53,6 @@ export default function RootLayout() {
         <StatusBar style="dark" hidden={false} />
         {Platform.OS === "android" && Number(Platform.Version) < 35 && <NativeStatusBar barStyle="dark-content" backgroundColor={backgroundColor} translucent hidden={false} />}
         {splashComplete ? <Stack screenOptions={{ headerShown: false, statusBarStyle: "dark", statusBarHidden: false, contentStyle: { backgroundColor: colors.background } }}>
-          <Stack.Screen name="(auth)" />
           <Stack.Screen name="(app)" />
           <Stack.Screen name="invite-team" options={{ animation: "slide_from_bottom", presentation: "transparentModal", contentStyle: { backgroundColor: "transparent" } }} />
         </Stack> : <StartupSplash onComplete={finishSplash} />}

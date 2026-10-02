@@ -241,7 +241,7 @@ export default function SettingsScreen() {
         <Appbar.Content title="Settings" titleStyle={styles.headerTitle} />
       </Appbar.Header>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabRow}>
         {TABS.map((tab) => {
           const active = activeTab === tab.key;
           return (
@@ -253,7 +253,12 @@ export default function SettingsScreen() {
         })}
       </ScrollView>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.body}
+        // Room for the floating tab bar, so the last fields and the Save button can be scrolled into view.
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 130 }]}
+        keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}
+      >
         {activeTab === "profile" ? <ProfileTab /> : null}
         {activeTab === "business" ? <BusinessTab /> : null}
         {activeTab === "templates" ? (
@@ -280,6 +285,9 @@ const styles = StyleSheet.create({
   header: { backgroundColor: colors.surface },
   headerTitle: { fontSize: 16, fontWeight: "700" },
 
+  // A horizontal ScrollView in a column otherwise stretches to fill the screen and leaves the form no height to scroll in.
+  tabScroll: { flexGrow: 0, flexShrink: 0 },
+  body: { flex: 1 },
   tabRow: { gap: 8, paddingHorizontal: 18, paddingVertical: 12, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
   tabChip: {
     flexDirection: "row", alignItems: "center", gap: 6, height: 36, paddingHorizontal: 14,

@@ -50,6 +50,8 @@ export default function AppLayout() {
   return React.createElement(
     Tabs,
     {
+      // Back from a tab's first screen returns to the tab the user came from (e.g. Home), not the first tab by default.
+      backBehavior: "history",
       screenOptions: () => ({
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
@@ -69,8 +71,18 @@ export default function AppLayout() {
           // another tab and back leaves you stranded on whatever lead-detail screen you were on
           // instead of the leads list — so pressing the tab explicitly resets it to the list.
           ...(name === "leads" ? { listeners: { tabPress: () => router.dismissTo("/(app)/leads") } } : null),
+          ...(name === "more" ? {
+            listeners: {
+              tabPress: (event: any) => {
+                event.preventDefault();
+                router.replace("/(app)/more");
+              },
+            },
+          } : null),
           options: {
             title: item.label,
+            // Leaving the More tab resets it to the menu, so tapping More never reopens the last feature.
+            ...(name === "more" ? { popToTopOnBlur: true } : null),
             tabBarIcon: ({ focused }: { focused: boolean }) =>
               React.createElement(TabIcon, {
                 icon: item.icon,

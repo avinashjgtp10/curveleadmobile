@@ -1,5 +1,5 @@
 import { IconEye } from "@/components/ReferenceIcons";
-import { GlassBackground, CurveLeadLogo } from "@/components/Glass";
+import { GlassBackground } from "@/components/Glass";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useRef, useState } from "react";
 import {
@@ -119,7 +119,7 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.hero}>
-          <CurveLeadLogo />
+          <Image source={require("../../assets/curvelead-logo-mark.png")} style={styles.logoMark} />
           <Text style={styles.logoText}>curvelead</Text>
         </View>
 
@@ -195,6 +195,7 @@ const styles = StyleSheet.create({
   content: { flexGrow: 1 },
   hero: { alignItems: "center", justifyContent: "center", paddingTop: 70, paddingBottom: 40 },
   logo: { width: 56, height: 56, borderRadius: 14, marginBottom: 10 },
+  logoMark: { width: 72, height: 72, borderRadius: 18 },
   logoText: { color: "#0284c7", fontSize: 30, fontFamily: "DMSans_700Bold", letterSpacing: -0.8, marginTop: 16 },
   card: { flex: 1, backgroundColor: "rgba(255,255,255,0.80)", borderWidth: 1, borderColor: "rgba(255,255,255,0.7)", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingTop: 32 },
   title: { color: colors.text, fontSize: 24, fontFamily: "DMSans_700Bold" },

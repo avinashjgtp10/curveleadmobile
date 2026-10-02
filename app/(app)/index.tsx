@@ -2,7 +2,7 @@ import { IconBell, SvgUserAdd, SvgCalendar, SvgFolder } from "@/components/Refer
 import { glass, GradientIcon, GradientNumber } from "@/components/Glass";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ImageBackground, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
+  ImageBackground, InteractionManager, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card, TextInput } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -15,6 +15,7 @@ import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboa
 import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads, fetchIntegrationSettings, IntegrationSettings } from "@/api/integrations";
 import { fetchNotifications } from "@/api/notifications";
+import { homeOrigin } from "@/navigation/homeOrigin";
 import { useAuth } from "@/contexts/AuthContext";
 
 const AI_IMAGE_SAMPLES = [
@@ -166,6 +167,42 @@ function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () =
   );
 }
 
+function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
+  const items = [
+    { icon: "person-add-outline", label: "New Leads", value: data.leads_today, tone: TONE.sky },
+    { icon: "calendar-outline", label: "Follow-ups", value: data.followups_today, tone: TONE.emerald },
+    { icon: "videocam-outline", label: "Demos", value: data.demos_today, tone: TONE.violet },
+    { icon: "alert-circle-outline", label: "Overdue", value: data.overdue_followups, tone: TONE.pink },
+    { icon: "flame-outline", label: "Hot Leads", value: data.hot_leads, tone: TONE.amber },
+    { icon: "warning-outline", label: "Critical Follow-ups", value: data.critical_followups, tone: TONE.pink },
+  ];
+
+  return (
+    <View style={styles.activityCard}>
+      <View style={styles.activityHeaderRow}>
+        <View style={styles.activityIconWrap}><Ionicons name="calendar-outline" size={18} color={colors.primary} /></View>
+        <Text style={styles.activityTitle}>Today&apos;s Activity</Text>
+        <Pressable style={{ marginLeft: "auto" }} onPress={onPress}>
+          <Text style={styles.activityViewAll}>View all</Text>
+        </Pressable>
+      </View>
+      <View style={styles.activityGrid}>
+        {items.map((item) => (
+          <View key={item.label} style={styles.activityTile}>
+            <View style={styles.activityTileTop}>
+              <View style={[styles.activityTileIcon, { backgroundColor: item.tone.bg }]}>
+                <Ionicons name={item.icon as IconName} size={14} color={item.tone.iconColor} />
+              </View>
+              <Text style={styles.activityTileLabel} numberOfLines={1}>{item.label}</Text>
+            </View>
+            <Text style={styles.activityTileValue}>{fmt(item.value)}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 const START_HERE: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; href: string }[] = [
   { icon: "megaphone-outline", label: "Campaigns", bg: colors.successSoft, iconColor: colors.success, href: "/(app)/more/campaigns" },
   { icon: "git-network-outline", label: "Lead Automation", bg: colors.primarySoft, iconColor: colors.primary, badges: [{ text: "NEW", bg: colors.success }], href: "/(app)/more/lead-automation" },
@@ -224,6 +261,7 @@ const MANAGE_BUSINESS: GridItem[] = [
   { icon: "extension-puzzle-outline", label: "Integrations", ...TONE.pink, href: "/(app)/more/integrations" },
   { icon: "card-outline", label: "Billing", ...TONE.sky, href: "/(app)/more/billing" },
   { icon: "settings-outline", label: "Settings", ...TONE.emerald, href: "/(app)/more/settings" },
+  { icon: "help-buoy-outline", label: "Help & Support", ...TONE.indigo, href: "/(app)/more/help-support" },
   { icon: "help-circle-outline", label: "User Guide", ...TONE.amber, href: "/(app)/more/user-guide" },
 ];
 
@@ -234,11 +272,17 @@ const OTHER_DESTINATIONS: GridItem[] = [
   { icon: "language-outline", label: "Language", ...TONE.amber, href: "/(app)/more/language" },
   { icon: "person-circle-outline", label: "Account", ...TONE.emerald, href: "/(app)/more/account" },
   { icon: "bulb-outline", label: "Submit Feedback", ...TONE.pink, href: "/(app)/more/feedback" },
-  { icon: "call-outline", label: "Help & Support", ...TONE.emerald, href: "/(app)/more/help-support" },
   { icon: "albums-outline", label: "Content Library", ...TONE.indigo, href: "/(app)/content" },
 ];
 
 const SEARCH_ITEMS: GridItem[] = [...GROW_BUSINESS, ...MANAGE_BUSINESS, ...OTHER_DESTINATIONS];
+
+function openGridItem(item: GridItem) {
+  // Features under More open inside the More tab's stack; remember they came from Home so Back returns here
+  // (see more/_layout.tsx) and the More tab isn't left showing this feature.
+  homeOrigin.current = item.href.startsWith("/(app)/more/");
+  router.push(item.href as never);
+}
 
 function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; onPress: () => void }) {
   return (
@@ -282,24 +326,32 @@ export default function DashboardScreen() {
   }, []);
 
   const [leadSources, setLeadSources] = useState<LeadSourceRow[] | null>(null);
+  const dashboardReady = !!data;
   useEffect(() => {
     // No dedicated "lead sources" aggregate endpoint exists yet — fetch a large page of
     // real leads and compute the breakdown client-side rather than showing fake numbers.
-    fetchLeads({ limit: 500 }).then((page) => {
-      const bySource = new Map<string, { leads: number; won: number }>();
-      for (const lead of page.leads) {
-        const key = lead.source || "manual";
-        const entry = bySource.get(key) || { leads: 0, won: 0 };
-        entry.leads += 1;
-        if (lead.stage?.toLowerCase() === "won") entry.won += 1;
-        bySource.set(key, entry);
-      }
-      const rows = Array.from(bySource.entries())
-        .map(([source, { leads, won }]) => ({ source, leads, won, conversion: leads ? (won / leads) * 100 : 0 }))
-        .sort((a, b) => b.leads - a.leads);
-      setLeadSources(rows);
-    }).catch(() => setLeadSources(null));
-  }, []);
+    // That's a big download, so it waits until the dashboard has painted instead of competing with it.
+    if (!dashboardReady) return;
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchLeads({ limit: 500 }).then((page) => {
+        if (cancelled) return;
+        const bySource = new Map<string, { leads: number; won: number }>();
+        for (const lead of page.leads) {
+          const key = lead.source || "manual";
+          const entry = bySource.get(key) || { leads: 0, won: 0 };
+          entry.leads += 1;
+          if (lead.stage?.toLowerCase() === "won") entry.won += 1;
+          bySource.set(key, entry);
+        }
+        const rows = Array.from(bySource.entries())
+          .map(([source, { leads, won }]) => ({ source, leads, won, conversion: leads ? (won / leads) * 100 : 0 }))
+          .sort((a, b) => b.leads - a.leads);
+        setLeadSources(rows);
+      }).catch(() => { if (!cancelled) setLeadSources(null); });
+    });
+    return () => { cancelled = true; task.cancel(); };
+  }, [dashboardReady]);
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setRefreshing(true) : setLoading(true);
@@ -311,9 +363,12 @@ export default function DashboardScreen() {
       ]);
       setData(summary);
       setUpcomingFollowups(todayFollowups);
-      fetchNotifications()
-        .then((latestNotifications) => setNotificationCount(latestNotifications.filter((item) => !item.read_at).length))
-        .catch(() => setNotificationCount(todayFollowups.length));
+      // The focus effect below already fetches notifications on first open; only pull-to-refresh needs it here.
+      if (refresh) {
+        fetchNotifications()
+          .then((latestNotifications) => setNotificationCount(latestNotifications.filter((item) => !item.read_at).length))
+          .catch(() => setNotificationCount(todayFollowups.length));
+      }
     } catch (loadError) {
       setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string"
         ? loadError.response.data.error : "Could not load your dashboard.");
@@ -456,10 +511,13 @@ export default function DashboardScreen() {
               <Text style={styles.startHereSubtitle}>Your everyday actions</Text>
               <View style={styles.startHereRow}>
                 {START_HERE.map((item) => (
-                  <StartHereTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => router.push(item.href as never)} />
+                  <StartHereTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
                 ))}
               </View>
             </View>
+
+            <TodayActivityCard data={data} onPress={() => router.push("/(app)/leads")} />
+            <InsightsCard data={data} onPress={() => router.push("/(app)/more/reports")} />
 
             <View style={styles.aiImagesCard}>
               <View style={styles.aiImagesHeaderRow}>
@@ -493,6 +551,7 @@ export default function DashboardScreen() {
               <StatTile label="Follow-ups Due Today" value={fmt(data.followups_today)} />
             </View>
 
+            {false ? (
             <View style={styles.activityCard}>
               <View style={styles.activityHeaderRow}>
                 <View style={styles.activityIconWrap}><Ionicons name="calendar-outline" size={18} color={colors.primary} /></View>
@@ -503,12 +562,12 @@ export default function DashboardScreen() {
               </View>
               <View style={styles.activityGrid}>
                 {[
-                  { icon: "person-add-outline", label: "New Leads", value: data.leads_today, tone: TONE.sky },
-                  { icon: "calendar-outline", label: "Follow-ups", value: data.followups_today, tone: TONE.emerald },
-                  { icon: "videocam-outline", label: "Demos", value: data.demos_today, tone: TONE.violet },
-                  { icon: "alert-circle-outline", label: "Overdue", value: data.overdue_followups, tone: TONE.pink },
-                  { icon: "flame-outline", label: "Hot Leads", value: data.hot_leads, tone: TONE.amber },
-                  { icon: "warning-outline", label: "Critical Follow-ups", value: data.critical_followups, tone: TONE.pink },
+                  { icon: "person-add-outline", label: "New Leads", value: data?.leads_today, tone: TONE.sky },
+                  { icon: "calendar-outline", label: "Follow-ups", value: data?.followups_today, tone: TONE.emerald },
+                  { icon: "videocam-outline", label: "Demos", value: data?.demos_today, tone: TONE.violet },
+                  { icon: "alert-circle-outline", label: "Overdue", value: data?.overdue_followups, tone: TONE.pink },
+                  { icon: "flame-outline", label: "Hot Leads", value: data?.hot_leads, tone: TONE.amber },
+                  { icon: "warning-outline", label: "Critical Follow-ups", value: data?.critical_followups, tone: TONE.pink },
                 ].map((item) => (
                   <View key={item.label} style={styles.activityTile}>
                     <View style={styles.activityTileTop}>
@@ -522,6 +581,7 @@ export default function DashboardScreen() {
                 ))}
               </View>
             </View>
+            ) : null}
 
             {leadSources?.length ? (
               <View style={styles.sourcesCard}>
@@ -561,7 +621,7 @@ export default function DashboardScreen() {
               <Text style={styles.startHereSubtitle}>Reach, engage and convert customers</Text>
               <View style={styles.gridWrap}>
                 {GROW_BUSINESS.map((item) => (
-                  <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => router.push(item.href as never)} />
+                  <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
                 ))}
               </View>
             </View>
@@ -571,7 +631,7 @@ export default function DashboardScreen() {
               <Text style={styles.startHereSubtitle}>People, data and workspace tools</Text>
               <View style={styles.gridWrap}>
                 {MANAGE_BUSINESS.map((item) => (
-                  <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => router.push(item.href as never)} />
+                  <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
                 ))}
               </View>
             </View>
@@ -589,7 +649,6 @@ export default function DashboardScreen() {
             <LeadsByStageCard stages={data.pipeline || []} onPress={() => router.push("/(app)/leads")} />
             <UrgentFollowupsCard count={data.critical_followups || data.overdue_followups || 0} onPress={() => router.push("/(app)/followups")} />
             <UpcomingFollowupsCard followups={upcomingFollowups} onPress={() => router.push("/(app)/followups")} />
-            <InsightsCard data={data} onPress={() => router.push("/(app)/more/reports")} />
 
           </>
         ) : null}
@@ -618,7 +677,7 @@ export default function DashboardScreen() {
             ).map((item) => (
               <Pressable
                 key={item.href} style={styles.searchResultRow}
-                onPress={() => { setSearchOpen(false); setSearchQuery(""); router.push(item.href as never); }}
+                onPress={() => { setSearchOpen(false); setSearchQuery(""); openGridItem(item); }}
               >
                 <View style={[styles.searchResultIcon, { backgroundColor: item.bg }]}>
                   <Ionicons name={item.icon} size={18} color={item.iconColor} />

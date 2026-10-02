@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { useStages } from "@/hooks/useStages";
+import { telUrl } from "@/api/phone";
 import {
   ActivityLogType, ContactActivityType, FollowupType, LeadActivity, LeadDetails, LeadFollowup,
   UpdateLeadInput, createLeadFollowup, fetchLeadDetails, logLeadActivity, trackContactActivity,
@@ -437,7 +438,7 @@ export default function LeadDetailScreen() {
         {error ? <Pressable style={styles.warning} onPress={() => load()}><Text style={styles.warningText}>Some details couldn&apos;t be refreshed. Tap to retry.</Text></Pressable> : null}
 
         <View style={styles.actionsRow}>
-          <Button mode="contained" icon="phone" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("call", `tel:${lead.phone}`, "Calling is not supported on this device.")}>Call</Button>
+          <Button mode="contained" icon="phone" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")}>Call</Button>
           <Button mode="outlined" icon="whatsapp" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("whatsapp", `https://wa.me/${lead.phone.replace(/\D/g, "")}`, "WhatsApp could not be opened.")}>WhatsApp</Button>
           <Button mode="outlined" icon="email-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => lead.email ? contactLead("email", `mailto:${lead.email}`, "Email could not be opened.") : Alert.alert("No email", "Add an email address to this lead first.")}>Email</Button>
         </View>
