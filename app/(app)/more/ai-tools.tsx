@@ -1,208 +1,324 @@
-import { GlassBackground, glass, GradientIcon } from "@/components/Glass";
-import { generateAiImages } from "@/api/ai";
+import { AiAgentPanel } from "@/components/AiAgentPanel";
+import { buildImagePrompt, generateAiImages } from "@/api/ai";
 import { colors } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
+import axios from "axios";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
-import { Alert, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Appbar, Button, TextInput } from "react-native-paper";
+import React, { useState } from "react";
+import {
+  Image, ImageBackground, KeyboardAvoidingView, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput as RNTextInput, View,
+} from "react-native";
+import { ActivityIndicator, Appbar } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { PlaceholderScreen } from "@/components/PlaceholderScreen";
 
-function PlaceholderAiToolsScreen() {
-  return (
-    <PlaceholderScreen
-      showBack
-      icon="✨"
-      title="AI Tools"
-      description="Wire to POST /api/ai/score-lead/:id, /score-bulk, /summarize/:leadId, /qualify, /market-analysis. These also surface contextually on lead detail."
-    />
-  );
-}
-
-const IMAGE_SAMPLES = [
-  { caption: "Product shot", source: require("../../../assets/ai-samples/product-shot.png") },
-  { caption: "Studio look", source: require("../../../assets/ai-samples/studio-look.png") },
-  { caption: "Lifestyle", source: require("../../../assets/ai-samples/lifestyle.png") },
-  { caption: "Fashion", source: require("../../../assets/ai-samples/fashion.png") },
-  { caption: "Glow", source: require("../../../assets/ai-samples/glow.png") },
-  { caption: "Salon color", source: require("../../../assets/ai-samples/salon-color.png") },
-  { caption: "Bridal makeup", source: require("../../../assets/ai-samples/bridal-makeup.png") },
-  { caption: "Spa facial", source: require("../../../assets/ai-samples/spa-facial.png") },
+const IDEAS = [
+  { caption: "Product shot", idea: "A clean product shot on a soft studio background", source: require("../../../assets/ai-samples/product-shot.png") },
+  { caption: "Studio look", idea: "A professional studio look with soft lighting", source: require("../../../assets/ai-samples/studio-look.png") },
+  { caption: "Lifestyle", idea: "A warm lifestyle scene that feels natural and friendly", source: require("../../../assets/ai-samples/lifestyle.png") },
+  { caption: "Fashion", idea: "A stylish fashion campaign look", source: require("../../../assets/ai-samples/fashion.png") },
+  { caption: "Glow", idea: "A glowing skin and beauty treatment promotion", source: require("../../../assets/ai-samples/glow.png") },
+  { caption: "Salon color", idea: "A vibrant hair colour makeover at a salon", source: require("../../../assets/ai-samples/salon-color.png") },
+  { caption: "Bridal makeup", idea: "An elegant bridal makeup package announcement", source: require("../../../assets/ai-samples/bridal-makeup.png") },
+  { caption: "Spa facial", idea: "A relaxing spa facial offer", source: require("../../../assets/ai-samples/spa-facial.png") },
 ];
 
-const STYLES = ["Food", "Product", "Salon", "Spa", "Festival", "Fashion", "Bridal"];
-const SIZES = ["1:1", "4:5", "9:16"];
+const QUICK_IDEAS = ["Festival sale offer", "Weekend discount", "New service launch", "Grand opening", "Gift voucher"];
+const MIN_PROMPT = 15;
 
-export default function AiToolsScreen() {
-  const insets = useSafeAreaInsets();
+function errorMessage(error: unknown, fallback: string) {
+  if (axios.isAxiosError(error)) {
+    if (typeof error.response?.data?.error === "string") return error.response.data.error;
+    if (error.code === "ECONNABORTED") return "This is taking too long. Please try again.";
+  }
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function ImagePanel() {
+  const [idea, setIdea] = useState("");
+  const [headline, setHeadline] = useState("");
+  const [subline, setSubline] = useState("");
+  const [cta, setCta] = useState("");
+  const [textOpen, setTextOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
-  const [style, setStyle] = useState(STYLES[0]);
-  const [size, setSize] = useState(SIZES[0]);
-  const [busy, setBusy] = useState(false);
-  const [generatedImageUri, setGeneratedImageUri] = useState("");
+  const [promptEdited, setPromptEdited] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [generationEnabled, setGenerationEnabled] = useState(true);
+  const [busy, setBusy] = useState<"" | "prompt" | "images">("");
+  const [images, setImages] = useState<string[]>([]);
+  const [selected, setSelected] = useState(0);
   const [error, setError] = useState("");
 
-  const previewItems = useMemo(() => IMAGE_SAMPLES.slice(0, 8), []);
-
-  function buildImagePrompt() {
-    return [
-      prompt.trim(),
-      `${style} style`,
-      `${size} aspect ratio`,
-      "high quality marketing creative, clean composition, professional lighting",
-    ].join(", ");
-  }
-
-  async function createImage() {
-    if (!prompt.trim()) {
-      Alert.alert("Add a prompt", "Write what you want the AI Agent to create.");
+  async function create() {
+    if (!idea.trim() && !(promptEdited && prompt.trim())) {
+      setError("Tell the AI what the image is for.");
       return;
     }
-    setBusy(true);
     setError("");
-    setGeneratedImageUri("");
+    setImages([]);
+    let finalPrompt = prompt;
     try {
-      const [uri] = await generateAiImages(buildImagePrompt(), 1);
-      setGeneratedImageUri(uri);
-    } catch (createError: any) {
-      setError(createError?.response?.data?.error || createError?.message || "Could not create this image. Please try again.");
+      // The server writes the prompt, unless the person has hand-edited it.
+      if (!promptEdited || !finalPrompt.trim()) {
+        setBusy("prompt");
+        const built = await buildImagePrompt({ idea: idea.trim(), headline: headline.trim(), subline: subline.trim(), cta: cta.trim() });
+        finalPrompt = built.prompt;
+        setPrompt(built.prompt);
+        setGenerationEnabled(built.generationEnabled);
+        if (!built.generationEnabled) {
+          setPromptOpen(true);
+          setError("One-tap image creation isn't switched on for your workspace yet. Copy the prompt below and use it in any AI image tool.");
+          return;
+        }
+      }
+      if (finalPrompt.trim().length < MIN_PROMPT) {
+        setError("Add a little more detail so the AI can create a good image.");
+        return;
+      }
+      setBusy("images");
+      setImages(await generateAiImages(finalPrompt, 2));
+      setSelected(0);
+    } catch (createError) {
+      setError(errorMessage(createError, "Could not create images. Please try again."));
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   }
 
+  function pickIdea(text: string) {
+    setIdea(text);
+    setPromptEdited(false);
+    setError("");
+  }
+
+  async function sharePrompt() {
+    try { await Share.share({ message: prompt }); } catch { /* the person closed the share sheet */ }
+  }
+
+  const working = busy !== "";
+
   return (
-    <View style={styles.screen}>
-      <GlassBackground />
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="AI Agent" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+    <View style={styles.stack}>
+      <LinearGradient colors={["#06b6d4", "#6366f1", "#d946ef"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+        <View style={styles.heroIcon}><Ionicons name="sparkles" size={24} color="#fff" /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.heroTitle}>Create marketing images</Text>
+          <Text style={styles.heroSub}>Describe it in a few words. The AI makes two options for you.</Text>
+        </View>
+        <View style={styles.heroCircle} />
+      </LinearGradient>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 112 }]} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
-          <View style={styles.heroTop}>
-            <GradientIcon tone="emerald" size={40}>
-              <Ionicons name="sparkles" size={20} color="#fff" />
-            </GradientIcon>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.heroTitle}>Create image</Text>
-              <Text style={styles.heroSub}>AI Agent for creatives, campaigns and lead work</Text>
-            </View>
-          </View>
-
-          <TextInput
-            mode="outlined"
-            dense
-            multiline
-            numberOfLines={2}
-            value={prompt}
-            onChangeText={setPrompt}
-            placeholder="Describe the image or marketing asset"
-            style={styles.prompt}
-            outlineStyle={styles.promptOutline}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>1. What is the image for?</Text>
+        <View style={styles.inputBox}>
+          <RNTextInput
+            value={idea} onChangeText={(value) => { setIdea(value); setPromptEdited(false); }} multiline textAlignVertical="top"
+            placeholder="e.g. Diwali offer for our salon, 20% off on facials"
+            placeholderTextColor={colors.textMuted} style={styles.ideaText}
           />
-
-          <View style={styles.optionBlock}>
-            <Text style={styles.optionLabel}>Style</Text>
-            <View style={styles.styleChipWrap}>
-              {STYLES.map((item) => (
-                <Pressable key={item} style={[styles.pill, style === item && styles.pillActive]} onPress={() => setStyle(item)}>
-                  <Text style={[styles.pillText, style === item && styles.pillTextActive]}>{item}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.optionBlock}>
-            <Text style={styles.optionLabel}>Size</Text>
-            <View style={styles.sizeRow}>
-              {SIZES.map((item) => (
-                <Pressable key={item} style={[styles.sizePill, size === item && styles.pillActive]} onPress={() => setSize(item)}>
-                  <Text style={[styles.pillText, size === item && styles.pillTextActive]}>{item}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-
-          <Button mode="contained" icon="image-plus" loading={busy} disabled={busy} onPress={createImage} style={styles.createButton} contentStyle={styles.createButtonContent}>
-            Create image
-          </Button>
-
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-          {generatedImageUri ? (
-            <ImageBackground source={{ uri: generatedImageUri }} style={styles.generatedImageSingle} imageStyle={styles.generatedImageMedia}>
-              <View style={styles.generatedImageLabel}>
-                <Text style={styles.generatedImageText}>AI image · {size}</Text>
-              </View>
-            </ImageBackground>
-          ) : (
-            <View style={styles.imagePlaceholder}>
-              <Ionicons name="image-outline" size={18} color={colors.textMuted} />
-              <Text style={styles.imagePlaceholderText}>{busy ? "Creating preview..." : "Your generated image will appear here."}</Text>
-            </View>
-          )}
         </View>
-
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>AI image styles</Text>
-          <Text style={styles.sectionAction}>All</Text>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imageRow}>
-          {previewItems.map((item) => (
-            <Pressable key={item.caption} onPress={() => setStyle(item.caption)}>
-              <ImageBackground source={item.source} style={[styles.imageCard, style === item.caption && styles.imageCardActive]} imageStyle={styles.image}>
-                <View style={styles.imageLabelWrap}>
-                  <Text style={styles.imageLabel} numberOfLines={1}>{item.caption}</Text>
-                </View>
-              </ImageBackground>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} keyboardShouldPersistTaps="handled">
+          {QUICK_IDEAS.map((item) => (
+            <Pressable key={item} style={styles.chip} onPress={() => pickIdea(item)}>
+              <Text style={styles.chipText}>{item}</Text>
             </Pressable>
           ))}
         </ScrollView>
+
+        <Pressable style={styles.optionHeader} onPress={() => setTextOpen((open) => !open)}>
+          <Ionicons name="text-outline" size={16} color={colors.primary} />
+          <Text style={styles.optionTitle}>Add text on the image</Text>
+          <Text style={styles.optionHint}>optional</Text>
+          <Ionicons name={textOpen ? "chevron-up" : "chevron-down"} size={18} color={colors.textMuted} />
+        </Pressable>
+        {textOpen ? (
+          <View style={styles.textFields}>
+            {[
+              { label: "Headline", value: headline, set: setHeadline, placeholder: "e.g. Diwali Glow Sale" },
+              { label: "Sub-line", value: subline, set: setSubline, placeholder: "e.g. 20% off on all facials" },
+              { label: "Button text", value: cta, set: setCta, placeholder: "e.g. Book now" },
+            ].map((field) => (
+              <View key={field.label}>
+                <Text style={styles.fieldLabel}>{field.label}</Text>
+                <View style={styles.smallInput}>
+                  <RNTextInput
+                    value={field.value} onChangeText={(value) => { field.set(value); setPromptEdited(false); }}
+                    placeholder={field.placeholder} placeholderTextColor={colors.textMuted} style={styles.smallInputText}
+                  />
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        <Pressable onPress={create} disabled={working} style={working && { opacity: 0.7 }}>
+          <LinearGradient colors={["#06b6d4", "#6366f1", "#d946ef"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.createButton}>
+            {working ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="sparkles" size={18} color="#fff" />}
+            <Text style={styles.createText}>
+              {busy === "prompt" ? "Writing the prompt..." : busy === "images" ? "Creating images (up to a minute)..." : images.length ? "Create new options" : "Create images"}
+            </Text>
+          </LinearGradient>
+        </Pressable>
+
+        {error ? (
+          <View style={styles.errorBox}>
+            <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {images.length ? (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>2. Your images</Text>
+          <Image source={{ uri: images[selected] }} style={styles.bigImage} resizeMode="cover" />
+          {images.length > 1 ? (
+            <View style={styles.thumbRow}>
+              {images.map((uri, index) => (
+                <Pressable key={uri.slice(-24) + index} onPress={() => setSelected(index)} style={[styles.thumbWrap, selected === index && styles.thumbActive]}>
+                  <Image source={{ uri }} style={styles.thumb} resizeMode="cover" />
+                  <Text style={[styles.thumbLabel, selected === index && styles.thumbLabelActive]}>Option {index + 1}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {prompt ? (
+        <View style={styles.card}>
+          <Pressable style={styles.optionHeader} onPress={() => setPromptOpen((open) => !open)}>
+            <Ionicons name="document-text-outline" size={16} color={colors.primary} />
+            <Text style={styles.optionTitle}>The AI prompt</Text>
+            <Text style={styles.optionHint}>{promptEdited ? "edited" : "tap to view or edit"}</Text>
+            <Ionicons name={promptOpen ? "chevron-up" : "chevron-down"} size={18} color={colors.textMuted} />
+          </Pressable>
+          {promptOpen ? (
+            <>
+              <View style={[styles.inputBox, { minHeight: 120 }]}>
+                <RNTextInput
+                  value={prompt} onChangeText={(value) => { setPrompt(value); setPromptEdited(true); }}
+                  multiline textAlignVertical="top" style={styles.promptText}
+                />
+              </View>
+              <View style={styles.promptActions}>
+                <Pressable style={styles.smallButton} onPress={sharePrompt}>
+                  <Ionicons name="share-outline" size={15} color={colors.primary} />
+                  <Text style={styles.smallButtonText}>Share prompt</Text>
+                </Pressable>
+                {promptEdited ? (
+                  <Pressable style={styles.smallButton} onPress={() => { setPromptEdited(false); setPrompt(""); }}>
+                    <Ionicons name="refresh-outline" size={15} color={colors.primary} />
+                    <Text style={styles.smallButtonText}>Reset</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              {!generationEnabled ? <Text style={styles.noteText}>Image creation isn't switched on for your workspace. Use this prompt in any AI image tool.</Text> : null}
+            </>
+          ) : null}
+        </View>
+      ) : null}
+
+      <Text style={styles.sectionTitle}>Need inspiration?</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imageRow}>
+        {IDEAS.map((item) => (
+          <Pressable key={item.caption} onPress={() => pickIdea(item.idea)}>
+            <ImageBackground source={item.source} style={styles.imageCard} imageStyle={{ borderRadius: 14 }}>
+              <View style={styles.imageLabelWrap}><Text style={styles.imageLabel} numberOfLines={1}>{item.caption}</Text></View>
+            </ImageBackground>
+          </Pressable>
+        ))}
       </ScrollView>
     </View>
   );
 }
 
+export default function AiToolsScreen() {
+  const insets = useSafeAreaInsets();
+  const [tab, setTab] = useState<"agent" | "images">("agent");
+
+  return (
+    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <Appbar.Header style={styles.header} elevated={false}>
+        <Appbar.BackAction onPress={() => router.back()} />
+        <Appbar.Content title="AI Agent" titleStyle={styles.headerTitle} />
+      </Appbar.Header>
+
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 112 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <View style={styles.segment}>
+          <Pressable onPress={() => setTab("agent")} style={[styles.segmentButton, tab === "agent" && styles.segmentActive]}>
+            <Ionicons name="logo-whatsapp" size={16} color={tab === "agent" ? "#6366f1" : colors.textSecondary} />
+            <Text style={[styles.segmentText, tab === "agent" && styles.segmentTextActive]}>WhatsApp Agent</Text>
+          </Pressable>
+          <Pressable onPress={() => setTab("images")} style={[styles.segmentButton, tab === "images" && styles.segmentActive]}>
+            <Ionicons name="image-outline" size={16} color={tab === "images" ? "#6366f1" : colors.textSecondary} />
+            <Text style={[styles.segmentText, tab === "images" && styles.segmentTextActive]}>Images</Text>
+          </Pressable>
+        </View>
+
+        {tab === "agent" ? <AiAgentPanel /> : <ImagePanel />}
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: "transparent" },
-  headerTitle: { color: colors.text, fontSize: 17, fontFamily: "DMSans_700Bold" },
-  content: { paddingHorizontal: 16, paddingTop: 4 },
-  hero: { ...glass, padding: 12, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.78)" },
-  heroTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
-  heroTitle: { color: colors.text, fontSize: 17, fontFamily: "DMSans_700Bold" },
-  heroSub: { color: colors.textMuted, fontSize: 11, lineHeight: 15, marginTop: 1 },
-  prompt: { minHeight: 64, backgroundColor: "rgba(255,255,255,0.8)", fontSize: 12 },
-  promptOutline: { borderRadius: 12, borderColor: colors.border },
-  optionBlock: { marginTop: 10 },
-  optionLabel: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_700Bold", marginBottom: 6 },
-  chipRow: { gap: 7, paddingRight: 4 },
-  styleChipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  pill: { minHeight: 30, justifyContent: "center", borderRadius: 9, paddingHorizontal: 10, backgroundColor: "rgba(255,255,255,0.74)", borderWidth: 1, borderColor: "rgba(255,255,255,0.8)" },
-  pillActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  pillText: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_700Bold" },
-  pillTextActive: { color: "#fff" },
-  sizeRow: { flexDirection: "row", gap: 7 },
-  sizePill: { flex: 1, minHeight: 30, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: "rgba(255,255,255,0.74)", borderWidth: 1, borderColor: "rgba(255,255,255,0.8)" },
-  createButton: { marginTop: 12, borderRadius: 24 },
-  createButtonContent: { height: 40 },
-  errorText: { color: colors.danger, fontSize: 11, fontFamily: "Inter_600SemiBold", textAlign: "center", marginTop: 8 },
-  imagePlaceholder: { minHeight: 42, marginTop: 10, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, backgroundColor: "rgba(255,255,255,0.42)", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 12 },
-  imagePlaceholderText: { color: colors.textMuted, fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  generatedImageSingle: { width: "100%", height: 200, marginTop: 10, borderRadius: 12, overflow: "hidden", justifyContent: "flex-end", backgroundColor: colors.surfaceMuted },
-  generatedImageMedia: { borderRadius: 12 },
-  generatedImageLabel: { backgroundColor: "rgba(15,23,42,0.48)", paddingHorizontal: 10, paddingVertical: 8 },
-  generatedImageText: { color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" },
-  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 16, marginBottom: 9 },
-  sectionTitle: { color: colors.text, fontSize: 13, fontFamily: "DMSans_700Bold" },
-  sectionAction: { color: colors.primary, fontSize: 12, fontFamily: "Inter_700Bold" },
-  imageRow: { gap: 8, paddingRight: 8 },
-  imageCard: { width: 96, height: 120, overflow: "hidden", justifyContent: "flex-end" },
-  image: { borderRadius: 12 },
-  imageLabelWrap: { backgroundColor: "rgba(15,23,42,0.42)", paddingHorizontal: 7, paddingVertical: 6 },
-  imageLabel: { color: "#fff", fontSize: 10, textAlign: "center", fontFamily: "Inter_700Bold" },
-  imageCardActive: { borderWidth: 2, borderColor: colors.primary },
+  screen: { flex: 1, backgroundColor: "#ffffff" },
+  header: { backgroundColor: "#ffffff" },
+  headerTitle: { color: colors.text, fontSize: 17, fontWeight: "800" },
+  content: { paddingHorizontal: 16, paddingTop: 4, gap: 14 },
+  stack: { gap: 14 },
+
+  segment: { flexDirection: "row", backgroundColor: "#f1f6fa", borderRadius: 14, padding: 4 },
+  segmentButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 40, borderRadius: 11 },
+  segmentActive: { backgroundColor: "#ffffff", shadowColor: "#0f172a", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  segmentText: { color: colors.textSecondary, fontSize: 14, fontWeight: "700" },
+  segmentTextActive: { color: "#6366f1" },
+
+  hero: { borderRadius: 22, padding: 18, flexDirection: "row", alignItems: "center", gap: 14, overflow: "hidden" },
+  heroIcon: { width: 48, height: 48, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.22)", alignItems: "center", justifyContent: "center" },
+  heroTitle: { color: "#fff", fontSize: 18, fontWeight: "900" },
+  heroSub: { color: "rgba(255,255,255,0.9)", fontSize: 12, lineHeight: 17, marginTop: 3 },
+  heroCircle: { position: "absolute", width: 120, height: 120, borderRadius: 60, backgroundColor: "rgba(255,255,255,0.12)", right: -30, top: -36 },
+
+  card: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: "#e2eef7", padding: 14, gap: 10 },
+  cardTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  inputBox: { minHeight: 84, borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#f8fbfd", paddingHorizontal: 14, paddingVertical: 4 },
+  ideaText: { color: colors.text, fontSize: 14, minHeight: 72, paddingVertical: 8 },
+  promptText: { color: colors.text, fontSize: 13, lineHeight: 19, minHeight: 108, paddingVertical: 8 },
+  chipRow: { gap: 8, paddingRight: 8 },
+  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#f4f1ff", borderWidth: 1, borderColor: "#e4defc" },
+  chipText: { color: "#6366f1", fontSize: 13, fontWeight: "700" },
+
+  optionHeader: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
+  optionTitle: { flex: 1, color: colors.text, fontSize: 14, fontWeight: "800" },
+  optionHint: { color: colors.textMuted, fontSize: 11 },
+  textFields: { gap: 8 },
+  fieldLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginBottom: 4 },
+  smallInput: { minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#f8fbfd", paddingHorizontal: 12, justifyContent: "center" },
+  smallInputText: { color: colors.text, fontSize: 14 },
+
+  createButton: { height: 52, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 4 },
+  createText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  errorBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12 },
+  errorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600", lineHeight: 17 },
+
+  bigImage: { width: "100%", aspectRatio: 1, borderRadius: 16, backgroundColor: colors.surfaceMuted },
+  thumbRow: { flexDirection: "row", gap: 10 },
+  thumbWrap: { flex: 1, borderRadius: 14, borderWidth: 2, borderColor: "transparent", padding: 2, alignItems: "center", gap: 4 },
+  thumbActive: { borderColor: "#6366f1" },
+  thumb: { width: "100%", aspectRatio: 1, borderRadius: 11, backgroundColor: colors.surfaceMuted },
+  thumbLabel: { color: colors.textMuted, fontSize: 11, fontWeight: "700", paddingBottom: 2 },
+  thumbLabelActive: { color: "#6366f1" },
+
+  promptActions: { flexDirection: "row", gap: 10 },
+  smallButton: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  smallButtonText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
+  noteText: { color: colors.textSecondary, fontSize: 12, lineHeight: 17 },
+
+  sectionTitle: { color: colors.text, fontSize: 15, fontWeight: "800", marginTop: 4 },
+  imageRow: { gap: 10, paddingRight: 8 },
+  imageCard: { width: 104, height: 130, justifyContent: "flex-end", overflow: "hidden", borderRadius: 14 },
+  imageLabelWrap: { backgroundColor: "rgba(15,23,42,0.45)", paddingHorizontal: 7, paddingVertical: 6 },
+  imageLabel: { color: "#fff", fontSize: 11, textAlign: "center", fontWeight: "800" },
 });
