@@ -409,16 +409,16 @@ export default function DashboardScreen() {
   return (
     <View style={styles.screen}>
       <Appbar.Header style={styles.header} elevated={false}>
-        <View style={styles.profileRow}>
+        <Pressable style={styles.profileRow} accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => router.push("/(app)/more/account")}>
           <View style={styles.profileAvatar}>
             <Text style={styles.profileAvatarText}>{(user?.name?.charAt(0) || "?").toUpperCase()}</Text>
           </View>
           <Text style={styles.profileName} numberOfLines={1}>{tenant?.name || user?.name || "Account"}</Text>
-        </View>
+        </Pressable>
         <View style={{ flex: 1 }} />
-        {user?.role ? (
+        {user ? (
           <View style={styles.roleBadge}>
-            <Text style={styles.roleBadgeText}>{user.role.replace(/_/g, " ")}</Text>
+            <Text style={styles.roleBadgeText}>{user.role === "super_admin" ? "Super Admin" : user.role === "admin" ? "Admin" : "Staff"}</Text>
           </View>
         ) : null}
         <Pressable style={styles.notificationButton} onPress={() => router.push("/(app)/notifications")}>
