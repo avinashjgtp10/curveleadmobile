@@ -46,9 +46,38 @@ export interface CampaignLead {
   created_at?: string;
 }
 
+export type CampaignPeriod = "today" | "this_week" | "this_month" | "last_month" | "this_year";
+
+export interface CampaignMetrics {
+  total_leads: number;
+  won: number;
+  conversion_rate: number;
+  active_campaigns: number;
+}
+
+export interface CampaignsPage {
+  campaigns: Campaign[];
+  metrics: CampaignMetrics;
+  total: number;
+}
+
+export async function fetchCampaignsPage(params: { period?: CampaignPeriod; page?: number; limit?: number }) {
+  const { data } = await apiClient.get("/campaigns", { params });
+  const metrics = data.metrics || {};
+  return {
+    campaigns: (data.campaigns || []) as Campaign[],
+    metrics: {
+      total_leads: Number(metrics.total_leads) || 0,
+      won: Number(metrics.won) || 0,
+      conversion_rate: Number(metrics.conversion_rate) || 0,
+      active_campaigns: Number(metrics.active_campaigns) || 0,
+    },
+    total: Number(data.total) || (data.campaigns || []).length,
+  } as CampaignsPage;
+}
+
 export async function fetchCampaigns() {
-  const { data } = await apiClient.get<{ campaigns: Campaign[] }>("/campaigns");
-  return data.campaigns || [];
+  return (await fetchCampaignsPage({})).campaigns;
 }
 
 export interface CampaignDetail {
