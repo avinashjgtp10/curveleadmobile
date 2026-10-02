@@ -225,6 +225,7 @@ export default function LeadDetailScreen() {
   const [loading, setLoading] = useState(!params.name);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [notFound, setNotFound] = useState(false);
 
   const { stages, colorFor, statusesFor } = useStages();
   const [stageSheetOpen, setStageSheetOpen] = useState(false);
@@ -257,11 +258,13 @@ export default function LeadDetailScreen() {
   const load = useCallback(async (refresh = false) => {
     if (!id) { setError("This lead link is invalid."); setLoading(false); return; }
     refresh ? setRefreshing(true) : setLoading(true);
-    setError("");
+    setError(""); setNotFound(false);
     try {
       const result = await fetchLeadDetails(id);
       setLead(result.lead); setActivities(result.activities); setFollowups(result.followups);
     } catch (loadError) {
+      // A notification can point at a lead that has since been deleted — say so instead of "tap to retry".
+      setNotFound(axios.isAxiosError(loadError) && loadError.response?.status === 404);
       setError(errorMessage(loadError, "Could not load this lead."));
     } finally { setLoading(false); setRefreshing(false); }
   }, [id]);
@@ -435,7 +438,7 @@ export default function LeadDetailScreen() {
           <Text style={styles.nameSubtitle}>Assigned to {lead.assigned_to_name || "you"} · {relativeTime(lead.updated_at || lead.created_at) || "just now"}</Text>
         </View>
 
-        {error ? <Pressable style={styles.warning} onPress={() => load()}><Text style={styles.warningText}>Some details couldn&apos;t be refreshed. Tap to retry.</Text></Pressable> : null}
+        {error ? <Pressable style={styles.warning} onPress={() => notFound ? router.back() : load()}><Text style={styles.warningText}>{notFound ? "This lead no longer exists — it may have been deleted. Tap to go back." : "Some details couldn't be refreshed. Tap to retry."}</Text></Pressable> : null}
 
         <View style={styles.actionsRow}>
           <Button mode="contained" icon="phone" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")}>Call</Button>

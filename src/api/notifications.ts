@@ -1,6 +1,7 @@
 import { apiClient } from "./client";
 import { fetchTodayFollowups, TodayFollowup } from "./leads";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { presentLocalNotification } from "@/notifications/push";
 
 const LOCAL_NOTIFICATIONS_KEY = "curvelead_local_notifications";
 
@@ -19,7 +20,12 @@ export interface AppNotification {
 
 type LocalNotificationInput = Pick<AppNotification, "title" | "message" | "type" | "lead_id" | "lead_name" | "lead_phone" | "lead_stage">;
 
-function normalizeNotification(item: Partial<AppNotification> & Record<string, unknown>): AppNotification {
+function normalizeNotification(raw: Partial<AppNotification> & Record<string, unknown>): AppNotification {
+  // Servers vary: fields may sit at the top level or inside a `data`/`meta` object, and ids may be numbers.
+  const nested = [raw.data, raw.meta, raw.payload].find((value) => value && typeof value === "object") as Record<string, unknown> | undefined;
+  const item: Record<string, unknown> = { ...nested, ...raw };
+  const asText = (value: unknown) => (typeof value === "string" ? value : typeof value === "number" ? String(value) : undefined);
+  const leadId = asText(item.lead_id ?? item.leadId);
   return {
     id: String(item.id || item.notification_id || `${item.type || "notification"}-${item.created_at || Date.now()}`),
     title: String(item.title || item.message || "Notification"),
@@ -27,10 +33,10 @@ function normalizeNotification(item: Partial<AppNotification> & Record<string, u
     created_at: typeof item.created_at === "string" ? item.created_at : undefined,
     read_at: typeof item.read_at === "string" || item.read_at === null ? item.read_at : undefined,
     type: typeof item.type === "string" ? item.type : undefined,
-    lead_id: typeof item.lead_id === "string" ? item.lead_id : undefined,
-    lead_name: typeof item.lead_name === "string" ? item.lead_name : undefined,
-    lead_phone: typeof item.lead_phone === "string" ? item.lead_phone : undefined,
-    lead_stage: typeof item.lead_stage === "string" ? item.lead_stage : undefined,
+    lead_id: leadId,
+    lead_name: asText(item.lead_name),
+    lead_phone: asText(item.lead_phone),
+    lead_stage: asText(item.lead_stage),
   };
 }
 
@@ -113,9 +119,21 @@ export async function fetchNotifications() {
   try {
     const { data } = await apiClient.get<{ notifications?: AppNotification[] } | AppNotification[]>("/notifications");
     const items = Array.isArray(data) ? data : data.notifications || [];
-    return withReadState([...localNotifications, ...items.map((item) => normalizeNotification(item as Partial<AppNotification> & Record<string, unknown>))]);
+    const serverItems = items.map((item) => normalizeNotification(item as Partial<AppNotification> & Record<string, unknown>));
+    // A push received in the foreground is mirrored locally and also returned by the server — keep one copy.
+    const key = (item: AppNotification) => `${item.title}|${item.message ?? ""}`;
+    const localByKey = new Map(localNotifications.map((item) => [key(item), item]));
+    const serverKeys = new Set(serverItems.map(key));
+    // For a duplicate keep the server copy (it owns read state) but borrow the lead details
+    // from the local one, so tapping it can still open the lead.
+    const merged = serverItems.map((item) => {
+      const local = localByKey.get(key(item));
+      return local ? { ...item, lead_id: item.lead_id || local.lead_id, lead_name: item.lead_name || local.lead_name, lead_phone: item.lead_phone || local.lead_phone, lead_stage: item.lead_stage || local.lead_stage } : item;
+    });
+    return withReadState([...localNotifications.filter((item) => !serverKeys.has(key(item))), ...merged]);
   } catch {
-    const followups = await fetchTodayFollowups();
+    // Never let a failing follow-ups call hide the locally saved notifications (e.g. "New lead created").
+    const followups = await fetchTodayFollowups().catch(() => []);
     return withReadState([...localNotifications, ...followups.map(followupToNotification)]);
   }
 }
@@ -145,7 +163,7 @@ export async function saveIncomingPushNotification(input: LocalNotificationInput
 }
 
 export async function notifyLeadCreated(lead: { id: string; name: string; phone?: string; stage?: string; source?: string }) {
-  await saveLocalNotification({
+  const input: LocalNotificationInput = {
     title: `New lead created - ${lead.name}`,
     message: lead.source ? `Source: ${lead.source}` : "Lead added successfully.",
     type: "lead_created",
@@ -153,7 +171,23 @@ export async function notifyLeadCreated(lead: { id: string; name: string; phone?
     lead_name: lead.name,
     lead_phone: lead.phone,
     lead_stage: lead.stage || "new",
+  };
+  await saveLocalNotification(input);
+  await presentLocalNotification(input.title, input.message, {
+    type: input.type, lead_id: input.lead_id, lead_name: input.lead_name, lead_phone: input.lead_phone, lead_stage: input.lead_stage,
   });
+}
+
+/** For leads that arrive in bulk (spreadsheet import, Facebook sync) rather than one at a time. */
+export async function notifyLeadsAdded(count: number, source: string) {
+  if (count <= 0) return;
+  const input: LocalNotificationInput = {
+    title: `${count} new ${count === 1 ? "lead" : "leads"} added`,
+    message: `Source: ${source}`,
+    type: "lead_created",
+  };
+  await saveLocalNotification(input);
+  await presentLocalNotification(input.title, input.message, { type: input.type });
 }
 
 /** A WhatsApp message was sent from this app. Replies and automation messages come from the server, not here. */
@@ -178,4 +212,11 @@ export async function notifyLeadsDeleted(leads: { id: string; name: string }[]) 
       lead_name: lead.name,
     });
   }
+  // One alert for the whole batch, so deleting many leads doesn't ring many times.
+  if (!leads.length) return;
+  await presentLocalNotification(
+    leads.length === 1 ? `Lead deleted - ${leads[0].name}` : `${leads.length} leads deleted`,
+    leads.length === 1 ? "This lead was deleted." : "The selected leads were deleted.",
+    { type: "lead_deleted" },
+  );
 }
