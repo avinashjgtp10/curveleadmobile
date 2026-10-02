@@ -11,6 +11,7 @@ import {
 import axios from "axios";
 import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { usePermission } from "@/hooks/usePermission";
@@ -130,56 +131,91 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
     pathname: "/(app)/leads/[id]",
     params: { id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage || "new", source: lead.source || "" },
   });
+  const avatarColor = ["#0ea5e9", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444"][(lead.name?.charCodeAt(0) || 0) % 5];
+  const score = lead.lead_score === "hot" ? { label: "Hot", icon: "flame" as const, color: "#ea580c", bg: "#ffedd5" }
+    : lead.lead_score === "warm" ? { label: "Warm", icon: "sunny" as const, color: "#ca8a04", bg: "#fef9c3" }
+    : lead.lead_score === "cold" ? { label: "Cold", icon: "snow" as const, color: "#0369a1", bg: "#e0f2fe" }
+    : null;
+  function callNow() {
+    trackContactActivity(lead.id, "call").catch(() => {});
+    Linking.openURL(telUrl(lead.phone)).catch(() => Alert.alert("Unable to call", "Calling is not supported on this device."));
+  }
+  function openWhatsapp() {
+    Linking.openURL(`https://wa.me/${lead.phone.replace(/\D/g, "")}`).catch(() => Alert.alert("Couldn't open WhatsApp", "Make sure WhatsApp is installed on this phone."));
+  }
   return (
-    <Card
-      mode="outlined" style={styles.leadRow}
+    <Pressable
+      style={({ pressed }) => [styles.leadCard, selected && styles.leadCardSelected, pressed && styles.pressed]}
       onPress={() => selectMode ? onToggleSelect() : openLead()}
       onLongPress={() => { if (!selectMode) onLongPress(); }}
     >
-      <Card.Content style={styles.leadRowContent}>
+      <View style={styles.leadTop}>
         {selectMode ? (
           <Checkbox status={selected ? "checked" : "unchecked"} onPress={onToggleSelect} />
         ) : (
-          <Avatar.Text size={44} label={(lead.name?.charAt(0) || "?").toUpperCase()} style={[styles.avatar, { backgroundColor: ["#0ea5e9", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444"][(lead.name?.charCodeAt(0) || 0) % 5] }]} labelStyle={styles.avatarText} />
+          <View style={[styles.avatarCircle, { backgroundColor: avatarColor }]}>
+            <Text style={styles.avatarLetter}>{(lead.name?.charAt(0) || "?").toUpperCase()}</Text>
+          </View>
         )}
         <View style={styles.leadContent}>
           <View style={styles.nameRow}>
             <Text style={styles.leadName} numberOfLines={1}>{lead.name}</Text>
-            {lead.lead_score === "hot" ? <View style={styles.hotDot} /> : null}
+            {score ? (
+              <View style={[styles.scoreBadge, { backgroundColor: score.bg }]}>
+                <Ionicons name={score.icon} size={11} color={score.color} />
+                <Text style={[styles.scoreText, { color: score.color }]}>{score.label}</Text>
+              </View>
+            ) : null}
           </View>
-          <Text style={styles.subtitle} numberOfLines={1}>Assigned to {lead.assigned_to_name || "you"} · {relativeDate(lead.created_at)}</Text>
-          <View style={styles.metaRow}>
-            {lead.source ? <Chip compact style={styles.sourcePill} textStyle={styles.sourcePillText}>{pretty(lead.source)}</Chip> : null}
-            <Chip compact style={[styles.stagePill, { backgroundColor: stageColors.bg }]} textStyle={[styles.stagePillText, { color: stageColors.text }]}>{stageLabel}</Chip>
-          </View>
+          <Text style={styles.subtitle} numberOfLines={1}>{lead.phone}</Text>
         </View>
-        {!selectMode ? (
-          <>
-            <View ref={anchorRef} collapsable={false}>
-              <IconButton icon="dots-vertical" size={20} onPress={openMenu} style={styles.rowMenuButton} accessibilityLabel="Lead actions" />
-            </View>
-            {/* A plain Modal popover: Paper's Menu swallowed taps here. Actions run after it closes,
-                because Android drops navigation/Alerts fired while a Modal is still dismissing. */}
-            <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={closeMenu}>
-              <Pressable style={StyleSheet.absoluteFill} onPress={closeMenu}>
-                <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
-                  <Pressable style={styles.popoverItem} onPress={() => runAfterClose(openLead)}>
-                    <Ionicons name="pencil-outline" size={16} color={colors.text} />
-                    <Text style={styles.popoverText}>Edit</Text>
+        <Text style={styles.timeText}>{relativeDate(lead.created_at)}</Text>
+      </View>
+
+      <View style={styles.metaRow}>
+        <View style={[styles.stageTag, { backgroundColor: stageColors.bg }]}>
+          <View style={[styles.stageTagDot, { backgroundColor: stageColors.text }]} />
+          <Text style={[styles.stageTagText, { color: stageColors.text }]} numberOfLines={1}>{stageLabel}</Text>
+        </View>
+        {lead.source ? <View style={styles.sourceTag}><Text style={styles.sourceTagText} numberOfLines={1}>{pretty(lead.source)}</Text></View> : null}
+        <Text style={styles.assignedText} numberOfLines={1}>{lead.assigned_to_name || "You"}</Text>
+      </View>
+
+      {!selectMode ? (
+        <View style={styles.leadActions}>
+          <Pressable style={[styles.quickAction, { backgroundColor: "#e0f2fe" }]} onPress={callNow} hitSlop={4}>
+            <Ionicons name="call" size={16} color="#0284c7" />
+            <Text style={[styles.quickActionText, { color: "#0284c7" }]}>Call</Text>
+          </Pressable>
+          <Pressable style={[styles.quickAction, { backgroundColor: "#dcfce7" }]} onPress={openWhatsapp} hitSlop={4}>
+            <Ionicons name="logo-whatsapp" size={16} color="#16a34a" />
+            <Text style={[styles.quickActionText, { color: "#16a34a" }]}>WhatsApp</Text>
+          </Pressable>
+          <View style={{ flex: 1 }} />
+          <View ref={anchorRef} collapsable={false}>
+            <IconButton icon="dots-vertical" size={20} onPress={openMenu} style={styles.rowMenuButton} accessibilityLabel="Lead actions" />
+          </View>
+          {/* A plain Modal popover: Paper's Menu swallowed taps here. Actions run after it closes,
+              because Android drops navigation/Alerts fired while a Modal is still dismissing. */}
+          <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={closeMenu}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeMenu}>
+              <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
+                <Pressable style={styles.popoverItem} onPress={() => runAfterClose(openLead)}>
+                  <Ionicons name="pencil-outline" size={16} color={colors.text} />
+                  <Text style={styles.popoverText}>Edit</Text>
+                </Pressable>
+                {onDelete ? (
+                  <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onDelete)}>
+                    <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                    <Text style={[styles.popoverText, { color: colors.danger }]}>Delete</Text>
                   </Pressable>
-                  {onDelete ? (
-                    <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onDelete)}>
-                      <Ionicons name="trash-outline" size={16} color={colors.danger} />
-                      <Text style={[styles.popoverText, { color: colors.danger }]}>Delete</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              </Pressable>
-            </Modal>
-          </>
-        ) : null}
-      </Card.Content>
-    </Card>
+                ) : null}
+              </View>
+            </Pressable>
+          </Modal>
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -449,6 +485,18 @@ export default function LeadsScreen() {
           <Ionicons name="options-outline" size={20} color={activeFilterCount ? "#fff" : colors.textSecondary} />
         </Pressable>
       </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow} keyboardShouldPersistTaps="handled">
+        {FILTERS.map((item) => {
+          const active = score === item.value;
+          const icon = item.value === "hot" ? "flame" : item.value === "warm" ? "sunny" : item.value === "cold" ? "snow" : "people";
+          return (
+            <Pressable key={item.value || "all"} onPress={() => setScore(item.value)} style={[styles.quickChip, active && styles.quickChipActive]}>
+              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={13} color={active ? "#fff" : colors.textSecondary} />
+              <Text style={[styles.quickChipText, active && styles.quickChipTextActive]}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
       {activeFilterCount > 0 ? (
         <View style={styles.activeChipsRow}>
           {score ? <Chip compact onClose={() => setScore("")} style={styles.activeChip}>Score: {FILTERS.find((f) => f.value === score)?.label || score}</Chip> : null}
@@ -516,7 +564,11 @@ export default function LeadsScreen() {
           </View>
         </View>
       ) : (
-        <FAB icon="plus" style={[styles.fab, { bottom: insets.bottom + 86 }]} onPress={goToNewLead} color={colors.surface} />
+        <Pressable accessibilityLabel="Add lead" style={[styles.fab, { bottom: insets.bottom + 86 }]} onPress={goToNewLead}>
+          <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabGradient}>
+            <Ionicons name="person-add" size={24} color="#fff" />
+          </LinearGradient>
+        </Pressable>
       )}
 
       <Modal visible={reassignOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !bulkBusy && setReassignOpen(false)}>
@@ -683,17 +735,17 @@ export default function LeadsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.surface },
+  screen: { flex: 1, backgroundColor: "#f4f9fc" },
   loadingWrap: { flex: 1, paddingHorizontal: 16 }, listContent: { paddingHorizontal: 16 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 12, marginBottom: 16 },
   titleRowMain: { flexDirection: "row", alignItems: "center" },
   backButton: { margin: 0, marginRight: 4 },
-  title: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" }, count: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  title: { color: colors.text, fontSize: 28, lineHeight: 34, fontFamily: "DMSans_700Bold", letterSpacing: -0.5 }, count: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
   selectHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16, minHeight: 52 },
   selectCount: { color: colors.text, fontSize: 14, fontWeight: "800" },
   searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
-  searchBox: { ...glass, flex: 1 },
-  filterButton: { ...glass, width: 48, height: 48, alignItems: "center", justifyContent: "center" },
+  searchBox: { flex: 1, backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: "#d7e6f1", elevation: 0, shadowOpacity: 0 },
+  filterButton: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#d7e6f1", alignItems: "center", justifyContent: "center" },
   filterButtonActive: { backgroundColor: colors.primary },
   settingsButton: { margin: 0 },
   activeChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
@@ -715,8 +767,30 @@ const styles = StyleSheet.create({
   filterDropdownItemTextSelected: { color: colors.text, fontWeight: "700" },
   filterSheetActions: { flexDirection: "row", gap: 10, marginTop: 14 },
   filterSheetButton: { flex: 1 },
+  quickRow: { gap: 8, paddingVertical: 10 },
+  quickChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#d7e6f1" },
+  quickChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  quickChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
+  quickChipTextActive: { color: "#ffffff" },
   sectionHeader: { color: colors.textMuted, fontSize: 12, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 1.2, paddingVertical: 8, paddingHorizontal: 4, marginTop: 8, marginBottom: 4 },
-  leadRow: { ...glass, marginBottom: 8 }, pressed: { opacity: 0.7 },
+  leadCard: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1.5, borderColor: "#e2eef7", padding: 14, marginBottom: 10, gap: 10 },
+  leadCardSelected: { borderColor: colors.primary, backgroundColor: "#f0f9ff" },
+  pressed: { opacity: 0.85 },
+  leadTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatarCircle: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
+  avatarLetter: { color: "#ffffff", fontSize: 19, fontWeight: "900" },
+  timeText: { color: colors.textMuted, fontSize: 11, fontWeight: "600" },
+  scoreBadge: { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2 },
+  scoreText: { fontSize: 10, fontWeight: "800" },
+  stageTag: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, maxWidth: "48%" },
+  stageTagDot: { width: 6, height: 6, borderRadius: 3 },
+  stageTagText: { fontSize: 11, fontWeight: "800", flexShrink: 1 },
+  sourceTag: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, backgroundColor: "#eef2f6", maxWidth: 110 },
+  sourceTagText: { color: colors.textSecondary, fontSize: 11, fontWeight: "700" },
+  assignedText: { flex: 1, color: colors.textMuted, fontSize: 11, textAlign: "right" },
+  leadActions: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: "#eef4f9", paddingTop: 10, marginTop: 2 },
+  quickAction: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  quickActionText: { fontSize: 12, fontWeight: "800" },
   leadRowContent: { flexDirection: "row", alignItems: "center", minHeight: 66 },
   avatar: { backgroundColor: colors.primary, marginRight: 11 }, avatarText: { fontSize: 16, fontWeight: "800" },
   rowMenuButton: { margin: 0 },
@@ -726,16 +800,17 @@ const styles = StyleSheet.create({
   },
   popoverItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   popoverText: { color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  leadContent: { flex: 1 }, nameRow: { flexDirection: "row", alignItems: "center", gap: 6 }, leadName: { flex: 1, color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold" }, hotDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.danger },
-  subtitle: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" },
+  leadContent: { flex: 1 }, nameRow: { flexDirection: "row", alignItems: "center", gap: 6 }, leadName: { flexShrink: 1, color: colors.text, fontSize: 15, fontFamily: "Inter_700Bold" },
+  subtitle: { color: colors.textSecondary, fontSize: 13, marginTop: 2 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   sourcePill: { maxWidth: 130, backgroundColor: colors.text, height: 24, borderRadius: 6 }, sourcePillText: { color: colors.surface, fontSize: 10, fontWeight: "700", lineHeight: 12 },
   stagePill: { height: 24, borderRadius: 6 }, stagePillText: { fontSize: 10, fontWeight: "800", lineHeight: 12 },
   inlineError: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10, marginBottom: 12 }, inlineErrorText: { color: colors.danger, fontSize: 10, textAlign: "center" },
   center: { flex: 1, minHeight: 300, alignItems: "center", justifyContent: "center", paddingHorizontal: 30 }, loadingText: { color: colors.textSecondary, fontSize: 12, marginTop: 11 }, errorTitle: { color: colors.text, fontSize: 17, fontWeight: "800" }, errorMessage: { color: colors.textSecondary, fontSize: 12, textAlign: "center", marginTop: 7 }, retry: { backgroundColor: colors.primary, paddingHorizontal: 19, paddingVertical: 10, borderRadius: 10, marginTop: 16 }, retryText: { color: colors.surface, fontSize: 12, fontWeight: "800" },
   footerLoader: { paddingVertical: 20 }, endText: { color: colors.textMuted, fontSize: 10, textAlign: "center", paddingVertical: 18 },
   empty: { alignItems: "center", paddingHorizontal: 30, paddingTop: 55 }, emptyIcon: { width: 64, height: 64, borderRadius: 22, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" }, emptyTitle: { color: colors.text, fontSize: 16, fontWeight: "800", marginTop: 14 }, emptyText: { color: colors.textMuted, fontSize: 11, lineHeight: 17, textAlign: "center", marginTop: 5 }, emptyButton: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 11, marginTop: 17 }, emptyButtonText: { color: colors.surface, fontSize: 12, fontWeight: "800" },
-  fab: { position: "absolute", right: 20, backgroundColor: colors.primary },
+  fab: { position: "absolute", right: 20 },
+  fabGradient: { width: 58, height: 58, borderRadius: 29, alignItems: "center", justifyContent: "center", shadowColor: "#4f46e5", shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 8 },
 
   bulkBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingTop: 12 },
   bulkAction: { flex: 1, alignItems: "center" },
