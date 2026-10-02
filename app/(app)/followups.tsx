@@ -1,7 +1,7 @@
 import { GlassBackground, glass, GradientIcon } from "@/components/Glass";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
+  Dimensions, useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
@@ -47,6 +47,21 @@ function FollowupRow({ item, completing, onComplete, onPress, colorFor, findStag
   colorFor: (stage?: string) => { bg: string; text: string };
   findStage: (name?: string) => { name: string } | undefined;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ y: 0, right: 16 });
+  const anchorRef = useRef<View>(null);
+  function openMenu() {
+    // Open the popover just under the ⋮ button, right-aligned with it.
+    anchorRef.current?.measureInWindow((x, y, width, height) => {
+      setMenuPos({ y: y + height, right: Math.max(8, Dimensions.get("window").width - (x + width)) });
+      setMenuOpen(true);
+    });
+  }
+  // Actions run after the popover closes: Android drops navigation/Alerts fired while a Modal is still dismissing.
+  function runAfterClose(action: () => void) {
+    setMenuOpen(false);
+    setTimeout(action, 300);
+  }
   const stageColors = colorFor(item.lead_stage);
   const stageLabel = findStage(item.lead_stage)?.name || pretty(item.lead_stage);
   const time = new Date(item.next_followup_at);
@@ -70,7 +85,25 @@ function FollowupRow({ item, completing, onComplete, onPress, colorFor, findStag
       right={() => completing ? (
         <ActivityIndicator size="small" color={colors.primary} style={styles.doneButton} />
       ) : (
-        <IconButton icon="check-circle-outline" iconColor={colors.primary} size={24} style={styles.doneButton} onPress={onComplete} />
+        <>
+          <View ref={anchorRef} collapsable={false}>
+            <IconButton icon="dots-vertical" iconColor={colors.textSecondary} size={22} style={styles.doneButton} onPress={openMenu} accessibilityLabel="Appointment actions" />
+          </View>
+          <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMenuOpen(false)}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
+              <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
+                <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onPress)}>
+                  <Ionicons name="eye-outline" size={16} color={colors.text} />
+                  <Text style={styles.popoverText}>View Details</Text>
+                </Pressable>
+                <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onComplete)}>
+                  <Ionicons name="checkmark-circle-outline" size={16} color={colors.success} />
+                  <Text style={[styles.popoverText, { color: colors.success }]}>Mark Completed</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Modal>
+        </>
       )}
       onPress={onPress}
     />
@@ -358,6 +391,12 @@ const styles = StyleSheet.create({
   rowTime: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
   rowNotes: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
   doneButton: { alignSelf: "center" },
+  popover: {
+    position: "absolute", minWidth: 190, paddingVertical: 6, borderRadius: 12, backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.borderSoft, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
+  },
+  popoverItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
+  popoverText: { color: colors.text, fontSize: 14, fontWeight: "600" },
 
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
   sheet: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
