@@ -6,13 +6,18 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
 import { colors } from "@/theme";
+import { AssignmentSection, DeveloperSection, MessagingSection } from "@/components/SettingsSections";
+import { PipelineSection } from "@/components/PipelineSection";
 
-type SettingsTab = "profile" | "business" | "templates" | "pipeline";
+type SettingsTab = "profile" | "business" | "templates" | "assignment" | "messaging" | "developer" | "pipeline";
 
 const TABS: { key: SettingsTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "profile", label: "My Profile", icon: "person-outline" },
   { key: "business", label: "Business", icon: "business-outline" },
   { key: "templates", label: "Templates", icon: "chatbox-ellipses-outline" },
+  { key: "assignment", label: "Assignment", icon: "shuffle-outline" },
+  { key: "messaging", label: "Messaging", icon: "chatbubbles-outline" },
+  { key: "developer", label: "Developer", icon: "code-slash-outline" },
   { key: "pipeline", label: "Pipeline", icon: "layers-outline" },
 ];
 
@@ -268,13 +273,10 @@ export default function SettingsScreen() {
             href="/(app)/more/templates" buttonLabel="Open Templates"
           />
         ) : null}
-        {activeTab === "pipeline" ? (
-          <LinkOutTab
-            icon="layers-outline" title="Pipeline"
-            description="Manage your lead stages and statuses — the kanban board leads move through."
-            href="/(app)/more/pipeline" buttonLabel="Open Pipeline"
-          />
-        ) : null}
+        {activeTab === "assignment" ? <AssignmentSection /> : null}
+        {activeTab === "messaging" ? <MessagingSection /> : null}
+        {activeTab === "developer" ? <DeveloperSection /> : null}
+        {activeTab === "pipeline" ? <PipelineSection /> : null}
       </ScrollView>
     </View>
   );
