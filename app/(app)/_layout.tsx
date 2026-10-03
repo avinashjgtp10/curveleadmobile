@@ -8,6 +8,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, tabBarStyleFor } from "@/theme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useT } from "@/i18n/LanguageContext";
 
 const NAV_ITEMS = {
   index: { label: "Home", icon: "home-outline", activeIcon: "home" },
@@ -72,6 +73,7 @@ const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void 
 export default function AppLayout() {
   const { user, isLoading } = useAuth();
   const insets = useSafeAreaInsets();
+  const { t } = useT();
 
   if (isLoading) return null;
   if (!user) return React.createElement(Redirect, { href: "/(auth)/login" });
@@ -109,7 +111,7 @@ export default function AppLayout() {
             },
           } : null),
           options: {
-            title: item.label,
+            title: t(item.label),
             // Leaving the More tab resets it to the menu, so tapping More never reopens the last feature.
             ...(name === "more" ? { popToTopOnBlur: true } : null),
             tabBarIcon: ({ focused }: { focused: boolean }) =>

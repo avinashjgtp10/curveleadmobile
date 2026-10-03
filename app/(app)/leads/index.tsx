@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { usePermission } from "@/hooks/usePermission";
 import { useStages } from "@/hooks/useStages";
+import { useT } from "@/i18n/LanguageContext";
 import { telUrl } from "@/api/phone";
 import {
   bulkDeleteLeads, bulkUpdateLeads, fetchLeads, LeadListItem, trackContactActivity,
@@ -79,17 +80,17 @@ function pretty(value?: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function relativeDate(value: string) {
+function relativeDate(value: string, t: (text: string, vars?: Record<string, string | number>) => string) {
   const time = new Date(value).getTime();
   if (Number.isNaN(time)) return "";
   const difference = Date.now() - time;
   const minutes = Math.floor(difference / 60_000);
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return t("Just now");
+  if (minutes < 60) return t("{n}m ago", { n: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t("{n}h ago", { n: hours });
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return t("{n}d ago", { n: days });
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
@@ -110,6 +111,7 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
   colorFor: (stage?: string) => { bg: string; text: string };
   findStage: (name?: string) => { name: string } | undefined;
 }) {
+  const { t } = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ y: 0, right: 16 });
   const anchorRef = useRef<View>(null);
@@ -163,13 +165,13 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
             {score ? (
               <View style={[styles.scoreBadge, { backgroundColor: score.bg }]}>
                 <Ionicons name={score.icon} size={11} color={score.color} />
-                <Text style={[styles.scoreText, { color: score.color }]}>{score.label}</Text>
+                <Text style={[styles.scoreText, { color: score.color }]}>{t(score.label)}</Text>
               </View>
             ) : null}
           </View>
           <Text style={styles.subtitle} numberOfLines={1}>{lead.phone}</Text>
         </View>
-        <Text style={styles.timeText}>{relativeDate(lead.created_at)}</Text>
+        <Text style={styles.timeText}>{relativeDate(lead.created_at, t)}</Text>
       </View>
 
       <View style={styles.metaRow}>
@@ -178,18 +180,18 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
           <Text style={[styles.stageTagText, { color: stageColors.text }]} numberOfLines={1}>{stageLabel}</Text>
         </View>
         {lead.source ? <View style={styles.sourceTag}><Text style={styles.sourceTagText} numberOfLines={1}>{pretty(lead.source)}</Text></View> : null}
-        <Text style={styles.assignedText} numberOfLines={1}>{lead.assigned_to_name || "You"}</Text>
+        <Text style={styles.assignedText} numberOfLines={1}>{lead.assigned_to_name || t("You")}</Text>
       </View>
 
       {!selectMode ? (
         <View style={styles.leadActions}>
           <Pressable style={[styles.quickAction, { backgroundColor: "#e0f2fe" }]} onPress={callNow} hitSlop={4}>
             <Ionicons name="call" size={16} color="#0284c7" />
-            <Text style={[styles.quickActionText, { color: "#0284c7" }]}>Call</Text>
+            <Text style={[styles.quickActionText, { color: "#0284c7" }]}>{t("Call")}</Text>
           </Pressable>
           <Pressable style={[styles.quickAction, { backgroundColor: "#dcfce7" }]} onPress={openWhatsapp} hitSlop={4}>
             <Ionicons name="logo-whatsapp" size={16} color="#16a34a" />
-            <Text style={[styles.quickActionText, { color: "#16a34a" }]}>WhatsApp</Text>
+            <Text style={[styles.quickActionText, { color: "#16a34a" }]}>{t("WhatsApp")}</Text>
           </Pressable>
           <View style={{ flex: 1 }} />
           <View ref={anchorRef} collapsable={false}>
@@ -202,12 +204,12 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
               <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
                 <Pressable style={styles.popoverItem} onPress={() => runAfterClose(openLead)}>
                   <Ionicons name="pencil-outline" size={16} color={colors.text} />
-                  <Text style={styles.popoverText}>Edit</Text>
+                  <Text style={styles.popoverText}>{t("Edit")}</Text>
                 </Pressable>
                 {onDelete ? (
                   <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onDelete)}>
                     <Ionicons name="trash-outline" size={16} color={colors.danger} />
-                    <Text style={[styles.popoverText, { color: colors.danger }]}>Delete</Text>
+                    <Text style={[styles.popoverText, { color: colors.danger }]}>{t("Delete")}</Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -223,6 +225,7 @@ export default function LeadsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { isAdmin } = usePermission();
+  const { t } = useT();
   const { stages, colorFor, findStage } = useStages();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestId = useRef(0);
@@ -457,17 +460,17 @@ export default function LeadsScreen() {
     <>
       {selectMode ? (
         <View style={styles.selectHeader}>
-          <Button mode="text" onPress={exitSelectMode} compact>Cancel</Button>
-          <Text style={styles.selectCount}>{selectedIds.size} selected</Text>
-          <Button mode="text" onPress={() => setSelectedIds(new Set(leads.map((lead) => lead.id)))} compact>Select all</Button>
+          <Button mode="text" onPress={exitSelectMode} compact>{t("Cancel")}</Button>
+          <Text style={styles.selectCount}>{t("{n} selected", { n: selectedIds.size })}</Text>
+          <Button mode="text" onPress={() => setSelectedIds(new Set(leads.map((lead) => lead.id)))} compact>{t("Select all")}</Button>
         </View>
       ) : (
         <View style={styles.titleRow}>
           <View style={styles.titleRowMain}>
             {router.canGoBack() ? <IconButton icon="arrow-left" size={22} onPress={() => router.back()} style={styles.backButton} /> : null}
             <View>
-              <Text style={styles.title}>Leads</Text>
-              <Text style={styles.count}>{total.toLocaleString("en-IN")} total contacts</Text>
+              <Text style={styles.title}>{t("Leads")}</Text>
+              <Text style={styles.count}>{total.toLocaleString("en-IN")} {t("total contacts")}</Text>
             </View>
           </View>
           <IconButton icon="cog-outline" size={20} onPress={() => setSettingsSheetOpen(true)} style={styles.settingsButton} />
@@ -476,7 +479,7 @@ export default function LeadsScreen() {
       <View style={styles.searchRow}>
         <Searchbar
           icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 14, minHeight: 48 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
-          placeholder="Search Name/Number/Keywords…" placeholderTextColor={colors.textMuted} onClearIconPress={() => updateSearch("")}
+          placeholder={t("Search Name/Number/Keywords…")} placeholderTextColor={colors.textMuted} onClearIconPress={() => updateSearch("")}
         />
         <Pressable
           style={[styles.filterButton, activeFilterCount > 0 && styles.filterButtonActive]} onPress={openFiltersSheet}
@@ -492,7 +495,7 @@ export default function LeadsScreen() {
           return (
             <Pressable key={item.value || "all"} onPress={() => setScore(item.value)} style={[styles.quickChip, active && styles.quickChipActive]}>
               <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={13} color={active ? "#fff" : colors.textSecondary} />
-              <Text style={[styles.quickChipText, active && styles.quickChipTextActive]}>{item.label}</Text>
+              <Text style={[styles.quickChipText, active && styles.quickChipTextActive]}>{t(item.label)}</Text>
             </Pressable>
           );
         })}
@@ -516,29 +519,29 @@ export default function LeadsScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       {loading && !leads.length ? (
-        <View style={styles.loadingWrap}>{header}<View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.loadingText}>Loading leads…</Text></View></View>
+        <View style={styles.loadingWrap}>{header}<View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.loadingText}>{t("Loading leads…")}</Text></View></View>
       ) : error && !leads.length ? (
-        <View style={styles.loadingWrap}>{header}<View style={styles.center}><Text style={styles.errorTitle}>Couldn&apos;t load leads</Text><Text style={styles.errorMessage}>{error}</Text><Pressable style={styles.retry} onPress={() => load()}><Text style={styles.retryText}>Try again</Text></Pressable></View></View>
+        <View style={styles.loadingWrap}>{header}<View style={styles.center}><Text style={styles.errorTitle}>{t("Couldn't load leads")}</Text><Text style={styles.errorMessage}>{error}</Text><Pressable style={styles.retry} onPress={() => load()}><Text style={styles.retryText}>{t("Try again")}</Text></Pressable></View></View>
       ) : (
         <SectionList
           sections={sections} keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <LeadRow lead={item} selectMode={selectMode} selected={selectedIds.has(item.id)} onToggleSelect={() => toggleSelect(item.id)} onLongPress={() => enterSelectMode(item.id)} onDelete={isAdmin ? () => confirmDeleteOne(item) : undefined} colorFor={colorFor} findStage={findStage} />
           )}
-          renderSectionHeader={({ section }) => <Text style={styles.sectionHeader}>{section.title}</Text>}
+          renderSectionHeader={({ section }) => <Text style={styles.sectionHeader}>{t(section.title)}</Text>}
           ListHeaderComponent={header}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + (selectMode ? 140 : 105) }]}
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} colors={[colors.primary]} />}
           onEndReached={() => { if (!loadingMore && page < pages) load(page + 1, true); }} onEndReachedThreshold={0.4}
-          ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={styles.footerLoader} /> : leads.length ? <Text style={styles.endText}>{page >= pages ? `All ${total} leads loaded` : ""}</Text> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={styles.footerLoader} /> : leads.length ? <Text style={styles.endText}>{page >= pages ? t("All {n} leads loaded", { n: total }) : ""}</Text> : null}
           ListEmptyComponent={
             <View style={styles.empty}>
               <View style={styles.emptyIcon}><Ionicons name="people-outline" size={26} color={colors.primary} /></View>
-              <Text style={styles.emptyTitle}>{query || score ? "No matching leads" : "No leads yet"}</Text>
-              <Text style={styles.emptyText}>{query || score ? "Try changing your search or filter." : "Add your first lead to start building your pipeline."}</Text>
-              {!query && !score ? <Pressable style={styles.emptyButton} onPress={goToNewLead}><Text style={styles.emptyButtonText}>＋ Add first lead</Text></Pressable> : null}
+              <Text style={styles.emptyTitle}>{query || score ? t("No matching leads") : t("No leads yet")}</Text>
+              <Text style={styles.emptyText}>{query || score ? t("Try changing your search or filter.") : t("Add your first lead to start building your pipeline.")}</Text>
+              {!query && !score ? <Pressable style={styles.emptyButton} onPress={goToNewLead}><Text style={styles.emptyButtonText}>{t("＋ Add first lead")}</Text></Pressable> : null}
             </View>
           }
         />
@@ -548,19 +551,19 @@ export default function LeadsScreen() {
         <View style={[styles.bulkBar, { paddingBottom: Math.max(insets.bottom, 14) }]}>
           <View style={styles.bulkAction}>
             <IconButton icon="account-outline" size={20} onPress={openReassign} disabled={!selectedIds.size || bulkBusy} />
-            <Text style={[styles.bulkActionText, !selectedIds.size && styles.bulkActionTextDisabled]}>Reassign</Text>
+            <Text style={[styles.bulkActionText, !selectedIds.size && styles.bulkActionTextDisabled]}>{t("Reassign")}</Text>
           </View>
           <View style={styles.bulkAction}>
             <IconButton icon="tag-outline" size={20} onPress={() => setStageSheetOpen(true)} disabled={!selectedIds.size || bulkBusy} />
-            <Text style={[styles.bulkActionText, !selectedIds.size && styles.bulkActionTextDisabled]}>Stage</Text>
+            <Text style={[styles.bulkActionText, !selectedIds.size && styles.bulkActionTextDisabled]}>{t("Stage")}</Text>
           </View>
           <View style={styles.bulkAction}>
             <IconButton icon="phone-outline" size={20} onPress={openCallSheet} disabled={!selectedIds.size || bulkBusy} />
-            <Text style={[styles.bulkActionText, !selectedIds.size && styles.bulkActionTextDisabled]}>Call</Text>
+            <Text style={[styles.bulkActionText, !selectedIds.size && styles.bulkActionTextDisabled]}>{t("Call")}</Text>
           </View>
           <View style={styles.bulkAction}>
             <IconButton icon="trash-can-outline" size={20} iconColor={selectedIds.size ? colors.danger : undefined} onPress={confirmBulkDelete} disabled={!selectedIds.size || bulkBusy} />
-            <Text style={[styles.bulkActionText, !selectedIds.size && styles.bulkActionTextDisabled, selectedIds.size ? styles.bulkActionDangerText : null]}>Delete</Text>
+            <Text style={[styles.bulkActionText, !selectedIds.size && styles.bulkActionTextDisabled, selectedIds.size ? styles.bulkActionDangerText : null]}>{t("Delete")}</Text>
           </View>
         </View>
       ) : (
