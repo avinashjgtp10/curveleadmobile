@@ -14,6 +14,7 @@ import { StatusBar } from "expo-status-bar";
 import { PaperProvider } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { LanguageProvider } from "@/i18n/LanguageContext";
 import * as NativeSplashScreen from "expo-splash-screen";
 import { CurveLeadSplash } from "@/components/CurveLeadSplash";
 import { usePushNotifications } from "@/notifications/usePushNotifications";
@@ -48,7 +49,7 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return <View style={{ flex: 1, backgroundColor }} />;
   return (
     <ThemeProvider value={navigationTheme}><View style={{ flex: 1, backgroundColor }}><PaperProvider theme={paperTheme} settings={{ icon: (props) => <MaterialCommunityIcons name={props.name as never} color={props.color} size={props.size} /> }}>
-      <AuthProvider>
+      <AuthProvider><LanguageProvider>
         <PushNotificationsManager navigationReady={splashComplete} />
         <StatusBar style="dark" hidden={false} />
         {Platform.OS === "android" && Number(Platform.Version) < 35 && <NativeStatusBar barStyle="dark-content" backgroundColor={backgroundColor} translucent hidden={false} />}
@@ -56,7 +57,7 @@ export default function RootLayout() {
           <Stack.Screen name="(app)" />
           <Stack.Screen name="invite-team" options={{ animation: "slide_from_bottom", presentation: "transparentModal", contentStyle: { backgroundColor: "transparent" } }} />
         </Stack> : <StartupSplash onComplete={finishSplash} />}
-      </AuthProvider>
+      </LanguageProvider></AuthProvider>
     </PaperProvider><StatusBarBackground backgroundColor={backgroundColor} /></View></ThemeProvider>
   );
 }

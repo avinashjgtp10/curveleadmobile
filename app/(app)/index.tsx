@@ -18,6 +18,7 @@ import { facebookSyncLeads, fetchIntegrationSettings, IntegrationSettings } from
 import { fetchNotifications, notifyLeadsAdded } from "@/api/notifications";
 import { homeOrigin } from "@/navigation/homeOrigin";
 import { useAuth } from "@/contexts/AuthContext";
+import { useT } from "@/i18n/LanguageContext";
 
 const AI_IMAGE_SAMPLES = [
   { caption: "Product shot", source: require("../../assets/ai-samples/product-shot.png") },
@@ -56,27 +57,30 @@ const SOURCE_ICON: Record<string, IconName> = {
 interface LeadSourceRow { source: string; leads: number; won: number; conversion: number }
 
 function StatTile({ label, value }: { label: string; value: string }) {
+  const { t } = useT();
   return (
     <View style={styles.statTile}>
-      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={styles.statLabel}>{t(label)}</Text>
       <GradientNumber value={value} tone={label.includes("Converted") ? "violet" : label.includes("New") ? "emerald" : label.includes("Due") ? "amber" : "sky"} />
     </View>
   );
 }
 
 function QuickTile({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+  const { t } = useT();
   const { width } = useWindowDimensions();
   return (
     <Card mode="contained" style={[styles.quickTile, { width: (width - 44) / 2 }]} onPress={onPress}>
       <Card.Content style={styles.quickTileContent}>
         <GradientIcon tone={label.includes("Schedule") ? "amber" : label.includes("Search") ? "emerald" : label.includes("Import") ? "violet" : "sky"}>{label.includes("Add") ? <SvgUserAdd color="#fff" /> : label.includes("Schedule") ? <SvgCalendar color="#fff" /> : label.includes("Import") ? <SvgFolder color="#fff" /> : <Ionicons name={icon} size={20} color="#fff" />}</GradientIcon>
-        <Text style={styles.quickLabel}>{label}</Text>
+        <Text style={styles.quickLabel}>{t(label)}</Text>
       </Card.Content>
     </Card>
   );
 }
 
 function LeadsByStageCard({ stages, onPress }: { stages: DashboardSummary["pipeline"]; onPress: () => void }) {
+  const { t } = useT();
   const { width } = useWindowDimensions();
   const columns = width >= 600 ? 5 : 2;
   const maxCount = Math.max(1, ...stages.map((stage) => stage.count));
@@ -84,8 +88,8 @@ function LeadsByStageCard({ stages, onPress }: { stages: DashboardSummary["pipel
   return (
     <View style={styles.stageCard}>
       <Pressable style={styles.stageCardHeader} onPress={onPress} accessibilityRole="button">
-        <Text style={styles.stageCardTitle}>Lead Pipeline</Text>
-        <Text style={styles.stageViewAll}>View all ›</Text>
+        <Text style={styles.stageCardTitle}>{t("Lead Pipeline")}</Text>
+        <Text style={styles.stageViewAll}>{t("View all ›")}</Text>
       </Pressable>
       {stages.length ? (
         <View style={styles.stageColumns}>
@@ -101,19 +105,20 @@ function LeadsByStageCard({ stages, onPress }: { stages: DashboardSummary["pipel
           ))}
         </View>
       ) : (
-        <Text style={styles.stageEmpty}>No stage data yet.</Text>
+        <Text style={styles.stageEmpty}>{t("No stage data yet.")}</Text>
       )}
     </View>
   );
 }
 
 function UrgentFollowupsCard({ count, onPress }: { count: number; onPress: () => void }) {
+  const { t } = useT();
   return (
     <Pressable style={styles.urgentCard} onPress={onPress} accessibilityRole="button">
       <View style={styles.urgentIcon}><Ionicons name="alert" size={18} color="#fff" /></View>
       <View style={styles.urgentCopy}>
-        <Text style={styles.urgentTitle}>{fmt(count)} follow-ups need urgent attention</Text>
-        <Text style={styles.urgentSubtitle}>Open the list and take action now</Text>
+        <Text style={styles.urgentTitle}>{t("{n} follow-ups need urgent attention", { n: fmt(count) })}</Text>
+        <Text style={styles.urgentSubtitle}>{t("Open the list and take action now")}</Text>
       </View>
       <Ionicons name="chevron-forward" size={25} color={colors.danger} />
     </Pressable>
@@ -121,10 +126,11 @@ function UrgentFollowupsCard({ count, onPress }: { count: number; onPress: () =>
 }
 
 function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowup[]; onPress: () => void }) {
+  const { t } = useT();
   return (
     <View style={styles.upcomingCard}>
       <Pressable style={styles.upcomingHeader} onPress={onPress}>
-        <Text style={styles.upcomingTitle}>Upcoming Follow Ups</Text>
+        <Text style={styles.upcomingTitle}>{t("Upcoming Follow Ups")}</Text>
         <Text style={styles.upcomingCount}>{followups.length}</Text>
       </Pressable>
       {followups.length ? followups.slice(0, 2).map((followup, index) => {
@@ -142,13 +148,14 @@ function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowu
           </Pressable>
         );
       }) : (
-        <Text style={styles.upcomingEmpty}>No upcoming follow-ups</Text>
+        <Text style={styles.upcomingEmpty}>{t("No upcoming follow-ups")}</Text>
       )}
     </View>
   );
 }
 
 function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
+  const { t } = useT();
   const insights = [
     { label: "Revenue", value: data.total_revenue || data.revenue_in_period },
     { label: "Avg. deal", value: data.avg_deal_value },
@@ -156,11 +163,11 @@ function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () =
   ];
   return (
     <Pressable style={styles.insightsSection} onPress={onPress} accessibilityRole="button">
-      <Text style={styles.insightsTitle}>Insights</Text>
+      <Text style={styles.insightsTitle}>{t("Insights")}</Text>
       <View style={styles.insightsRow}>
         {insights.map((item) => (
           <View key={item.label} style={styles.insightCard}>
-            <Text style={styles.insightLabel}>{item.label}</Text>
+            <Text style={styles.insightLabel}>{t(item.label)}</Text>
             <Text style={styles.insightValue}>₹{fmt(item.value)}</Text>
           </View>
         ))}
@@ -170,6 +177,7 @@ function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () =
 }
 
 function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
+  const { t } = useT();
   const items = [
     { icon: "person-add-outline", label: "New Leads", value: data.leads_today, tone: TONE.sky },
     { icon: "calendar-outline", label: "Follow-ups", value: data.followups_today, tone: TONE.emerald },
@@ -183,9 +191,9 @@ function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress:
     <View style={styles.activityCard}>
       <View style={styles.activityHeaderRow}>
         <View style={styles.activityIconWrap}><Ionicons name="calendar-outline" size={18} color={colors.primary} /></View>
-        <Text style={styles.activityTitle}>Today&apos;s Activity</Text>
+        <Text style={styles.activityTitle}>{t("Today's Activity")}</Text>
         <Pressable style={{ marginLeft: "auto" }} onPress={onPress}>
-          <Text style={styles.activityViewAll}>View all</Text>
+          <Text style={styles.activityViewAll}>{t("View all")}</Text>
         </Pressable>
       </View>
       <View style={styles.activityGrid}>
@@ -195,7 +203,7 @@ function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress:
               <View style={[styles.activityTileIcon, { backgroundColor: item.tone.bg }]}>
                 <Ionicons name={item.icon as IconName} size={14} color={item.tone.iconColor} />
               </View>
-              <Text style={styles.activityTileLabel} numberOfLines={1}>{item.label}</Text>
+              <Text style={styles.activityTileLabel} numberOfLines={1}>{t(item.label)}</Text>
             </View>
             <Text style={styles.activityTileValue}>{fmt(item.value)}</Text>
           </View>
@@ -213,6 +221,7 @@ const START_HERE: { icon: IconName; label: string; bg: string; iconColor: string
 ];
 
 function StartHereTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; onPress: () => void }) {
+  const { t } = useT();
   return (
     <Pressable style={styles.startTile} onPress={onPress}>
       <View style={[styles.startIconWrap, { backgroundColor: bg }]}>
@@ -227,7 +236,7 @@ function StartHereTile({ icon, label, bg, iconColor, badges, onPress }: { icon: 
         ) : null}
         <Ionicons name={icon} size={22} color={iconColor} />
       </View>
-      <Text style={styles.startLabel} numberOfLines={2}>{label}</Text>
+      <Text style={styles.startLabel} numberOfLines={2}>{t(label)}</Text>
     </Pressable>
   );
 }
@@ -287,6 +296,7 @@ function openGridItem(item: GridItem) {
 }
 
 function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; onPress: () => void }) {
+  const { t } = useT();
   return (
     <Pressable style={styles.gridTile} onPress={onPress}>
       <View style={[styles.startIconWrap, { backgroundColor: bg }]}>
@@ -301,12 +311,13 @@ function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconN
         ) : null}
         <Ionicons name={icon} size={22} color={iconColor} />
       </View>
-      <Text style={styles.startLabel} numberOfLines={2}>{label}</Text>
+      <Text style={styles.startLabel} numberOfLines={2}>{t(label)}</Text>
     </Pressable>
   );
 }
 
 export default function DashboardScreen() {
+  const { t } = useT();
   const { user, tenant } = useAuth();
   const insets = useSafeAreaInsets();
   const period: DashboardPeriod = "last_7_days";
@@ -425,7 +436,7 @@ export default function DashboardScreen() {
         <View style={{ flex: 1 }} />
         {user ? (
           <View style={styles.roleBadge}>
-            <Text style={styles.roleBadgeText}>{user.role === "super_admin" ? "Super Admin" : user.role === "admin" ? "Admin" : "Staff"}</Text>
+            <Text style={styles.roleBadgeText}>{t(user.role === "super_admin" ? "Super Admin" : user.role === "admin" ? "Admin" : "Staff")}</Text>
           </View>
         ) : null}
         <Pressable style={styles.notificationButton} onPress={() => router.push("/(app)/notifications")}>
@@ -438,7 +449,7 @@ export default function DashboardScreen() {
 
       <Pressable style={styles.searchRow} onPress={() => setSearchOpen(true)}>
         <Ionicons name="search-outline" size={18} color={colors.textMuted} />
-        <Text style={styles.searchPlaceholder}>Search tools & settings</Text>
+        <Text style={styles.searchPlaceholder}>{t("Search tools & settings")}</Text>
       </Pressable>
 
       <ScrollView
@@ -447,12 +458,12 @@ export default function DashboardScreen() {
         showsVerticalScrollIndicator={false}
       >
         {loading && !data ? (
-          <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.stateText}>Getting your latest numbers…</Text></View>
+          <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.stateText}>{t("Getting your latest numbers…")}</Text></View>
         ) : error && !data ? (
           <View style={styles.state}>
-            <Text style={styles.stateTitle}>Couldn&apos;t load dashboard</Text>
+            <Text style={styles.stateTitle}>{t("Couldn't load dashboard")}</Text>
             <Text style={styles.stateText}>{error}</Text>
-            <Button mode="contained" onPress={() => load()} style={styles.retry}>Try again</Button>
+            <Button mode="contained" onPress={() => load()} style={styles.retry}>{t("Try again")}</Button>
           </View>
         ) : data ? (
           <>
@@ -469,8 +480,8 @@ export default function DashboardScreen() {
                 <View style={styles.setupCard}>
                   <Pressable style={styles.setupHeaderRow} onPress={() => setSetupExpanded((open) => !open)}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.setupHeadline}>{allDone ? "You're all set 🎉" : "Finish setting up"}</Text>
-                      <Text style={styles.setupSub}>{`${doneCount} of ${steps.length} steps done`}</Text>
+                      <Text style={styles.setupHeadline}>{allDone ? t("You're all set 🎉") : t("Finish setting up")}</Text>
+                      <Text style={styles.setupSub}>{t("{done} of {total} steps done", { done: doneCount, total: steps.length })}</Text>
                     </View>
                     <Ionicons name={setupExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textSecondary} />
                   </Pressable>
@@ -495,13 +506,13 @@ export default function DashboardScreen() {
                             <Ionicons name={step.done ? "checkmark" : step.icon} size={18} color={step.done ? colors.success : colors.primary} />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.setupItemTitle, step.done && styles.setupItemTitleDone]}>{step.label}</Text>
-                            <Text style={styles.setupItemHint} numberOfLines={1}>{step.hint}</Text>
+                            <Text style={[styles.setupItemTitle, step.done && styles.setupItemTitleDone]}>{t(step.label)}</Text>
+                            <Text style={styles.setupItemHint} numberOfLines={1}>{t(step.hint)}</Text>
                           </View>
                           {step.done ? (
-                            <View style={styles.setupDonePill}><Text style={styles.setupDonePillText}>Done</Text></View>
+                            <View style={styles.setupDonePill}><Text style={styles.setupDonePillText}>{t("Done")}</Text></View>
                           ) : (
-                            <View style={styles.setupGoPill}><Text style={styles.setupGoPillText}>Set up</Text></View>
+                            <View style={styles.setupGoPill}><Text style={styles.setupGoPillText}>{t("Set up")}</Text></View>
                           )}
                         </Pressable>
                       ))}
@@ -512,8 +523,8 @@ export default function DashboardScreen() {
             })()}
 
             <View style={styles.startHereSection}>
-              <Text style={styles.startHereTitle}>Start here</Text>
-              <Text style={styles.startHereSubtitle}>Your everyday actions</Text>
+              <Text style={styles.startHereTitle}>{t("Start here")}</Text>
+              <Text style={styles.startHereSubtitle}>{t("Your everyday actions")}</Text>
               <View style={styles.startHereRow}>
                 {START_HERE.map((item) => (
                   <StartHereTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
@@ -531,11 +542,11 @@ export default function DashboardScreen() {
                   <Ionicons name="hardware-chip-outline" size={22} color="#7c3aed" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.aiImagesTitle}>AI Images</Text>
-                  <Text style={styles.aiImagesSubtitle}>Create high-quality product or fashion photoshoot</Text>
+                  <Text style={styles.aiImagesTitle}>{t("AI Images")}</Text>
+                  <Text style={styles.aiImagesSubtitle}>{t("Create high-quality product or fashion photoshoot")}</Text>
                 </View>
                 <Pressable onPress={() => router.push("/(app)/more/ai-tools")}>
-                  <Text style={styles.aiImagesCreate}>Create</Text>
+                  <Text style={styles.aiImagesCreate}>{t("Create")}</Text>
                 </Pressable>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.aiImagesRow}>
@@ -560,9 +571,9 @@ export default function DashboardScreen() {
             <View style={styles.activityCard}>
               <View style={styles.activityHeaderRow}>
                 <View style={styles.activityIconWrap}><Ionicons name="calendar-outline" size={18} color={colors.primary} /></View>
-                <Text style={styles.activityTitle}>Today's Activity</Text>
+                <Text style={styles.activityTitle}>{t("Today's Activity")}</Text>
                 <Pressable style={{ marginLeft: "auto" }} onPress={() => router.push("/(app)/leads")}>
-                  <Text style={styles.activityViewAll}>View all ›</Text>
+                  <Text style={styles.activityViewAll}>{t("View all ›")}</Text>
                 </Pressable>
               </View>
               <View style={styles.activityGrid}>
@@ -579,7 +590,7 @@ export default function DashboardScreen() {
                       <View style={[styles.activityTileIcon, { backgroundColor: item.tone.bg }]}>
                         <Ionicons name={item.icon as IconName} size={14} color={item.tone.iconColor} />
                       </View>
-                      <Text style={styles.activityTileLabel} numberOfLines={1}>{item.label}</Text>
+                      <Text style={styles.activityTileLabel} numberOfLines={1}>{t(item.label)}</Text>
                     </View>
                     <Text style={styles.activityTileValue}>{fmt(item.value)}</Text>
                   </View>
@@ -592,16 +603,16 @@ export default function DashboardScreen() {
               <View style={styles.sourcesCard}>
                 <View style={styles.sourcesHeaderRow}>
                   <Ionicons name="pie-chart-outline" size={16} color={colors.text} />
-                  <Text style={styles.sourcesTitle}>Lead Sources</Text>
+                  <Text style={styles.sourcesTitle}>{t("Lead Sources")}</Text>
                   <Pressable style={{ marginLeft: "auto" }} onPress={() => router.push("/(app)/leads")}>
-                    <Text style={styles.sourcesViewAll}>View all ›</Text>
+                    <Text style={styles.sourcesViewAll}>{t("View all ›")}</Text>
                   </Pressable>
                 </View>
                 <View style={styles.sourcesColumnHeader}>
-                  <Text style={[styles.sourcesColumnLabel, { flex: 1 }]}>SOURCE</Text>
-                  <Text style={[styles.sourcesColumnLabel, { width: 44, textAlign: "right" }]}>LEADS</Text>
+                  <Text style={[styles.sourcesColumnLabel, { flex: 1 }]}>{t("SOURCE")}</Text>
+                  <Text style={[styles.sourcesColumnLabel, { width: 44, textAlign: "right" }]}>{t("LEADS")}</Text>
                   <Text style={[styles.sourcesColumnLabel, { width: 44, textAlign: "right" }]}>WON</Text>
-                  <Text style={[styles.sourcesColumnLabel, { width: 70, textAlign: "right" }]}>CONV.</Text>
+                  <Text style={[styles.sourcesColumnLabel, { width: 70, textAlign: "right" }]}>{t("CONV.")}</Text>
                 </View>
                 {leadSources.slice(0, 5).map((row) => (
                   <View key={row.source} style={styles.sourceRow}>
@@ -622,8 +633,8 @@ export default function DashboardScreen() {
             ) : null}
 
             <View style={styles.startHereSection}>
-              <Text style={styles.startHereTitle}>Grow your business</Text>
-              <Text style={styles.startHereSubtitle}>Reach, engage and convert customers</Text>
+              <Text style={styles.startHereTitle}>{t("Grow your business")}</Text>
+              <Text style={styles.startHereSubtitle}>{t("Reach, engage and convert customers")}</Text>
               <View style={styles.gridWrap}>
                 {GROW_BUSINESS.map((item) => (
                   <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
@@ -632,8 +643,8 @@ export default function DashboardScreen() {
             </View>
 
             <View style={styles.startHereSection}>
-              <Text style={styles.startHereTitle}>Manage your business</Text>
-              <Text style={styles.startHereSubtitle}>People, data and workspace tools</Text>
+              <Text style={styles.startHereTitle}>{t("Manage your business")}</Text>
+              <Text style={styles.startHereSubtitle}>{t("People, data and workspace tools")}</Text>
               <View style={styles.gridWrap}>
                 {MANAGE_BUSINESS.map((item) => (
                   <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
@@ -666,7 +677,7 @@ export default function DashboardScreen() {
               <Ionicons name="search-outline" size={18} color={colors.textMuted} />
               <TextInput
                 autoFocus mode="flat" value={searchQuery} onChangeText={setSearchQuery}
-                placeholder="Search tools & settings" style={styles.searchModalInput}
+                placeholder={t("Search tools & settings")} style={styles.searchModalInput}
                 underlineColor="transparent" activeUnderlineColor="transparent"
               />
             </View>
@@ -687,7 +698,7 @@ export default function DashboardScreen() {
                 <View style={[styles.searchResultIcon, { backgroundColor: item.bg }]}>
                   <Ionicons name={item.icon} size={18} color={item.iconColor} />
                 </View>
-                <Text style={styles.searchResultLabel}>{item.label}</Text>
+                <Text style={styles.searchResultLabel}>{t(item.label)}</Text>
                 <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
               </Pressable>
             ))}
