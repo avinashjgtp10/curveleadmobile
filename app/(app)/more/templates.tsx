@@ -218,11 +218,11 @@ export default function TemplatesScreen() {
 
       {editOpen ? (
         <Pressable style={styles.sheetBackdrop} onPress={() => !saving && setEditOpen(false)}>
-          <Pressable style={[styles.sheet, { maxHeight: windowHeight * 0.88, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>{editing ? "Edit Template" : "New Template"}</Text>
             <ScrollView
-              style={{ maxHeight: windowHeight * 0.68 }}
+              style={{ flex: 1 }}
               showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"
             >
               {formError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{formError}</Text></View> : null}
@@ -258,7 +258,7 @@ export default function TemplatesScreen() {
 
       {sendOpen ? (
         <Pressable style={styles.sheetBackdrop} onPress={() => !sending && setSendOpen(false)}>
-          <Pressable style={[styles.sheet, { maxHeight: windowHeight * 0.88, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Send &quot;{sendTarget?.name}&quot;</Text>
             <Searchbar
@@ -303,6 +303,7 @@ const styles = StyleSheet.create({
 
   sheetBackdrop: { ...StyleSheet.absoluteFill, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
   sheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden" },
+  fullSheet: { flex: 1 },
   sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 14 },
   sheetSectionLabel: { color: colors.text, fontSize: 12, fontWeight: "700", marginTop: 14, marginBottom: 8 },
