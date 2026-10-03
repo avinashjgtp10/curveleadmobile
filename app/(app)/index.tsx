@@ -5,6 +5,7 @@ import {
   ImageBackground, InteractionManager, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card, TextInput } from "react-native-paper";
+import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { router, useFocusEffect } from "expo-router";
@@ -14,7 +15,7 @@ import { colors } from "@/theme";
 import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboard";
 import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads, fetchIntegrationSettings, IntegrationSettings } from "@/api/integrations";
-import { fetchNotifications } from "@/api/notifications";
+import { fetchNotifications, notifyLeadsAdded } from "@/api/notifications";
 import { homeOrigin } from "@/navigation/homeOrigin";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -30,6 +31,7 @@ const AI_IMAGE_SAMPLES = [
 ];
 
 const LAST_SYNC_KEY = "meta_leads_last_sync";
+const AI_TOOLS_VISITED_KEY = "setup_ai_tools_visited";
 const META_SYNC_THROTTLE_MS = 2 * 60 * 1000;
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -320,10 +322,13 @@ export default function DashboardScreen() {
 
   const [setupExpanded, setSetupExpanded] = useState(false);
   const [integrations, setIntegrations] = useState<IntegrationSettings | null>(null);
-  useEffect(() => {
+  const [aiToolsVisited, setAiToolsVisited] = useState(false);
+  // Refetch on focus so steps tick off as soon as the user comes back from connecting something.
+  useFocusEffect(useCallback(() => {
     // Non-admins may not have access to this endpoint — hide the setup banner rather than error out.
     fetchIntegrationSettings().then(setIntegrations).catch(() => setIntegrations(null));
-  }, []);
+    AsyncStorage.getItem(AI_TOOLS_VISITED_KEY).then((value) => setAiToolsVisited(value === "1")).catch(() => {});
+  }, []));
 
   const [leadSources, setLeadSources] = useState<LeadSourceRow[] | null>(null);
   const dashboardReady = !!data;
@@ -399,6 +404,7 @@ export default function DashboardScreen() {
       if (cancelled) return;
       try {
         const result = await facebookSyncLeads();
+        if (result.created) notifyLeadsAdded(result.created, "Facebook").catch(() => {});
         if (!cancelled && result.created) load();
       } catch { /* silently ignore — e.g. no Facebook page connected for this tenant */ }
     })();
@@ -408,17 +414,18 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.screen}>
+      <LinearGradient pointerEvents="none" colors={["#e0f2fe", "#f0f9ff", "#FFFFFF"]} style={styles.topGlow} />
       <Appbar.Header style={styles.header} elevated={false}>
-        <View style={styles.profileRow}>
+        <Pressable style={styles.profileRow} accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => router.push("/(app)/more/account")}>
           <View style={styles.profileAvatar}>
             <Text style={styles.profileAvatarText}>{(user?.name?.charAt(0) || "?").toUpperCase()}</Text>
           </View>
           <Text style={styles.profileName} numberOfLines={1}>{tenant?.name || user?.name || "Account"}</Text>
-        </View>
+        </Pressable>
         <View style={{ flex: 1 }} />
-        {user?.role ? (
+        {user ? (
           <View style={styles.roleBadge}>
-            <Text style={styles.roleBadgeText}>{user.role.replace(/_/g, " ")}</Text>
+            <Text style={styles.roleBadgeText}>{user.role === "super_admin" ? "Super Admin" : user.role === "admin" ? "Admin" : "Staff"}</Text>
           </View>
         ) : null}
         <Pressable style={styles.notificationButton} onPress={() => router.push("/(app)/notifications")}>
@@ -449,62 +456,60 @@ export default function DashboardScreen() {
           </View>
         ) : data ? (
           <>
-            <View style={styles.setupCard}>
-              <Pressable style={styles.setupHeaderRow} onPress={() => setSetupExpanded((open) => !open)}>
-                <Text style={styles.setupHeaderEmoji}>💰</Text>
-                <Text style={styles.setupHeadline}>Finish setup to unlock the full CRM experience</Text>
-                <Ionicons name={setupExpanded ? "chevron-up" : "chevron-down"} size={18} color={colors.text} />
-              </Pressable>
-              {(() => {
-                const steps = [
-                  { label: "Connect WhatsApp", done: !!integrations?.whatsapp_configured, href: "/(app)/more/integrations" },
-                  { label: "Connect Facebook Ads", done: !!integrations?.meta_configured, href: "/(app)/more/integrations" },
-                  { label: "Add your first lead", done: (data.leads_in_period ?? 0) > 0, href: "/(app)/leads/new" },
-                  { label: "Explore AI Tools", done: false, href: "/(app)/more/ai-tools" },
-                ];
-                const allDone = steps.every((step) => step.done);
-                return setupExpanded ? (
-                  <View>
-                    {steps.map((step, idx) => (
-                      <Pressable key={step.label} style={styles.setupStepRowVertical} onPress={() => router.push(step.href as never)}>
-                        <View style={styles.setupStepIconCol}>
-                          <View style={[styles.setupStepDot, step.done && styles.setupStepDotDone]}>
-                            <Ionicons name={step.done ? "checkmark" : "alert"} size={12} color="#fff" />
-                          </View>
-                          <View style={styles.setupStepLineVertical} />
-                        </View>
-                        <View style={{ flex: 1, paddingBottom: 18 }}>
-                          <Text style={styles.setupStepStepLabel}>{`Step ${idx + 1}`}</Text>
-                          <Text style={styles.setupStepText}>{step.label}</Text>
-                        </View>
-                      </Pressable>
-                    ))}
-                    <View style={styles.setupStepRowVertical}>
-                      <View style={styles.setupStepIconCol}><Text style={styles.setupCrown}>👑</Text></View>
-                      <Text style={[styles.setupStepText, { marginTop: 4 }]}>{allDone ? "All set!" : "All set"}</Text>
+            {(() => {
+              const steps: { label: string; hint: string; icon: IconName; done: boolean; href: string }[] = [
+                { label: "Connect WhatsApp", hint: "Message leads from the app", icon: "logo-whatsapp", done: !!integrations?.whatsapp_configured, href: "/(app)/more/integrations" },
+                { label: "Connect Facebook Ads", hint: "Pull in leads automatically", icon: "logo-facebook", done: !!integrations?.meta_configured, href: "/(app)/more/integrations" },
+                { label: "Add your first lead", hint: "Start building your pipeline", icon: "person-add-outline", done: (data.total_leads ?? 0) > 0, href: "/(app)/leads/new" },
+                { label: "Explore AI Tools", hint: "Let AI do the busywork", icon: "sparkles-outline", done: aiToolsVisited, href: "/(app)/more/ai-tools" },
+              ];
+              const doneCount = steps.filter((step) => step.done).length;
+              const allDone = doneCount === steps.length;
+              return (
+                <View style={styles.setupCard}>
+                  <Pressable style={styles.setupHeaderRow} onPress={() => setSetupExpanded((open) => !open)}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.setupHeadline}>{allDone ? "You're all set 🎉" : "Finish setting up"}</Text>
+                      <Text style={styles.setupSub}>{`${doneCount} of ${steps.length} steps done`}</Text>
                     </View>
+                    <Ionicons name={setupExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textSecondary} />
+                  </Pressable>
+                  <View style={styles.setupTrack}>
+                    <View style={[styles.setupFill, { width: `${(doneCount / steps.length) * 100}%` }]} />
                   </View>
-                ) : (
-                  <View style={styles.setupStepRow}>
-                    {steps.map((step, idx) => (
-                      <React.Fragment key={step.label}>
-                        <Pressable style={styles.setupStepCol} onPress={() => router.push(step.href as never)}>
-                          <View style={[styles.setupStepDot, step.done && styles.setupStepDotDone]}>
-                            <Ionicons name={step.done ? "checkmark" : "alert"} size={14} color="#fff" />
+                  {setupExpanded ? (
+                    <View style={styles.setupList}>
+                      {steps.map((step) => (
+                        <Pressable
+                          key={step.label}
+                          style={styles.setupItem}
+                          onPress={() => {
+                            if (step.href === "/(app)/more/ai-tools") {
+                              AsyncStorage.setItem(AI_TOOLS_VISITED_KEY, "1").catch(() => {});
+                              setAiToolsVisited(true);
+                            }
+                            router.push(step.href as never);
+                          }}
+                        >
+                          <View style={[styles.setupItemIcon, step.done && styles.setupItemIconDone]}>
+                            <Ionicons name={step.done ? "checkmark" : step.icon} size={18} color={step.done ? colors.success : colors.primary} />
                           </View>
-                          <Text style={styles.setupStepLabel}>{`Step ${idx + 1}`}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.setupItemTitle, step.done && styles.setupItemTitleDone]}>{step.label}</Text>
+                            <Text style={styles.setupItemHint} numberOfLines={1}>{step.hint}</Text>
+                          </View>
+                          {step.done ? (
+                            <View style={styles.setupDonePill}><Text style={styles.setupDonePillText}>Done</Text></View>
+                          ) : (
+                            <View style={styles.setupGoPill}><Text style={styles.setupGoPillText}>Set up</Text></View>
+                          )}
                         </Pressable>
-                        <View style={styles.setupStepLine} />
-                      </React.Fragment>
-                    ))}
-                    <View style={styles.setupStepCol}>
-                      <Text style={[styles.setupCrown, !allDone && styles.setupCrownMuted]}>👑</Text>
-                      <Text style={styles.setupStepLabel} numberOfLines={1}>All set</Text>
+                      ))}
                     </View>
-                  </View>
-                );
-              })()}
-            </View>
+                  ) : null}
+                </View>
+              );
+            })()}
 
             <View style={styles.startHereSection}>
               <Text style={styles.startHereTitle}>Start here</Text>
@@ -697,13 +702,14 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.surfaceMuted },
+  screen: { flex: 1, backgroundColor: "#FFFFFF" },
+  topGlow: { position: "absolute", top: 0, left: 0, right: 0, height: 280 },
   header: { height: 80, paddingHorizontal: 12, backgroundColor: "transparent" },
   profileRow: { flexDirection: "row", alignItems: "center", gap: 8, maxWidth: "45%" },
   profileAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.success, alignItems: "center", justifyContent: "center" },
   profileAvatarText: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" },
   profileName: { color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold", flexShrink: 1 },
-  roleBadge: { backgroundColor: colors.surfaceMuted, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8, borderWidth: 1, borderColor: colors.border },
+  roleBadge: { backgroundColor: "#FFFFFF", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8, borderWidth: 1, borderColor: colors.border },
   roleBadgeText: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "capitalize" },
   notificationButton: {
     ...glass,
@@ -749,24 +755,23 @@ const styles = StyleSheet.create({
   stateText: { color: colors.textSecondary, fontSize: 13, textAlign: "center", lineHeight: 19, marginTop: 9 },
   retry: { marginTop: 16 },
 
-  setupCard: { backgroundColor: "#e7f9ef", borderRadius: 16, marginHorizontal: 16, marginBottom: 16, padding: 16 },
-  setupHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 20 },
-  setupHeaderEmoji: { fontSize: 20 },
-  setupHeadline: { flex: 1, color: colors.text, fontSize: 13, fontFamily: "Inter_700Bold", lineHeight: 18 },
-  setupStepRow: { flexDirection: "row", alignItems: "flex-start" },
-  setupStepCol: { alignItems: "center", gap: 6, width: 44 },
-  setupStepDot: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.warning, alignItems: "center", justifyContent: "center" },
-  setupStepDotDone: { backgroundColor: colors.success },
-  setupStepLine: { flex: 1, height: 0, borderTopWidth: 2, borderStyle: "dashed", borderColor: "rgba(217,119,6,0.35)", marginTop: 16, marginHorizontal: 2 },
-  setupStepLabel: { color: colors.text, fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  setupCrown: { fontSize: 26 },
-  setupCrownMuted: { opacity: 0.35 },
-
-  setupStepRowVertical: { flexDirection: "row" },
-  setupStepIconCol: { alignItems: "center", width: 34 },
-  setupStepLineVertical: { flex: 1, width: 2, backgroundColor: "rgba(217,119,6,0.25)", marginTop: 2 },
-  setupStepStepLabel: { color: colors.warning, fontSize: 11, fontFamily: "Inter_700Bold" },
-  setupStepText: { color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold", marginTop: 2 },
+  setupCard: { ...glass, marginHorizontal: 16, marginBottom: 16, padding: 16 },
+  setupHeaderRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  setupHeadline: { color: colors.text, fontSize: 16, fontFamily: "Inter_700Bold" },
+  setupSub: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 2 },
+  setupTrack: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceMuted, overflow: "hidden", marginTop: 12 },
+  setupFill: { height: 6, borderRadius: 3, backgroundColor: colors.success },
+  setupList: { marginTop: 8 },
+  setupItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
+  setupItemIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  setupItemIconDone: { backgroundColor: "#dcfce7" },
+  setupItemTitle: { color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  setupItemTitleDone: { color: colors.textSecondary },
+  setupItemHint: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
+  setupDonePill: { backgroundColor: "#dcfce7", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  setupDonePillText: { color: "#15803d", fontSize: 11, fontFamily: "Inter_700Bold" },
+  setupGoPill: { backgroundColor: colors.primary, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 },
+  setupGoPillText: { color: "#ffffff", fontSize: 11, fontFamily: "Inter_700Bold" },
 
   statGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginHorizontal: 16, marginBottom: 16 },
   statTile: { ...glass, width: "48%", flexGrow: 1, padding: 16 },

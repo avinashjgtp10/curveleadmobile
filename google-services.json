@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "705017645632",
+    "project_id": "curvelead-601fd",
+    "storage_bucket": "curvelead-601fd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:705017645632:android:b32ee32a1a9de61ca2ada5",
+        "android_client_info": {
+          "package_name": "com.curvelead"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD0IKPPY59cj0O9lnl84p6ZLWKjQ5omUZw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

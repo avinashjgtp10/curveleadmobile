@@ -1,9 +1,9 @@
 import { IconHome, IconUsers, IconCheck, IconBook, IconGrid } from "@/components/ReferenceIcons";
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { Redirect, router, Tabs } from "expo-router";
 // @ts-ignore - AuthContext is a TSX module and this app-level config does not enable JSX for the import check
 import { useAuth } from "@/contexts/AuthContext";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Animated, Easing, Pressable, StyleSheet, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, tabBarStyleFor } from "@/theme";
@@ -27,18 +27,47 @@ function TabIcon({ icon, activeIcon, focused }: { icon: keyof typeof Ionicons.gl
 
 // Floating center action button, raised above the tab bar (mirrors the AI-agent
 // shortcut pattern seen in other business apps' bottom nav).
-const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void }>(({ onPress }, ref) =>
-  React.createElement(
+const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void }>(({ onPress }, ref) => {
+  const pulse = useRef(new Animated.Value(0)).current;
+  const press = useRef(new Animated.Value(1)).current;
+
+  // Slow breathing glow so the button invites a tap without being distracting.
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  const springTo = (toValue: number) => Animated.spring(press, { toValue, useNativeDriver: true, speed: 30, bounciness: 8 }).start();
+
+  return React.createElement(
     Pressable,
-    { ref, onPress, style: styles.aiButtonWrap, hitSlop: 12, accessibilityRole: "button", accessibilityLabel: "AI Tools" },
-    React.createElement(View, { style: styles.aiButtonGlow }),
+    {
+      ref, onPress, style: styles.aiButtonWrap, hitSlop: 12, accessibilityRole: "button", accessibilityLabel: "AI Tools",
+      onPressIn: () => springTo(0.88), onPressOut: () => springTo(1),
+    },
+    React.createElement(Animated.View, {
+      style: [styles.aiButtonGlow, {
+        opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 0.15] }),
+        transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] }) }],
+      }],
+    }),
     React.createElement(
-      LinearGradient,
-      { colors: ["#34d399", "#10b981"], start: { x: 0, y: 0 }, end: { x: 1, y: 1 }, style: styles.aiButton },
-      React.createElement(Ionicons, { name: "sparkles", size: 22, color: "#fff" })
+      Animated.View,
+      { style: { transform: [{ scale: press }] } },
+      React.createElement(
+        LinearGradient,
+        { colors: ["#06b6d4", "#6366f1", "#d946ef"], start: { x: 0, y: 0 }, end: { x: 1, y: 1 }, style: styles.aiButton },
+        React.createElement(Ionicons, { name: "sparkles", size: 24, color: "#fff" })
+      )
     )
-  )
-);
+  );
+});
 
 export default function AppLayout() {
   const { user, isLoading } = useAuth();
@@ -148,16 +177,18 @@ const styles = StyleSheet.create({
   },
   iconActive: { backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.border },
   aiButtonWrap: { flex: 1, top: -14, alignItems: "center", justifyContent: "center", zIndex: 20, elevation: 20 },
-  aiButtonGlow: { position: "absolute", top: -5, width: 66, height: 66, borderRadius: 33, backgroundColor: "rgba(16,185,129,0.16)" },
+  aiButtonGlow: { position: "absolute", top: -6, width: 68, height: 68, borderRadius: 34, backgroundColor: "rgba(139,92,246,0.18)" },
   aiButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: colors.text,
+    borderWidth: 3,
+    borderColor: "#ffffff",
+    shadowColor: "#8b5cf6",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.5,
     shadowRadius: 10,
     elevation: 20,
   },

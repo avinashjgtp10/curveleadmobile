@@ -5,8 +5,8 @@ import { navigateToNotification } from "@/notifications/navigateToNotification";
 import { colors } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
-import { router } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ActivityIndicator, Appbar, Button } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,7 +33,9 @@ function relativeTime(value?: string) {
 }
 
 function openNotification(item: AppNotification) {
-  navigateToNotification(item);
+  if (navigateToNotification(item)) return;
+  // No lead id to open — send lead-related notifications to the list instead of doing nothing.
+  if (item.type?.startsWith("lead") || /lead/i.test(item.title)) router.push("/(app)/leads");
 }
 
 export default function NotificationsScreen() {
@@ -60,11 +62,23 @@ export default function NotificationsScreen() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // The screen is a hidden tab, so it stays mounted after the first visit — reload on every focus
+  // or leads added since then (and new pushes) never show up.
+  const firstFocus = useRef(true);
+  useFocusEffect(useCallback(() => {
+    load(!firstFocus.current);
+    firstFocus.current = false;
+  }, [load]));
 
   async function handleMarkAllRead() {
+    const previous = items;
     setItems((current) => current.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })));
-    await markAllNotificationsRead(items.map((item) => item.id));
+    try {
+      await markAllNotificationsRead(items.map((item) => item.id));
+    } catch {
+      setItems(previous);
+      setError("");
+    }
   }
 
   async function handlePress(item: AppNotification) {

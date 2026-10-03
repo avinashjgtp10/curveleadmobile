@@ -3,8 +3,9 @@ import {
   KeyboardAvoidingView, Platform, Pressable,
   ScrollView, StyleSheet, TextInput as RNTextInput, View,
 } from "react-native";
-import { Appbar, Button, Checkbox, HelperText, Text } from "react-native-paper";
+import { ActivityIndicator, Appbar, Switch, Text } from "react-native-paper";
 import axios from "axios";
+import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,21 +15,21 @@ import {
   CampaignSource, CampaignStatus, createCampaign, fetchCampaign, SaveCampaignInput, updateCampaign,
 } from "@/api/campaigns";
 
-const SOURCES: { value: CampaignSource; label: string }[] = [
-  { value: "meta_ads", label: "Meta Ads" },
-  { value: "google_ads", label: "Google Ads" },
-  { value: "instagram", label: "Instagram" },
-  { value: "whatsapp", label: "WhatsApp" },
-  { value: "organic", label: "Organic" },
-  { value: "referral", label: "Referral" },
-  { value: "other", label: "Other" },
+const SOURCES: { value: CampaignSource; label: string; icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }[] = [
+  { value: "meta_ads", label: "Meta Ads", icon: "logo-facebook", color: "#1877f2", bg: "#dbeafe" },
+  { value: "google_ads", label: "Google Ads", icon: "logo-google", color: "#ea4335", bg: "#fee2e2" },
+  { value: "instagram", label: "Instagram", icon: "logo-instagram", color: "#c026d3", bg: "#fae8ff" },
+  { value: "whatsapp", label: "WhatsApp", icon: "logo-whatsapp", color: "#16a34a", bg: "#dcfce7" },
+  { value: "organic", label: "Organic", icon: "leaf-outline", color: "#15803d", bg: "#dcfce7" },
+  { value: "referral", label: "Referral", icon: "people-outline", color: "#d97706", bg: "#fef3c7" },
+  { value: "other", label: "Other", icon: "megaphone-outline", color: "#4f46e5", bg: "#e0e7ff" },
 ];
 
-const STATUSES: { value: CampaignStatus; label: string }[] = [
-  { value: "draft", label: "Draft" },
-  { value: "active", label: "Active" },
-  { value: "paused", label: "Paused" },
-  { value: "completed", label: "Completed" },
+const STATUSES: { value: CampaignStatus; label: string; color: string; bg: string }[] = [
+  { value: "active", label: "Active", color: "#15803d", bg: "#dcfce7" },
+  { value: "draft", label: "Draft", color: "#0369a1", bg: "#e0f2fe" },
+  { value: "paused", label: "Paused", color: "#b45309", bg: "#fef3c7" },
+  { value: "completed", label: "Completed", color: "#64748b", bg: "#eef2f6" },
 ];
 
 function errorMessage(error: unknown, fallback: string) {
@@ -40,50 +41,11 @@ function toDateInput(date: Date) {
   return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 10);
 }
 
-function LabeledInput({ label, required, value, onChangeText, placeholder, error, helperText, ...inputProps }: {
-  label: string; required?: boolean; value: string; onChangeText: (value: string) => void; placeholder?: string;
-  error?: boolean; helperText?: string;
-} & Omit<React.ComponentProps<typeof RNTextInput>, "value" | "onChangeText" | "placeholder" | "style">) {
-  return (
-    <>
-      <Text style={styles.label}>{label}{required ? <Text style={styles.required}> *</Text> : null}</Text>
-      <View style={[styles.inputBox, error && styles.inputError]}>
-        <RNTextInput
-          style={styles.inputBoxText} value={value} onChangeText={onChangeText}
-          placeholder={placeholder} placeholderTextColor={colors.textMuted} {...inputProps}
-        />
-      </View>
-      {helperText ? <HelperText type="error" visible={!!error}>{helperText}</HelperText> : null}
-    </>
-  );
+// Campaign dates are plain dates; build them in local time so they never shift a day.
+function fromDateInput(value: string) {
+  const [y, m, d] = value.split("T")[0].split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
-
-function Dropdown({ value, options, open, onToggle, onSelect }: {
-  value: string; options: { value: string; label: string }[]; open: boolean; onToggle: () => void; onSelect: (value: string) => void;
-}) {
-  const selected = options.find((item) => item.value === value) || options[0];
-  return (
-    <>
-      <Pressable style={[styles.dropdownField, open && styles.dropdownFieldActive]} onPress={onToggle}>
-        <Text style={styles.dropdownFieldText}>{selected?.label}</Text>
-        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
-      </Pressable>
-      {open ? (
-        <View style={styles.dropdownPanel}>
-          {options.map((item) => {
-            const isSelected = item.value === value;
-            return (
-              <Pressable key={item.value} style={[styles.dropdownItem, isSelected && styles.dropdownItemSelected]} onPress={() => onSelect(item.value)}>
-                <Text style={[styles.dropdownItemText, isSelected && styles.dropdownItemTextSelected]}>{item.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      ) : null}
-    </>
-  );
-}
-
 
 export default function NewCampaignScreen() {
   const insets = useSafeAreaInsets();
@@ -100,11 +62,10 @@ export default function NewCampaignScreen() {
   const [name, setName] = useState("");
   const [source, setSource] = useState<CampaignSource>("meta_ads");
   const [budget, setBudget] = useState("");
-  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [startDate, setStartDate] = useState<Date>(new Date());
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [status, setStatus] = useState<CampaignStatus>("active");
   const [isPriority, setIsPriority] = useState(false);
-  const [openDropdown, setOpenDropdown] = useState<"source" | "status" | null>(null);
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -114,8 +75,8 @@ export default function NewCampaignScreen() {
     if (!id) return;
     fetchCampaign(id).then(({ campaign }) => {
       setName(campaign.name); setSource(campaign.source); setBudget(campaign.budget ? String(campaign.budget) : "");
-      setStartDate(campaign.start_date ? new Date(campaign.start_date) : null);
-      setEndDate(campaign.end_date ? new Date(campaign.end_date) : null);
+      setStartDate(campaign.start_date ? fromDateInput(campaign.start_date) : new Date());
+      setEndDate(campaign.end_date ? fromDateInput(campaign.end_date) : null);
       setStatus(campaign.status); setIsPriority(!!campaign.is_priority);
     }).catch((loadError) => {
       setError(errorMessage(loadError, "Could not load this campaign."));
@@ -129,13 +90,13 @@ export default function NewCampaignScreen() {
   async function save() {
     const next: typeof fieldErrors = {};
     if (!name.trim()) next.name = "Campaign name is required";
-    if (startDate && endDate && endDate.getTime() < startDate.getTime()) next.end_date = "End date must be after start date";
+    if (endDate && endDate.getTime() < startDate.getTime()) next.end_date = "End date must be after the start date";
     setFieldErrors(next);
     if (Object.keys(next).length) return;
 
     const input: SaveCampaignInput = {
       name: name.trim(), source, budget: budget.trim() || undefined,
-      start_date: startDate ? toDateInput(startDate) : undefined,
+      start_date: toDateInput(startDate),
       end_date: endDate ? toDateInput(endDate) : undefined,
       status, is_priority: isPriority,
     };
@@ -152,110 +113,168 @@ export default function NewCampaignScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={close} />
         <Appbar.Content title={isEditing ? "Edit Campaign" : "New Campaign"} titleStyle={styles.headerTitle} />
       </Appbar.Header>
 
       {loading ? (
-        <View style={styles.loadingState}><Text style={styles.loadingText}>Loading…</Text></View>
+        <View style={styles.loadingState}><ActivityIndicator color={colors.primary} /></View>
       ) : (
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: 16 }]}
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
         >
-          {error ? <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{error}</Text></View> : null}
-
-          <LabeledInput
-            label="Campaign Name" required value={name} onChangeText={setName}
-            placeholder="e.g. Salon Lead Gen – City Test" error={!!fieldErrors.name} helperText={fieldErrors.name}
-          />
-
-          <Text style={styles.label}>Source</Text>
-          <Dropdown
-            value={source} options={SOURCES}
-            open={openDropdown === "source"} onToggle={() => setOpenDropdown(openDropdown === "source" ? null : "source")}
-            onSelect={(value) => { setSource(value as CampaignSource); setOpenDropdown(null); }}
-          />
-
-          <LabeledInput
-            label="Budget (₹)" value={budget} onChangeText={setBudget} placeholder="0" keyboardType="numeric"
-          />
-
-          <View style={styles.dateRow}>
-            <View style={styles.dateFieldWrap}>
-              <Text style={styles.label}>Start Date</Text>
-              <DateTimeField value={startDate || new Date()} onChange={setStartDate} mode="date" />
+          {error ? (
+            <View style={styles.errorBanner}>
+              <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
+              <Text style={styles.errorBannerText}>{error}</Text>
             </View>
-            <View style={styles.dateFieldWrap}>
-              <Text style={styles.label}>End Date</Text>
-              <DateTimeField value={endDate || new Date()} onChange={setEndDate} mode="date" />
+          ) : null}
+
+          <Text style={styles.label}>Campaign name <Text style={styles.required}>*</Text></Text>
+          <View style={[styles.inputBox, !!fieldErrors.name && styles.inputError]}>
+            <RNTextInput
+              style={styles.inputText} value={name}
+              onChangeText={(value) => { setName(value); if (value.trim()) setFieldErrors((c) => ({ ...c, name: undefined })); }}
+              placeholder="e.g. Salon lead gen - city test" placeholderTextColor={colors.textMuted}
+            />
+          </View>
+          {fieldErrors.name ? <Text style={styles.fieldError}>{fieldErrors.name}</Text> : null}
+
+          <Text style={styles.label}>Where do the leads come from?</Text>
+          <View style={styles.sourceGrid}>
+            {SOURCES.map((item) => {
+              const active = source === item.value;
+              return (
+                <Pressable key={item.value} onPress={() => setSource(item.value)} style={[styles.sourceTile, active && { borderColor: item.color, backgroundColor: item.bg }]}>
+                  <Ionicons name={item.icon} size={22} color={active ? item.color : colors.textMuted} />
+                  <Text style={[styles.sourceText, active && { color: item.color }]} numberOfLines={1}>{item.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text style={styles.label}>Budget</Text>
+          <View style={styles.inputBox}>
+            <View style={styles.budgetRow}>
+              <Text style={styles.currency}>₹</Text>
+              <RNTextInput
+                style={[styles.inputText, { flex: 1 }]} value={budget}
+                onChangeText={(value) => setBudget(value.replace(/[^\d.]/g, ""))}
+                placeholder="0" placeholderTextColor={colors.textMuted} keyboardType="numeric"
+              />
             </View>
           </View>
-          {fieldErrors.end_date ? <HelperText type="error" visible>{fieldErrors.end_date}</HelperText> : null}
+
+          <Text style={styles.label}>Dates</Text>
+          <View style={styles.dateRow}>
+            <View style={styles.dateFieldWrap}>
+              <Text style={styles.miniLabel}>Starts</Text>
+              <DateTimeField value={startDate} onChange={setStartDate} mode="date" />
+            </View>
+            <View style={styles.dateFieldWrap}>
+              <Text style={styles.miniLabel}>Ends</Text>
+              {endDate ? (
+                <DateTimeField value={endDate} onChange={setEndDate} mode="date" />
+              ) : (
+                <Pressable style={styles.noEnd} onPress={() => setEndDate(new Date(startDate.getTime() + 30 * 86400000))}>
+                  <Ionicons name="infinite-outline" size={18} color={colors.textSecondary} />
+                  <Text style={styles.noEndText}>No end date</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+          {endDate ? (
+            <Pressable onPress={() => { setEndDate(null); setFieldErrors((c) => ({ ...c, end_date: undefined })); }} hitSlop={6}>
+              <Text style={styles.clearEnd}>Remove end date</Text>
+            </Pressable>
+          ) : null}
+          {fieldErrors.end_date ? <Text style={styles.fieldError}>{fieldErrors.end_date}</Text> : null}
 
           <Text style={styles.label}>Status</Text>
-          <Dropdown
-            value={status} options={STATUSES}
-            open={openDropdown === "status"} onToggle={() => setOpenDropdown(openDropdown === "status" ? null : "status")}
-            onSelect={(value) => { setStatus(value as CampaignStatus); setOpenDropdown(null); }}
-          />
+          <View style={styles.statusRow}>
+            {STATUSES.map((item) => {
+              const active = status === item.value;
+              return (
+                <Pressable key={item.value} onPress={() => setStatus(item.value)} style={[styles.statusChip, active && { backgroundColor: item.bg, borderColor: item.color }]}>
+                  <Text style={[styles.statusText, active && { color: item.color }]}>{item.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
-          <Pressable style={styles.priorityRow} onPress={() => setIsPriority((value) => !value)}>
-            <Checkbox status={isPriority ? "checked" : "unchecked"} onPress={() => setIsPriority((value) => !value)} color={colors.primary} />
-            <View style={styles.priorityCopy}>
+          <View style={styles.priorityCard}>
+            <View style={styles.priorityIcon}><Ionicons name="star" size={18} color="#7c3aed" /></View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.priorityTitle}>Priority campaign</Text>
-              <Text style={styles.priorityHint}>Leads from this campaign skip automated messaging entirely and go straight to the assigned salesperson.</Text>
+              <Text style={styles.priorityHint}>Leads skip automated messages and go straight to your salesperson.</Text>
             </View>
-          </Pressable>
+            <Switch value={isPriority} onValueChange={setIsPriority} color={colors.primary} />
+          </View>
         </ScrollView>
       )}
 
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-        <Button mode="outlined" onPress={close} disabled={saving} style={styles.cancelButton} contentStyle={styles.bottomButtonContent}>Cancel</Button>
-        <Button mode="contained" onPress={save} loading={saving} disabled={saving || loading} style={styles.saveButton} contentStyle={styles.bottomButtonContent}>Save</Button>
+        <Pressable onPress={close} disabled={saving} style={styles.cancelButton}>
+          <Text style={styles.cancelText}>Cancel</Text>
+        </Pressable>
+        <Pressable onPress={save} disabled={saving || loading} style={[styles.saveWrap, (saving || loading) && styles.disabled]}>
+          <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.saveButton}>
+            {saving ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="checkmark" size={20} color="#fff" />}
+            <Text style={styles.saveText}>{isEditing ? "Save changes" : "Create campaign"}</Text>
+          </LinearGradient>
+        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
-  content: { paddingHorizontal: 20, paddingTop: 18 },
+  screen: { flex: 1, backgroundColor: "#ffffff" },
+  header: { backgroundColor: "#ffffff" },
+  headerTitle: { fontSize: 17, fontWeight: "800", color: colors.text },
+  content: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
   loadingState: { flex: 1, alignItems: "center", justifyContent: "center" },
-  loadingText: { color: colors.textSecondary },
-  errorBanner: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 12, marginBottom: 12 },
-  errorBannerText: { color: colors.danger, fontSize: 12, fontWeight: "600", lineHeight: 18 },
+  disabled: { opacity: 0.6 },
+  errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12, marginTop: 8 },
+  errorBannerText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600" },
 
-  label: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 7, marginTop: 16 },
+  label: { color: colors.text, fontSize: 14, fontWeight: "800", marginTop: 20, marginBottom: 8 },
+  miniLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginBottom: 6 },
   required: { color: colors.danger },
-  inputBox: { minHeight: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, justifyContent: "center" },
+  fieldError: { color: colors.danger, fontSize: 12, marginTop: 4 },
+  inputBox: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#f8fbfd", paddingHorizontal: 14, justifyContent: "center" },
   inputError: { borderColor: colors.danger },
-  inputBoxText: { color: colors.text, fontSize: 14 },
+  inputText: { color: colors.text, fontSize: 15 },
+  budgetRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  currency: { color: colors.textSecondary, fontSize: 16, fontWeight: "800" },
 
-  dropdownField: { height: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  dropdownFieldActive: { borderColor: colors.primary, borderWidth: 2 },
-  dropdownFieldText: { color: colors.text, fontSize: 14, fontWeight: "600" },
-  dropdownPanel: { marginTop: 6, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft, paddingVertical: 4 },
-  dropdownItem: { paddingHorizontal: 16, paddingVertical: 12 },
-  dropdownItemSelected: { backgroundColor: colors.primarySoft },
-  dropdownItemText: { color: colors.primary, fontSize: 14, fontWeight: "500" },
-  dropdownItemTextSelected: { color: colors.text, fontWeight: "700" },
+  sourceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  sourceTile: { width: "30.5%", alignItems: "center", gap: 6, paddingVertical: 14, borderRadius: 16, borderWidth: 1.5, borderColor: "#e2eef7", backgroundColor: "#ffffff" },
+  sourceText: { color: colors.textSecondary, fontSize: 12, fontWeight: "800" },
 
   dateRow: { flexDirection: "row", gap: 10 },
   dateFieldWrap: { flex: 1 },
+  noEnd: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 48, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: "#bae6fd", backgroundColor: "#f0f9ff" },
+  noEndText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
+  clearEnd: { color: colors.primary, fontSize: 12, fontWeight: "800", marginTop: 8 },
 
-  priorityRow: { flexDirection: "row", alignItems: "flex-start", marginTop: 18 },
-  priorityCopy: { flex: 1, paddingTop: 10 },
-  priorityTitle: { color: colors.text, fontSize: 14, fontWeight: "700" },
-  priorityHint: { color: colors.textMuted, fontSize: 11, marginTop: 3, lineHeight: 16 },
+  statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  statusChip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 999, borderWidth: 1.5, borderColor: "#d7e6f1", backgroundColor: "#ffffff" },
+  statusText: { color: colors.textSecondary, fontSize: 13, fontWeight: "800" },
 
+  priorityCard: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 22, padding: 14, borderRadius: 18, backgroundColor: "#faf5ff", borderWidth: 1, borderColor: "#ede9fe" },
+  priorityIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: "#ede9fe", alignItems: "center", justifyContent: "center" },
+  priorityTitle: { color: colors.text, fontSize: 14, fontWeight: "800" },
+  priorityHint: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 2 },
 
-  bottomBar: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 12, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSoft },
-  cancelButton: { width: 110 },
-  saveButton: { flex: 1 },
-  bottomButtonContent: { height: 46 },
+  bottomBar: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 12, backgroundColor: "#ffffff", borderTopWidth: 1, borderTopColor: "#e2eef7" },
+  cancelButton: { height: 52, paddingHorizontal: 22, borderRadius: 16, borderWidth: 1.5, borderColor: "#d7e6f1", alignItems: "center", justifyContent: "center" },
+  cancelText: { color: colors.textSecondary, fontSize: 15, fontWeight: "800" },
+  saveWrap: { flex: 1 },
+  saveButton: { height: 52, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  saveText: { color: "#ffffff", fontSize: 16, fontWeight: "800" },
 });

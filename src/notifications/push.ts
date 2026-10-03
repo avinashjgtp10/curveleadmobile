@@ -5,6 +5,7 @@ import { Platform } from "react-native";
 import { isExpoGo } from "./environment";
 
 export const ANDROID_CHANNEL_ID = "default";
+export const ALERT_CHANNEL_ID = "lead-alerts";
 
 /**
  * expo-notifications' remote-push code throws as soon as it's touched in Expo Go on
@@ -40,6 +41,46 @@ export async function ensureAndroidChannel() {
     vibrationPattern: [0, 250, 250, 250],
     lightColor: "#0ea5e9",
   });
+  // Android freezes a channel's sound once created, so alerts that must ring use their own channel.
+  await Notifications.setNotificationChannelAsync(ALERT_CHANNEL_ID, {
+    name: "Lead alerts",
+    importance: Notifications.AndroidImportance.MAX,
+    sound: "default",
+    enableVibrate: true,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: "#0ea5e9",
+  });
+}
+
+/**
+ * Shows a real system notification (banner + sound) right now, for events that happen on this
+ * device — e.g. a lead was just created. Skips silently in Expo Go, on web, or if the user
+ * hasn't granted notification permission. `data.local` marks it so the in-app list doesn't
+ * mirror it a second time (it's already saved there by the caller).
+ */
+export async function presentLocalNotification(title: string, body: string | undefined, data: Record<string, string | undefined> = {}) {
+  if (isExpoGo || Platform.OS === "web") {
+    console.warn("[push] local alert skipped: not supported in Expo Go / web — use a development build");
+    return;
+  }
+  try {
+    const Notifications = loadNotifications();
+    await ensureAndroidChannel();
+    let { status } = await Notifications.getPermissionsAsync();
+    if (status !== "granted") status = (await Notifications.requestPermissionsAsync()).status;
+    if (status !== "granted") {
+      console.warn("[push] local alert skipped: notification permission is", status, "— enable it in Android Settings > Apps > CurveLead > Notifications");
+      return;
+    }
+    const cleanData = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined));
+    await Notifications.scheduleNotificationAsync({
+      content: { title, body, sound: "default", data: { ...cleanData, local: "1" } },
+      trigger: Platform.OS === "android" ? { channelId: ALERT_CHANNEL_ID } : null,
+    });
+  } catch (error) {
+    // Most likely cause: the installed dev build predates the expo-notifications native module — rebuild it.
+    console.warn("[push] could not show local notification (rebuild the dev client if the native module is missing):", error);
+  }
 }
 
 export type PushPermissionResult =

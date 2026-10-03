@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
+import { router } from "expo-router";
 import type * as NotificationsType from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
@@ -22,13 +23,21 @@ function loadNotifications(): typeof NotificationsType {
 function parseNotificationData(raw: unknown): NotificationRouteData {
   if (!raw || typeof raw !== "object") return {};
   const data = raw as Record<string, unknown>;
+  // Backends often send ids/phones as numbers — accept both instead of silently dropping them.
+  const text = (value: unknown) =>
+    typeof value === "string" ? value : typeof value === "number" ? String(value) : undefined;
   return {
-    type: typeof data.type === "string" ? data.type : undefined,
-    lead_id: typeof data.lead_id === "string" ? data.lead_id : undefined,
-    lead_name: typeof data.lead_name === "string" ? data.lead_name : undefined,
-    lead_phone: typeof data.lead_phone === "string" ? data.lead_phone : undefined,
-    lead_stage: typeof data.lead_stage === "string" ? data.lead_stage : undefined,
+    type: text(data.type),
+    lead_id: text(data.lead_id),
+    lead_name: text(data.lead_name),
+    lead_phone: text(data.lead_phone),
+    lead_stage: text(data.lead_stage),
   };
+}
+
+/** Routes a tapped push; pushes with no known destination open the Notifications list. */
+function handleNotificationTap(data: NotificationRouteData) {
+  if (!navigateToNotification(data)) router.push("/(app)/notifications");
 }
 
 async function registerAndPersist(token: string) {
@@ -112,29 +121,32 @@ export function usePushNotifications(navigationReady: boolean) {
     if (isExpoGo || !navigationReady) return;
     const sub = loadNotifications().addNotificationResponseReceivedListener((response) => {
       const data = parseNotificationData(response.notification.request.content.data);
-      navigateToNotification(data);
+      handleNotificationTap(data);
     });
     return () => sub.remove();
   }, [navigationReady]);
 
   // Cold start: the app was launched BY tapping a notification (it wasn't already running).
   useEffect(() => {
-    if (isExpoGo || !navigationReady || isLoading || coldStartHandled.current) return;
+    // Wait for a signed-in user: routing into the app before login just gets bounced to the login screen.
+    if (isExpoGo || !navigationReady || isLoading || !user || coldStartHandled.current) return;
     coldStartHandled.current = true;
     loadNotifications().getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
       const data = parseNotificationData(response.notification.request.content.data);
-      navigateToNotification(data);
+      handleNotificationTap(data);
     });
-  }, [navigationReady, isLoading]);
+  }, [navigationReady, isLoading, user]);
 
   // Foreground delivery: mirror it into the same local list the Notifications screen reads,
   // so a push that arrives while the app is open shows up there too, not just as a banner.
   useEffect(() => {
     if (isExpoGo) return;
     const sub = loadNotifications().addNotificationReceivedListener((notification) => {
-      const data = parseNotificationData(notification.request.content.data);
       const content = notification.request.content;
+      // Shown by this app itself (see presentLocalNotification) — the caller already saved it.
+      if ((content.data as Record<string, unknown> | undefined)?.local === "1") return;
+      const data = parseNotificationData(content.data);
       saveIncomingPushNotification({
         title: content.title || "Notification",
         message: content.body || undefined,
