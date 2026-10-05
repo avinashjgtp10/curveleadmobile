@@ -2,9 +2,9 @@ import { IconBell, SvgUserAdd, SvgCalendar, SvgFolder } from "@/components/Refer
 import { glass, GradientIcon, GradientNumber } from "@/components/Glass";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ImageBackground, InteractionManager, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
+  ImageBackground, InteractionManager, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
 } from "react-native";
-import { ActivityIndicator, Appbar, Button, Card, TextInput } from "react-native-paper";
+import { ActivityIndicator, Appbar, Button, Card } from "react-native-paper";
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
@@ -687,16 +687,21 @@ export default function DashboardScreen() {
         ) : null}
       </ScrollView>
 
-      <Modal visible={searchOpen} animationType="slide" onRequestClose={() => setSearchOpen(false)}>
-        <View style={[styles.searchScreen, { paddingTop: insets.top + 12 }]}>
+      <Modal visible={searchOpen} animationType="slide" statusBarTranslucent onRequestClose={() => setSearchOpen(false)}>
+        <KeyboardAvoidingView style={[styles.searchScreen, { paddingTop: insets.top + 12 }]} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <View style={styles.searchModalRow}>
             <View style={styles.searchModalInputWrap}>
               <Ionicons name="search-outline" size={18} color={colors.textMuted} />
               <TextInput
-                autoFocus mode="flat" value={searchQuery} onChangeText={setSearchQuery}
-                placeholder="Search tools & settings" style={styles.searchModalInput}
-                underlineColor="transparent" activeUnderlineColor="transparent"
+                autoFocus value={searchQuery} onChangeText={setSearchQuery}
+                placeholder="Search tools & settings" placeholderTextColor={colors.textMuted}
+                style={styles.searchModalInput} returnKeyType="search" autoCorrect={false}
               />
+              {searchQuery ? (
+                <Pressable onPress={() => setSearchQuery("")} hitSlop={10}>
+                  <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+                </Pressable>
+              ) : null}
             </View>
             <Pressable onPress={() => { setSearchOpen(false); setSearchQuery(""); }} hitSlop={10}>
               <Text style={styles.searchModalCancel}>Cancel</Text>
@@ -723,7 +728,7 @@ export default function DashboardScreen() {
               <Text style={styles.searchEmptyText}>No matches for "{searchQuery.trim()}".</Text>
             ) : null}
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -770,9 +775,9 @@ const styles = StyleSheet.create({
   searchScreen: { flex: 1, backgroundColor: colors.background },
   searchModalRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingBottom: 12 },
   searchModalInputWrap: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12 },
-  searchModalInput: { flex: 1, backgroundColor: "transparent", fontSize: 14, height: 46 },
+  searchModalInput: { flex: 1, color: colors.text, fontSize: 14, paddingVertical: 0, height: 46 },
   searchModalCancel: { color: colors.primary, fontSize: 14, fontFamily: "Inter_700Bold" },
-  searchResults: { paddingHorizontal: 16, paddingBottom: 40, gap: 4 },
+  searchResults: { paddingHorizontal: 16, paddingBottom: 24, gap: 4 },
   searchResultRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
   searchResultIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   searchResultLabel: { flex: 1, color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
