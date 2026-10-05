@@ -43,15 +43,41 @@ function pretty(value?: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-const SOURCE_ICON: Record<string, IconName> = {
-  meta_ads: "infinite-outline",
-  google_ads: "logo-google",
-  whatsapp: "logo-whatsapp",
-  referral: "people-outline",
-  manual: "create-outline",
-  website: "globe-outline",
-  walkin: "walk-outline",
+// Every lead source gets its own icon and colour, so the list can be read at a glance.
+type SourceLook = { icon: IconName; color: string; bg: string; label?: string };
+const SOURCE_LOOK: Record<string, SourceLook> = {
+  meta_ads: { icon: "logo-facebook", color: "#1877f2", bg: "#dbeafe", label: "Meta Ads" },
+  instagram: { icon: "logo-instagram", color: "#c026d3", bg: "#fae8ff", label: "Instagram" },
+  google_ads: { icon: "logo-google", color: "#ea4335", bg: "#fee2e2", label: "Google Ads" },
+  whatsapp: { icon: "logo-whatsapp", color: "#16a34a", bg: "#dcfce7", label: "WhatsApp" },
+  manual: { icon: "create", color: "#4f46e5", bg: "#e0e7ff", label: "Manual" },
+  referral: { icon: "people", color: "#d97706", bg: "#fef3c7", label: "Referral" },
+  website: { icon: "globe", color: "#0891b2", bg: "#cffafe", label: "Website" },
+  walkin: { icon: "walk", color: "#7c3aed", bg: "#ede9fe", label: "Walk-in" },
+  organic: { icon: "leaf", color: "#15803d", bg: "#dcfce7", label: "Organic" },
+  import: { icon: "cloud-upload", color: "#0369a1", bg: "#e0f2fe", label: "Imported" },
+  api: { icon: "code-slash", color: "#475569", bg: "#e2e8f0", label: "API" },
 };
+const DEFAULT_SOURCE_LOOK: SourceLook = { icon: "help-circle", color: "#64748b", bg: "#eef2f6" };
+
+// Sources are stored in different spellings ("WhatsApp", "whatsapp_inbound", "Meta Lead Ads"...),
+// so match on what the name contains instead of needing an exact key.
+function sourceLook(source: string): SourceLook {
+  if (SOURCE_LOOK[source]) return SOURCE_LOOK[source];
+  const key = (source || "").toLowerCase().replace(/[^a-z]/g, "");
+  if (key.includes("whatsapp")) return SOURCE_LOOK.whatsapp;
+  if (key.includes("instagram")) return SOURCE_LOOK.instagram;
+  if (key.includes("meta") || key.includes("facebook") || key === "fb") return SOURCE_LOOK.meta_ads;
+  if (key.includes("google")) return SOURCE_LOOK.google_ads;
+  if (key.includes("manual") || key.includes("typed")) return SOURCE_LOOK.manual;
+  if (key.includes("refer")) return SOURCE_LOOK.referral;
+  if (key.includes("web") || key.includes("site") || key.includes("form")) return SOURCE_LOOK.website;
+  if (key.includes("walk")) return SOURCE_LOOK.walkin;
+  if (key.includes("organic")) return SOURCE_LOOK.organic;
+  if (key.includes("import") || key.includes("csv") || key.includes("excel") || key.includes("sheet")) return SOURCE_LOOK.import;
+  if (key.includes("api") || key.includes("webhook")) return SOURCE_LOOK.api;
+  return DEFAULT_SOURCE_LOOK;
+}
 
 interface LeadSourceRow { source: string; leads: number; won: number; conversion: number }
 
@@ -161,7 +187,7 @@ function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () =
         {insights.map((item) => (
           <View key={item.label} style={styles.insightCard}>
             <Text style={styles.insightLabel}>{item.label}</Text>
-            <Text style={styles.insightValue}>₹{fmt(item.value)}</Text>
+            <Text style={styles.insightValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>₹{fmt(item.value)}</Text>
           </View>
         ))}
       </View>
@@ -606,8 +632,10 @@ export default function DashboardScreen() {
                 {leadSources.slice(0, 5).map((row) => (
                   <View key={row.source} style={styles.sourceRow}>
                     <View style={styles.sourceNameCell}>
-                      <Ionicons name={SOURCE_ICON[row.source] || "help-circle-outline"} size={15} color={colors.textSecondary} />
-                      <Text style={styles.sourceNameText} numberOfLines={1}>{pretty(row.source)}</Text>
+                      <View style={[styles.sourceIcon, { backgroundColor: sourceLook(row.source).bg }]}>
+                        <Ionicons name={sourceLook(row.source).icon} size={16} color={sourceLook(row.source).color} />
+                      </View>
+                      <Text style={styles.sourceNameText} numberOfLines={1}>{sourceLook(row.source).label || pretty(row.source)}</Text>
                     </View>
                     <Text style={[styles.sourceValueText, { width: 44, textAlign: "right" }]}>{row.leads}</Text>
                     <Text style={[styles.sourceValueText, styles.sourceWonText, { width: 44, textAlign: "right" }]}>{row.won}</Text>
@@ -796,6 +824,7 @@ const styles = StyleSheet.create({
   sourcesColumnHeader: { flexDirection: "row", marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "rgba(224,242,254,0.6)" },
   sourcesColumnLabel: { color: colors.textMuted, fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   sourceRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
+  sourceIcon: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   sourceNameCell: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
   sourceNameText: { flex: 1, color: colors.text, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   sourceValueText: { color: colors.textSecondary, fontSize: 13, fontFamily: "Inter_600SemiBold" },
@@ -881,5 +910,5 @@ const styles = StyleSheet.create({
   insightsRow: { flexDirection: "row", gap: 8 },
   insightCard: { ...glass, flex: 1, minHeight: 70, padding: 10, backgroundColor: "rgba(255,255,255,0.78)" },
   insightLabel: { color: colors.textSecondary, fontSize: 10, fontFamily: "Inter_700Bold" },
-  insightValue: { color: colors.text, fontSize: 17, fontFamily: "DMSans_700Bold", marginTop: 8 },
+  insightValue: { color: colors.text, fontSize: 16, fontFamily: "DMSans_700Bold", marginTop: 8 },
 });
