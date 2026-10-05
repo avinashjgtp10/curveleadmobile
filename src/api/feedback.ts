@@ -21,7 +21,7 @@ export async function sendFeedback(input: { type: FeedbackType; message: string;
   await apiClient.post("/support/tickets", {
     subject: `${SUBJECT_PREFIX[input.type]}: ${firstLine}`,
     category: CATEGORY[input.type],
-    priority: input.type === "bug" ? "medium" : "low",
+    priority: "medium",
     message: input.rating ? `${message}\n\nApp rating: ${input.rating}/5` : message,
   });
 }

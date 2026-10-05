@@ -20,7 +20,12 @@ const TYPES: { key: FeedbackType; label: string; hint: string; icon: keyof typeo
 const RATING_LABELS = ["", "Not good", "Could be better", "It's okay", "Good", "Love it!"];
 
 function errorMessage(error: unknown, fallback: string) {
-  return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
+  if (!axios.isAxiosError(error)) return fallback;
+  const status = error.response?.status;
+  const serverMessage = error.response?.data?.error;
+  if (typeof serverMessage === "string" && serverMessage.trim().length > 8) return serverMessage;
+  if (status) return `${fallback} (error ${status})`;
+  return error.request ? "No connection. Check your internet and try again." : fallback;
 }
 
 export default function FeedbackScreen() {
