@@ -19,11 +19,13 @@ import * as NativeSplashScreen from "expo-splash-screen";
 import { CurveLeadSplash } from "@/components/CurveLeadSplash";
 import { usePushNotifications } from "@/notifications/usePushNotifications";
 import { colors } from "@/theme";
+import { isExpoGo } from "@/notifications/environment";
 import { paperTheme } from "@/theme/paperTheme";
 
 const navigationTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.background, card: colors.background, text: colors.text, primary: colors.primary, border: colors.borderSoft } };
 void NativeSplashScreen.preventAutoHideAsync().catch(() => {});
-NativeSplashScreen.setOptions({ fade: false });
+// Expo Go ignores custom splash options and warns about it; only a real build supports them.
+if (!isExpoGo) NativeSplashScreen.setOptions({ fade: false });
 
 function StatusBarBackground({ backgroundColor }: { backgroundColor: string }) {
   const insets = useSafeAreaInsets();
