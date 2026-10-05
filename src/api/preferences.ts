@@ -2,6 +2,9 @@ import { apiClient } from "./client";
 
 export interface UserPreferences {
   hidden_lead_stages?: string[];
+  language?: string;
+  // Languages the person asked to be told about once they are translated.
+  language_requests?: string[];
   [key: string]: unknown;
 }
 
