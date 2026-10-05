@@ -1,1202 +1,429 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert,
-  Linking,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-  useWindowDimensions,
+  Alert, BackHandler, KeyboardAvoidingView, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet,
+  TextInput as RNTextInput, View,
 } from "react-native";
-import {
-  Button,
-  HelperText,
-  Searchbar,
-  Text,
-  TextInput,
-} from "react-native-paper";
+import { ActivityIndicator, Appbar, Button, Text } from "react-native-paper";
 import axios from "axios";
 import * as DocumentPicker from "expo-document-picker";
-import { router } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "@/theme";
-import {
-  Brochure,
-  deleteBrochure,
-  fetchBrochures,
-  uploadBrochure,
-} from "@/api/brochures";
+import { colors, tabBarStyleFor } from "@/theme";
+import { Brochure, deleteBrochure, fetchBrochures, uploadBrochure } from "@/api/brochures";
 
 const FILE_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
-type FilterKey = "all" | "products" | "services" | "pricing" | "company";
-const CATEGORY_OPTIONS = ["Products", "Services", "Pricing", "Company", "General"];
+const CATEGORIES = ["Products", "Services", "Pricing", "Company", "General"];
 
 function errorMessage(error: unknown, fallback: string) {
-  return axios.isAxiosError(error) && typeof error.response?.data?.error === "string"
-    ? error.response.data.error
-    : fallback;
+  return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
 
-function formatSize(bytes: number) {
+function formatSize(bytes?: number) {
   if (!bytes) return "";
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function fileIcon(mimeType: string): keyof typeof Ionicons.glyphMap {
-  if (mimeType?.includes("pdf")) return "document-text";
-  if (mimeType?.startsWith("image")) return "image";
-  return "document";
+function shortDate(value?: string) {
+  const date = new Date(value || "");
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
-const SAMPLE_BROCHURES: Brochure[] = [
-  {
-    id: "sample-1",
-    name: "NewBrochure",
-    category: "company",
-    file_url: "",
-    file_name: "newbrochure.pdf",
-    file_size: 182000,
-    mime_type: "application/pdf",
-    created_at: "2026-01-10T00:00:00.000Z",
-  },
-  {
-    id: "sample-2",
-    name: "Brochure",
-    category: "products",
-    file_url: "",
-    file_name: "brochure.pdf",
-    file_size: 154000,
-    mime_type: "application/pdf",
-    created_at: "2026-01-15T00:00:00.000Z",
-  },
-];
+function pretty(value?: string) {
+  if (!value) return "General";
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function fileLook(mimeType?: string) {
+  if (mimeType?.includes("pdf")) return { icon: "document-text" as const, color: "#dc2626", bg: "#fee2e2", label: "PDF" };
+  if (mimeType?.startsWith("image")) return { icon: "image" as const, color: "#2563eb", bg: "#dbeafe", label: "Image" };
+  return { icon: "document" as const, color: "#64748b", bg: "#eef2f6", label: "File" };
+}
+
+function FieldError({ message }: { message: string }) {
+  return (
+    <View style={styles.fieldError} accessibilityLiveRegion="polite">
+      <Ionicons name="alert-circle" size={14} color={colors.danger} />
+      <Text style={styles.fieldErrorText}>{message}</Text>
+    </View>
+  );
+}
 
 export default function BrochuresScreen() {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const isCompact = width < 560;
-  const horizontalPadding = width >= 700 ? 24 : 16;
-  const gridColumns = width >= 900 ? 3 : 2;
-  const gridGap = width >= 700 ? 16 : 12;
-  const cardWidth = (width - horizontalPadding * 2 - gridGap * (gridColumns - 1)) / gridColumns;
+  const navigation = useNavigation();
   const [brochures, setBrochures] = useState<Brochure[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<FilterKey>("all");
-  const [createChoiceOpen, setCreateChoiceOpen] = useState(false);
+  const [filter, setFilter] = useState("all");
+
   const [uploadOpen, setUploadOpen] = useState(false);
   const [pickedFile, setPickedFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
-  const [coverImage, setCoverImage] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [uploadName, setUploadName] = useState("");
-  const [uploadCategory, setUploadCategory] = useState("");
-  const [uploadDescription, setUploadDescription] = useState("");
-  const [uploadStep, setUploadStep] = useState(1);
+  const [uploadCategory, setUploadCategory] = useState("General");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
-  const [uploadNameError, setUploadNameError] = useState(false);
-  const [uploadCategoryError, setUploadCategoryError] = useState(false);
-  const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
+  // Messages under each field, set when Upload is pressed and cleared as soon as that field is fixed.
+  const [fieldErrors, setFieldErrors] = useState({ file: "", name: "" });
 
-  async function load() {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError("");
-    try {
-      setBrochures(await fetchBrochures());
-    } catch (loadError) {
-      setError(errorMessage(loadError, "Could not load brochures."));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
+    try { setBrochures(await fetchBrochures()); }
+    catch (loadError) { setError(errorMessage(loadError, "Could not load brochures.")); }
+    finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  function chooseUploadFile() {
-    setCreateChoiceOpen(false);
-    openUpload();
-  }
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  function chooseCreateManually() {
-    setCreateChoiceOpen(false);
-    Alert.alert("Coming soon", "Building a brochure inside CurveLead isn't available yet — upload a ready-made PDF or image for now.");
-  }
+  // The upload form is a full page: hide the tab bar and let the phone's back button close it.
+  useEffect(() => {
+    const parent = navigation.getParent();
+    parent?.setOptions({ tabBarStyle: uploadOpen ? { display: "none" } : tabBarStyleFor(insets.bottom) });
+    return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
+  }, [uploadOpen, navigation, insets.bottom]);
+
+  useEffect(() => {
+    if (!uploadOpen) return undefined;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { if (!uploading) setUploadOpen(false); return true; });
+    return () => sub.remove();
+  }, [uploadOpen, uploading]);
+
+  const counts = useMemo(() => {
+    const result: Record<string, number> = { all: brochures.length };
+    CATEGORIES.forEach((name) => { result[name.toLowerCase()] = 0; });
+    brochures.forEach((item) => {
+      const key = (item.category || "general").toLowerCase();
+      result[key] = (result[key] || 0) + 1;
+    });
+    return result;
+  }, [brochures]);
+
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return brochures.filter((item) =>
+      (filter === "all" || (item.category || "general").toLowerCase() === filter) &&
+      (!term || item.name.toLowerCase().includes(term) || (item.category || "").toLowerCase().includes(term)));
+  }, [brochures, filter, search]);
+
+  const totalViews = brochures.reduce((sum, item) => sum + (item.views || 0), 0);
+  const totalShares = brochures.reduce((sum, item) => sum + (item.times_shared || 0), 0);
 
   function openUpload() {
     setPickedFile(null);
-    setCoverImage(null);
     setUploadName("");
-    setUploadCategory("");
-    setUploadDescription("");
-    setUploadStep(1);
+    setUploadCategory("General");
     setUploadError("");
-    setUploadNameError(false);
-    setUploadCategoryError(false);
+    setFieldErrors({ file: "", name: "" });
     setUploadOpen(true);
   }
 
-  async function pickBrochureFile() {
+  async function pickFile() {
     const picked = await DocumentPicker.getDocumentAsync({ type: FILE_TYPES, copyToCacheDirectory: true });
     if (picked.canceled || !picked.assets?.length) return;
     const file = picked.assets[0];
     setPickedFile(file);
-    setUploadName(file.name.replace(/\.[^/.]+$/, ""));
-    setUploadStep(2);
-  }
-
-  async function pickCoverImage() {
-    const picked = await DocumentPicker.getDocumentAsync({
-      type: ["image/jpeg", "image/png", "image/webp"],
-      copyToCacheDirectory: true,
-    });
-    if (!picked.canceled && picked.assets?.length) setCoverImage(picked.assets[0]);
+    setUploadError("");
+    setFieldErrors((current) => ({ ...current, file: "" }));
+    if (!uploadName.trim()) setUploadName(file.name.replace(/\.[^/.]+$/, ""));
   }
 
   async function confirmUpload() {
+    const found = {
+      file: pickedFile ? "" : "Choose a PDF or image to upload.",
+      name: uploadName.trim() ? "" : "Give this brochure a name.",
+    };
+    setFieldErrors(found);
+    if (found.file || found.name) { setUploadError(found.file || found.name); return; }
     if (!pickedFile) return;
-    if (!uploadName.trim()) {
-      setUploadError("Give this brochure a name.");
-      return;
-    }
     setUploading(true);
     setUploadError("");
     try {
-      await uploadBrochure(
-        { uri: pickedFile.uri, name: pickedFile.name, mimeType: pickedFile.mimeType },
-        uploadName.trim(),
-        uploadCategory.trim() || "general"
-      );
+      await uploadBrochure({ uri: pickedFile.uri, name: pickedFile.name, mimeType: pickedFile.mimeType }, uploadName.trim(), uploadCategory);
       setUploadOpen(false);
-      setUploadStep(1);
-      load();
+      load(true);
     } catch (uploadErr) {
       setUploadError(errorMessage(uploadErr, "Could not upload this file."));
-    } finally {
-      setUploading(false);
-    }
+    } finally { setUploading(false); }
+  }
+
+  function openBrochure(brochure: Brochure) {
+    if (!brochure.file_url) { Alert.alert("No preview", "This brochure doesn't have a file link."); return; }
+    Linking.openURL(brochure.file_url).catch(() => Alert.alert("Could not open", "This brochure link is not available right now."));
+  }
+
+  // Straight to WhatsApp with the brochure link typed in; pick the chat there.
+  async function shareBrochure(brochure: Brochure) {
+    const text = brochure.file_url ? `${brochure.name}: ${brochure.file_url}` : brochure.name;
+    try { await Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`); }
+    catch { Alert.alert("Couldn't open WhatsApp", "Make sure WhatsApp is installed on this phone."); }
   }
 
   function confirmDelete(brochure: Brochure) {
     Alert.alert("Delete brochure?", `"${brochure.name}" will be removed for your whole team.`, [
       { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteBrochure(brochure.id);
-            load();
-          } catch (deleteError) {
-            Alert.alert("Couldn't delete", errorMessage(deleteError, "Please try again."));
-          }
-        },
-      },
+      { text: "Delete", style: "destructive", onPress: async () => {
+        try { await deleteBrochure(brochure.id); load(true); }
+        catch (deleteError) { Alert.alert("Couldn't delete", errorMessage(deleteError, "Please try again.")); }
+      } },
     ]);
   }
 
-  /** Share goes straight to WhatsApp with the brochure link typed in; the user picks the chat there. */
-  async function openShare(brochure: Brochure) {
-    const text = brochure.file_url ? `${brochure.name}: ${brochure.file_url}` : brochure.name;
-    try {
-      await Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`);
-    } catch {
-      Alert.alert("Couldn't open WhatsApp", "Make sure WhatsApp is installed on this phone.");
-    }
-  }
-
-  const data = brochures.length ? brochures : SAMPLE_BROCHURES;
-
-  const visibleBrochures = useMemo(() => {
-    const term = search.toLowerCase().trim();
-    return data.filter((brochure) => {
-      const matchesSearch =
-        !term ||
-        brochure.name.toLowerCase().includes(term) ||
-        brochure.category.toLowerCase().includes(term);
-      const matchesFilter =
-        filter === "all" ||
-        brochure.category.toLowerCase() === filter ||
-        (filter === "products" && brochure.category.toLowerCase().includes("product")) ||
-        (filter === "services" && brochure.category.toLowerCase().includes("service")) ||
-        (filter === "pricing" && brochure.category.toLowerCase().includes("pricing")) ||
-        (filter === "company" && brochure.category.toLowerCase().includes("company"));
-      return matchesSearch && matchesFilter;
-    });
-  }, [data, filter, search]);
-
-  const stats = useMemo(() => {
-    const totalBrochures = data.length;
-    const sharedBrochures = Math.min(2, totalBrochures || 2);
-    const totalViews = data.reduce((sum, brochure) => sum + (brochure.file_size ? 10 : 0), 0);
-    const totalSize = data.reduce((sum, brochure) => sum + brochure.file_size, 0) || 281 * 1024;
-
-    return [
-      { label: "Total Brochures", value: `${totalBrochures}`, sub: "All categories", tone: "blue" },
-      { label: "Shared Brochures", value: `${sharedBrochures}`, sub: "With leads", tone: "green" },
-      { label: "Total Views", value: `${totalViews}`, sub: "All brochures", tone: "orange" },
-      { label: "Total Size", value: `${Math.round(totalSize / 1024)} KB`, sub: "All files", tone: "slate" },
-    ];
-  }, [data]);
-
-  const filterOptions: { key: FilterKey; label: string }[] = [
-    { key: "all", label: `All (${data.length})` },
-    { key: "products", label: `Products (${data.filter((item) => item.category.toLowerCase().includes("product")).length})` },
-    { key: "services", label: `Services (${data.filter((item) => item.category.toLowerCase().includes("service")).length})` },
-    { key: "pricing", label: `Pricing (${data.filter((item) => item.category.toLowerCase().includes("pricing")).length})` },
-    { key: "company", label: `Company (${data.filter((item) => item.category.toLowerCase().includes("company")).length})` },
-  ];
+  const filters = [{ key: "all", label: "All" }, ...CATEGORIES.map((name) => ({ key: name.toLowerCase(), label: name }))];
+  const look = pickedFile ? fileLook(pickedFile.mimeType) : null;
 
   return (
     <View style={styles.screen}>
-      <View style={styles.topBar}>
-        <View style={styles.topBarLeft}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={28} color="#111827" />
-          </Pressable>
-          <Text style={styles.topTitle}>Brochures</Text>
+      <Appbar.Header style={styles.header} elevated={false}>
+        <Appbar.BackAction onPress={() => router.back()} />
+        <Appbar.Content title="Brochures" titleStyle={styles.headerTitle} />
+      </Appbar.Header>
+
+      {loading ? (
+        <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>
+      ) : error && !brochures.length ? (
+        <View style={styles.state}>
+          <Ionicons name="cloud-offline-outline" size={32} color={colors.textMuted} />
+          <Text style={styles.errorText}>{error}</Text>
+          <Button mode="contained" onPress={() => load()} style={{ marginTop: 8 }}>Try again</Button>
         </View>
-      </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 170 }]}
+          showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(true); }} tintColor={colors.primary} colors={[colors.primary]} />}
+        >
+          <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.summary}>
+            <View style={styles.summaryItem}><Text style={styles.summaryValue}>{brochures.length}</Text><Text style={styles.summaryLabel}>Brochures</Text></View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}><Text style={styles.summaryValue}>{totalShares}</Text><Text style={styles.summaryLabel}>Shares</Text></View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}><Text style={styles.summaryValue}>{totalViews}</Text><Text style={styles.summaryLabel}>Views</Text></View>
+          </LinearGradient>
 
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding, paddingBottom: insets.bottom + 120 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={[styles.pageHeader, isCompact && styles.pageHeaderCompact]}>
-          <Text style={styles.pageTitle}>CurveLead</Text>
-        </View>
+          <View style={styles.searchBox}>
+            <Ionicons name="search" size={18} color={colors.textMuted} />
+            <RNTextInput value={search} onChangeText={setSearch} placeholder="Search brochures" placeholderTextColor={colors.textMuted} style={styles.searchField} />
+            {search ? <Pressable onPress={() => setSearch("")} hitSlop={8}><Ionicons name="close-circle" size={18} color={colors.textMuted} /></Pressable> : null}
+          </View>
 
-        <View style={styles.statsGrid}>
-          {stats.map((stat) => (
-            <View
-              key={stat.label}
-              style={[
-                styles.statCard,
-                { width: cardWidth },
-                stat.tone === "blue" ? styles.blueCard : stat.tone === "green" ? styles.greenCard : stat.tone === "orange" ? styles.orangeCard : styles.slateCard,
-              ]}
-            >
-              <View style={styles.statIconWrap}>
-                <Ionicons
-                  name={
-                    stat.tone === "blue"
-                      ? "folder-open-outline"
-                      : stat.tone === "green"
-                        ? "share-social-outline"
-                        : stat.tone === "orange"
-                          ? "eye-outline"
-                          : "document-outline"
-                  }
-                  size={17}
-                  color="#1f2937"
-                />
-              </View>
-              <Text style={styles.statValue}>{stat.value}</Text>
-              <Text style={styles.statLabel}>{stat.label}</Text>
-              <Text style={styles.statSub}>{stat.sub}</Text>
-            </View>
-          ))}
-        </View>
-
-        <View style={[styles.toolbar, isCompact && styles.toolbarCompact]}>
-          <Searchbar
-            placeholder="Search brochures..."
-            value={search}
-            onChangeText={setSearch}
-            style={[styles.searchBar, isCompact && styles.searchBarCompact]}
-            inputStyle={styles.searchInput}
-            iconColor="#64748b"
-            elevation={0}
-          />
-        </View>
-
-        <View style={styles.filterRow}>
-          {filterOptions.map((option) => (
-            <Pressable
-              key={option.key}
-              onPress={() => setFilter(option.key)}
-              style={[styles.filterChip, filter === option.key && styles.activeFilterChip]}
-            >
-              <Text style={[styles.filterText, filter === option.key && styles.activeFilterText]}>{option.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <View style={styles.list}>
-          {visibleBrochures.length ? (
-            visibleBrochures.map((brochure, index) => {
-              const isPink = index % 2 === 1;
-              const openBrochure = () => {
-                if (brochure.file_url) {
-                  Linking.openURL(brochure.file_url).catch(() => {
-                    Alert.alert("Could not open brochure", "This brochure link is not available right now.");
-                  });
-                } else {
-                  Alert.alert("Brochure preview unavailable", "This brochure does not have a preview link.");
-                }
-              };
-
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipRow}>
+            {filters.map((item) => {
+              const active = filter === item.key;
               return (
-                <Pressable key={brochure.id} style={styles.listRow} onPress={openBrochure}>
-                  <View style={[styles.listIconWrap, isPink ? styles.pinkCard : styles.neutralCard]}>
-                    <Ionicons name={fileIcon(brochure.mime_type)} size={22} color="#1f2937" />
+                <Pressable key={item.key} onPress={() => setFilter(item.key)} style={[styles.chip, active && styles.chipActive]}>
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{item.label}</Text>
+                  <View style={[styles.chipCount, active && styles.chipCountActive]}>
+                    <Text style={[styles.chipCountText, active && styles.chipCountTextActive]}>{counts[item.key] || 0}</Text>
                   </View>
-                  <View style={styles.listBody}>
-                    <Text style={styles.listName} numberOfLines={1}>{brochure.name}</Text>
-                    <View style={styles.listMetaRow}>
-                      <View style={styles.listCategoryTag}><Text style={styles.listCategoryText}>{brochure.category === "company" ? "Company" : "Products"}</Text></View>
-                      <Text style={styles.listMetaText}>
-                        Created {new Date(brochure.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · 0 Views · 0 Shares
-                      </Text>
-                    </View>
-                  </View>
-                  <Pressable style={styles.listShareButton} onPress={() => openShare(brochure)}>
-                    <Text style={styles.listShareButtonText}>Share</Text>
-                  </Pressable>
-                  <Pressable style={styles.listDeleteButton} onPress={() => confirmDelete(brochure)} hitSlop={6}>
-                    <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                  </Pressable>
                 </Pressable>
               );
-            })
-          ) : null}
+            })}
+          </ScrollView>
 
-          <Pressable style={styles.listAddRow} onPress={() => setCreateChoiceOpen(true)}>
-            <Ionicons name="add" size={18} color="#4f46e5" />
-            <Text style={styles.listAddRowText}>Create Brochure</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
-
-      <Modal visible={createChoiceOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setCreateChoiceOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => setCreateChoiceOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.modalHeader}>
-              <Text style={styles.sheetTitle}>Choose how you want to create</Text>
-              <Pressable onPress={() => setCreateChoiceOpen(false)} hitSlop={10}>
-                <Ionicons name="close" size={20} color="#1f2937" />
-              </Pressable>
-            </View>
-
-            <Pressable style={styles.choiceRow} onPress={chooseUploadFile}>
-              <View style={styles.choiceIconWrap}>
-                <Ionicons name="cloud-upload-outline" size={20} color="#4f46e5" />
-              </View>
-              <View style={styles.choiceBody}>
-                <Text style={styles.choiceTitle}>Upload File</Text>
-                <Text style={styles.choiceText}>Upload PDF, DOC, or other files</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
-            </Pressable>
-
-            <Pressable style={styles.choiceRow} onPress={chooseCreateManually}>
-              <View style={styles.choiceIconWrap}>
-                <Ionicons name="sparkles-outline" size={20} color="#4f46e5" />
-              </View>
-              <View style={styles.choiceBody}>
-                <Text style={styles.choiceTitle}>Create Manually</Text>
-                <Text style={styles.choiceText}>Build brochure inside CurveLead</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal visible={uploadOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !uploading && setUploadOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => !uploading && setUploadOpen(false)}>
-          <Pressable style={styles.sheet} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.modalHeader}>
-              <Text style={styles.sheetTitle}>Create Brochure</Text>
-              <Pressable onPress={() => !uploading && setUploadOpen(false)} hitSlop={10}>
-                <Ionicons name="close" size={20} color="#1f2937" />
-              </Pressable>
-            </View>
-
-            <ScrollView contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 14) }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-              <View style={styles.stepper}>
-                {["Basic Information", "Upload File", "Preview"].map((label, index) => (
-                  <React.Fragment key={label}>
-                    <View style={styles.stepItem}>
-                      <View style={[styles.stepCircle, uploadStep >= index + 1 && styles.stepCircleActive]}>
-                        <Text style={[styles.stepNumber, uploadStep >= index + 1 && styles.stepNumberActive]}>{index + 1}</Text>
-                      </View>
-                      <Text style={[styles.stepLabel, uploadStep >= index + 1 && styles.stepLabelActive]}>{label}</Text>
-                    </View>
-                    {index < 2 ? <View style={styles.stepLine} /> : null}
-                  </React.Fragment>
-                ))}
-              </View>
-              {uploadError ? (
-                <View style={styles.sheetError}>
-                  <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
-                  <Text style={styles.sheetErrorText}>{uploadError}</Text>
-                </View>
-              ) : null}
-              <View style={[styles.formColumns, isCompact && styles.formColumnsCompact]}>
-                <View style={styles.formColumn}>
-                  <Text maxFontSizeMultiplier={1.1} style={styles.formFieldLabel}>Brochure Name <Text style={styles.requiredMark}>*</Text></Text>
-                  <TextInput
-                    mode="outlined"
-                    value={uploadName}
-                    onChangeText={(value) => { setUploadName(value); if (value.trim()) setUploadNameError(false); }}
-                    placeholder="Enter brochure name"
-                    error={uploadNameError}
-                    maxFontSizeMultiplier={1.1}
-                    dense
-                    style={[styles.sheetField, styles.compactTextInput]}
-                  />
-                  <HelperText type="error" visible={uploadNameError} style={styles.compactHelperText}>Brochure name is required.</HelperText>
-                  <Text maxFontSizeMultiplier={1.1} style={styles.formFieldLabel}>Category <Text style={styles.requiredMark}>*</Text></Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Select brochure category"
-                    accessibilityState={{ expanded: categoryMenuOpen }}
-                    style={[styles.categorySelector, uploadCategoryError && styles.categorySelectorError]}
-                    onPress={() => setCategoryMenuOpen((open) => !open)}
-                  >
-                    <Text maxFontSizeMultiplier={1.1} style={[styles.categorySelectorText, !uploadCategory && styles.categoryPlaceholder]}>
-                      {uploadCategory || "Select category"}
+          {visible.length ? visible.map((brochure) => {
+            const kind = fileLook(brochure.mime_type);
+            return (
+              <Pressable key={brochure.id} style={styles.card} onPress={() => openBrochure(brochure)}>
+                <View style={styles.cardTop}>
+                  <View style={[styles.fileIcon, { backgroundColor: kind.bg }]}>
+                    <Ionicons name={kind.icon} size={24} color={kind.color} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardName} numberOfLines={1}>{brochure.name}</Text>
+                    <Text style={styles.cardMeta} numberOfLines={1}>
+                      {[kind.label, formatSize(brochure.file_size), shortDate(brochure.created_at)].filter(Boolean).join(" · ")}
                     </Text>
-                    <Ionicons name={categoryMenuOpen ? "chevron-up" : "chevron-down"} size={20} color="#64748b" />
-                  </Pressable>
-                  {categoryMenuOpen ? (
-                    <View style={styles.categoryOptions}>
-                      {["Select category", ...CATEGORY_OPTIONS].map((option) => {
-                        const isSelected = option === (uploadCategory || "Select category");
-                        return (
-                          <Pressable
-                            key={option}
-                            onPress={() => {
-                              setUploadCategory(option === "Select category" ? "" : option);
-                              setUploadCategoryError(false);
-                              setCategoryMenuOpen(false);
-                            }}
-                            style={[styles.categoryOption, isSelected && styles.categoryOptionSelected]}
-                          >
-                            <Text maxFontSizeMultiplier={1.1} style={[styles.categoryOptionText, isSelected && styles.categoryOptionTextSelected]}>{option}</Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  ) : null}
-                  <HelperText type="error" visible={uploadCategoryError} style={styles.compactHelperText}>Category is required.</HelperText>
-                  <TextInput
-                    mode="outlined"
-                    label="Description"
-                    value={uploadDescription}
-                    onChangeText={(value) => setUploadDescription(value.slice(0, 250))}
-                    placeholder="Enter description (optional)"
-                    maxFontSizeMultiplier={1.1}
-                    multiline
-                    numberOfLines={3}
-                    dense
-                    style={[styles.sheetField, styles.descriptionField]}
-                  />
-                  <Text style={styles.characterCount}>{uploadDescription.length}/250</Text>
+                  </View>
+                  <View style={styles.tag}><Text style={styles.tagText}>{pretty(brochure.category)}</Text></View>
                 </View>
-                <View style={styles.formColumn}>
-                  <Text maxFontSizeMultiplier={1.1} style={styles.formFieldLabel}>Cover Image (Optional)</Text>
-                  <Pressable style={styles.coverPicker} onPress={pickCoverImage}>
-                    <Ionicons name={coverImage ? "checkmark-circle" : "image-outline"} size={24} color={colors.primary} />
-                    <Text style={styles.coverPickerTitle}>{coverImage ? coverImage.name : "Add cover image"}</Text>
-                    <Text style={styles.coverPickerText}>JPG, PNG or WEBP</Text>
-                    <Text style={styles.coverPickerAction}>Browse Image</Text>
-                  </Pressable>
-                  <Pressable style={styles.filePicker} onPress={pickBrochureFile}>
-                    <Ionicons name={pickedFile ? fileIcon(pickedFile.mimeType || "") : "document-attach-outline"} size={20} color={colors.primary} />
-                    <Text style={styles.filePickerText} numberOfLines={1}>{pickedFile?.name || "Choose brochure PDF or image"}</Text>
-                  </Pressable>
-                </View>
-              </View>
-              <View style={styles.modalActions}>
-                <Button mode="outlined" onPress={() => setUploadOpen(false)} disabled={uploading} contentStyle={styles.modalActionContent}>Cancel</Button>
-                <Button
-                  mode="contained"
-                  onPress={uploadStep === 1 ? () => {
-                    const nameMissing = !uploadName.trim();
-                    const categoryMissing = !uploadCategory.trim();
-                    setUploadNameError(nameMissing);
-                    setUploadCategoryError(categoryMissing);
-                    if (nameMissing || categoryMissing) {
-                      setUploadError("Enter a brochure name and category.");
-                      return;
-                    }
-                    setUploadError("");
-                    setUploadStep(2);
-                  } : pickedFile ? confirmUpload : pickBrochureFile}
-                  loading={uploading}
-                  disabled={uploading}
-                  style={styles.sheetPrimaryButton}
-                  contentStyle={styles.sheetPrimaryButtonContent}
-                >
-                  {uploadStep === 1 ? "Next  →" : "Upload"}
-                </Button>
-              </View>
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
+                <View style={styles.cardBottom}>
+                  <View style={styles.statsRow}>
+                    <Ionicons name="eye-outline" size={14} color={colors.textMuted} /><Text style={styles.statText}>{brochure.views || 0}</Text>
+                    <Ionicons name="share-social-outline" size={14} color={colors.textMuted} style={{ marginLeft: 10 }} /><Text style={styles.statText}>{brochure.times_shared || 0}</Text>
+                  </View>
+                  <View style={{ flex: 1 }} />
+                  <Pressable style={styles.shareButton} onPress={() => shareBrochure(brochure)}>
+                    <Ionicons name="logo-whatsapp" size={16} color="#fff" />
+                    <Text style={styles.shareText}>Share</Text>
+                  </Pressable>
+                  <Pressable style={styles.deleteButton} onPress={() => confirmDelete(brochure)} hitSlop={6}>
+                    <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                  </Pressable>
+                </View>
+              </Pressable>
+            );
+          }) : (
+            <View style={styles.empty}>
+              <View style={styles.emptyIcon}><Ionicons name="folder-open-outline" size={32} color={colors.primary} /></View>
+              <Text style={styles.emptyTitle}>{brochures.length ? "No brochures match" : "No brochures yet"}</Text>
+              <Text style={styles.emptyText}>{brochures.length ? "Try another search or category." : "Upload a PDF or image, then share it with any lead on WhatsApp in one tap."}</Text>
+              {!brochures.length ? (
+                <Pressable style={styles.emptyButton} onPress={openUpload}>
+                  <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+                  <Text style={styles.emptyButtonText}>Upload your first brochure</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {!uploadOpen && !loading && !(error && !brochures.length) ? (
+        <Pressable accessibilityLabel="Upload brochure" style={[styles.fabWrap, { bottom: 64 + Math.max(insets.bottom, 8) + 16 }]} onPress={openUpload}>
+          <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fab}>
+            <Ionicons name="add" size={30} color="#fff" />
+          </LinearGradient>
+        </Pressable>
+      ) : null}
+
+      {uploadOpen ? (
+        <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <View style={[styles.overlayHeader, { paddingTop: insets.top + 8 }]}>
+            <Pressable onPress={() => !uploading && setUploadOpen(false)} hitSlop={10} style={styles.overlayBack}>
+              <Ionicons name="arrow-back" size={24} color={colors.text} />
+            </Pressable>
+            <Text style={styles.overlayTitle}>Upload brochure</Text>
+          </View>
+
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            {uploadError ? (
+              <View style={styles.formError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.formErrorText}>{uploadError}</Text></View>
+            ) : null}
+
+            <Text style={styles.label}>File <Text style={styles.required}>*</Text></Text>
+            <Pressable style={[styles.picker, pickedFile && styles.pickerFilled, !!fieldErrors.file && styles.fieldInvalid]} onPress={pickFile}>
+              {look && pickedFile ? (
+                <>
+                  <View style={[styles.fileIcon, { backgroundColor: look.bg }]}><Ionicons name={look.icon} size={24} color={look.color} /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardName} numberOfLines={1}>{pickedFile.name}</Text>
+                    <Text style={styles.cardMeta}>{[look.label, formatSize(pickedFile.size)].filter(Boolean).join(" · ")} · Tap to change</Text>
+                  </View>
+                  <Ionicons name="checkmark-circle" size={24} color={colors.success} />
+                </>
+              ) : (
+                <View style={styles.pickerEmpty}>
+                  <Ionicons name="cloud-upload-outline" size={30} color={colors.primary} />
+                  <Text style={styles.pickerTitle}>Choose a PDF or image</Text>
+                  <Text style={styles.pickerHint}>PDF, JPG, PNG or WEBP</Text>
+                </View>
+              )}
+            </Pressable>
+
+            {fieldErrors.file ? <FieldError message={fieldErrors.file} /> : null}
+
+            <Text style={styles.label}>Name <Text style={styles.required}>*</Text></Text>
+            <View style={[styles.input, !!fieldErrors.name && styles.fieldInvalid]}>
+              <RNTextInput value={uploadName} onChangeText={(value) => { setUploadName(value); setUploadError(""); setFieldErrors((current) => ({ ...current, name: "" })); }} placeholder="e.g. Summer price list" placeholderTextColor={colors.textMuted} style={styles.inputText} />
+            </View>
+            {fieldErrors.name ? <FieldError message={fieldErrors.name} /> : null}
+
+            <Text style={styles.label}>Category</Text>
+            <View style={styles.categoryRow}>
+              {CATEGORIES.map((name) => {
+                const active = uploadCategory === name;
+                return (
+                  <Pressable key={name} onPress={() => setUploadCategory(name)} style={[styles.chip, active && styles.chipActive]}>
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{name}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </ScrollView>
+
+          <View style={[styles.formFooter, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+            <Pressable onPress={confirmUpload} disabled={uploading} style={uploading && { opacity: 0.6 }}>
+              <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.saveButton}>
+                {uploading ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="cloud-upload" size={19} color="#fff" />}
+                <Text style={styles.saveText}>{uploading ? "Uploading..." : "Upload brochure"}</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#ffffff",
-  },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "#ffffff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
-    minHeight: 72,
-  },
-  topBarLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    gap: 12,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  topTitle: {
-    color: "#111827",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  content: {
-    paddingTop: 16,
-  },
-  pageHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    marginBottom: 18,
-  },
-  pageHeaderCompact: {
-    flexDirection: "column",
-    alignItems: "flex-start",
-  },
-  choiceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 8,
-  },
-  choiceIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: "#eef2ff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  choiceBody: { flex: 1 },
-  choiceTitle: { color: colors.text, fontSize: 13, fontWeight: "700" },
-  choiceText: { color: colors.textSecondary, fontSize: 11, marginTop: 1 },
-  pageTitle: {
-    color: "#1f2937",
-    fontSize: 32,
-    lineHeight: 38,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-  },
-  statsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginBottom: 16,
-  },
-  statCard: {
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    minHeight: 92,
-  },
-  blueCard: { backgroundColor: "#eef4ff" },
-  greenCard: { backgroundColor: "#ecfdf5" },
-  orangeCard: { backgroundColor: "#fff7ed" },
-  slateCard: { backgroundColor: "#f8fafc" },
-  statIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.7)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  statValue: {
-    color: "#111827",
-    fontSize: 22,
-    lineHeight: 26,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-  },
-  statLabel: {
-    color: "#475569",
-    fontSize: 11,
-    marginTop: 4,
-    fontWeight: "600",
-  },
-  statSub: {
-    color: "#64748b",
-    fontSize: 10,
-    marginTop: 2,
-  },
-  toolbar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    marginBottom: 14,
-  },
-  toolbarCompact: {
-    flexDirection: "column",
-    alignItems: "stretch",
-    gap: 10,
-  },
-  searchBar: {
-    flex: 1,
-    borderRadius: 12,
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    shadowOpacity: 0,
-  },
-  searchBarCompact: {
-    flex: 0,
-    width: "100%",
-  },
-  searchInput: {
-    fontSize: 15,
-    color: "#0f172a",
-  },
-  filterToggleWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginLeft: "auto",
-  },
-  toolbarActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  toolbarActionsCompact: {
-    alignSelf: "flex-end",
-  },
-  filterButton: {
-    borderColor: "#cbd5e1",
-    borderRadius: 12,
-  },
-  filterRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    rowGap: 10,
-    marginBottom: 16,
-  },
-  filterChip: {
-    flexGrow: 1,
-    flexBasis: "31%",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#dbe3ef",
-    borderRadius: 999,
-  },
-  activeFilterChip: {
-    backgroundColor: "#4f46e5",
-    borderColor: "#4f46e5",
-  },
-  filterText: {
-    color: "#475569",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  activeFilterText: {
-    color: "#ffffff",
-  },
-  gallery: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    justifyContent: "space-between",
-  },
-  list: {
-    gap: 10,
-  },
-  listRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 14,
-    padding: 12,
-  },
-  listIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  listBody: { flex: 1 },
-  listName: { color: "#0f172a", fontSize: 15, fontWeight: "700" },
-  listMetaRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 4 },
-  listCategoryTag: { backgroundColor: "#eef2ff", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
-  listCategoryText: { color: "#4f46e5", fontSize: 11, fontWeight: "700" },
-  listMetaText: { color: "#94a3b8", fontSize: 11 },
-  listShareButton: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7 },
-  listShareButtonText: { color: "#1f2937", fontSize: 12, fontWeight: "700" },
-  listDeleteButton: { padding: 4 },
-  listAddRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderWidth: 1.5,
-    borderColor: "#c7d2fe",
-    borderStyle: "dashed",
-    borderRadius: 14,
-    paddingVertical: 16,
-  },
-  listAddRowText: { color: "#4f46e5", fontSize: 14, fontWeight: "700" },
-  brochureCard: {
-    minHeight: 248,
-    borderRadius: 18,
-    padding: 14,
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 18,
-    elevation: 3,
-    position: "relative",
-  },
-  neutralCard: {
-    backgroundColor: "#f3f4f6",
-    borderWidth: 1,
-    borderColor: "#d9dde3",
-  },
-  pinkCard: {
-    backgroundColor: "#f9dce8",
-    borderWidth: 1,
-    borderColor: "#f6bfd6",
-  },
-  addCard: {
-    backgroundColor: "#f8fafc",
-    borderWidth: 2,
-    borderStyle: "dashed",
-    borderColor: "#d7dfe8",
-    justifyContent: "center",
-  },
-  addCardInner: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 18,
-  },
-  brochureMenu: {
-    position: "absolute",
-    top: 12,
-    right: 12,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  brochureIconWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.45)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
-  },
-  brochureName: {
-    color: "#111827",
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: "900",
-    letterSpacing: -0.3,
-    marginBottom: 14,
-    flexShrink: 1,
-  },
-  metaRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-    gap: 6,
-  },
-  metaTitle: {
-    color: "#111827",
-    fontSize: 13,
-    fontWeight: "700",
-    flexShrink: 1,
-  },
-  metaTag: {
-    color: "#475569",
-    fontSize: 11,
-    fontWeight: "600",
-    backgroundColor: "rgba(255,255,255,0.35)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-    flexShrink: 1,
-  },
-  cardFooter: {
-    marginTop: "auto",
-  },
-  cardFooterText: {
-    color: "#475569",
-    fontSize: 11,
-    marginBottom: 8,
-    flexShrink: 1,
-  },
-  smallStats: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    flexWrap: "wrap",
-  },
-  smallStatText: {
-    color: "#475569",
-    fontSize: 10,
-    marginRight: 6,
-  },
-  shareButton: {
-    marginTop: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    backgroundColor: "rgba(255,255,255,0.62)",
-    borderRadius: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: "rgba(148,163,184,0.45)",
-  },
-  shareButtonText: {
-    color: "#0f172a",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  addCardIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 16,
-    backgroundColor: "#eef2ff",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 18,
-  },
-  addCardTitle: {
-    fontSize: 18,
-    lineHeight: 24,
-    color: "#111827",
-    fontWeight: "700",
-    marginBottom: 8,
-  },
-  addCardText: {
-    color: "#475569",
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: "center",
-    marginBottom: 18,
-  },
-  addButton: {
-    borderRadius: 12,
-  },
-  sheetBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.35)",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 8,
-    paddingHorizontal: 14,
-    maxHeight: "68%",
-  },
-  sheetHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 99,
-    backgroundColor: "#cbd5e1",
-    alignSelf: "center",
-    marginBottom: 10,
-  },
-  sheetTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "800",
-    marginBottom: 0,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  stepper: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  stepItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexShrink: 1,
-  },
-  stepCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#eef0f4",
-  },
-  stepCircleActive: {
-    backgroundColor: "#4f46e5",
-  },
-  stepNumber: {
-    color: "#94a3b8",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  stepNumberActive: {
-    color: "#fff",
-  },
-  stepLabel: {
-    color: "#94a3b8",
-    fontSize: 11,
-    marginLeft: 5,
-    flexShrink: 1,
-  },
-  stepLabelActive: {
-    color: "#4f46e5",
-    fontWeight: "600",
-  },
-  stepLine: {
-    height: 1,
-    flex: 1,
-    minWidth: 8,
-    backgroundColor: "#dbe1ea",
-    marginHorizontal: 8,
-  },
-  formColumns: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  formColumnsCompact: {
-    flexDirection: "column",
-  },
-  formColumn: {
-    flex: 1,
-    minWidth: 0,
-  },
-  formFieldLabel: {
-    color: "#475569",
-    fontSize: 11,
-    marginBottom: 4,
-  },
-  compactTextInput: {
-    height: 46,
-  },
-  categoryOptions: {
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    marginTop: -4,
-    marginBottom: 8,
-    overflow: "hidden",
-  },
-  categorySelector: {
-    minHeight: 46,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderColor: "#bae6fd",
-    borderRadius: 7,
-    backgroundColor: "#f0f9ff",
-    paddingHorizontal: 14,
-    marginBottom: 4,
-  },
-  categorySelectorError: {
-    borderColor: colors.danger,
-  },
-  categorySelectorText: {
-    color: "#1f2937",
-    fontSize: 14,
-  },
-  categoryPlaceholder: {
-    color: "#64748b",
-  },
-  categoryOption: {
-    minHeight: 34,
-    justifyContent: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  categoryOptionSelected: {
-    backgroundColor: colors.primary,
-  },
-  categoryOptionText: {
-    color: "#1f2937",
-    fontSize: 13,
-  },
-  categoryOptionTextSelected: {
-    color: "#ffffff",
-    fontWeight: "700",
-  },
-  requiredMark: {
-    color: "#dc2626",
-    fontWeight: "700",
-  },
-  descriptionField: {
-    minHeight: 64,
-  },
-  compactHelperText: {
-    marginTop: -4,
-    marginBottom: 2,
-    paddingHorizontal: 0,
-  },
-  characterCount: {
-    color: "#94a3b8",
-    fontSize: 11,
-    textAlign: "right",
-    marginTop: -4,
-    marginBottom: 4,
-  },
-  coverPicker: {
-    minHeight: 80,
-    borderWidth: 2,
-    borderStyle: "dashed",
-    borderColor: "#d8dee8",
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 8,
-    marginBottom: 6,
-  },
-  coverPickerTitle: {
-    color: "#475569",
-    fontSize: 13,
-    textAlign: "center",
-    marginTop: 8,
-  },
-  coverPickerText: {
-    color: "#94a3b8",
-    fontSize: 11,
-    marginTop: 5,
-  },
-  coverPickerAction: {
-    color: "#4f46e5",
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: 10,
-  },
-  filePicker: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: 10,
-    backgroundColor: "#eef2ff",
-    padding: 10,
-  },
-  filePickerText: {
-    flex: 1,
-    color: "#334155",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  modalActions: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 4,
-  },
-  modalActionContent: {
-    height: 40,
-  },
-  sheetError: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.dangerSoft,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginBottom: 10,
-  },
-  sheetErrorText: {
-    color: colors.danger,
-    fontSize: 12,
-    marginLeft: 8,
-    flex: 1,
-  },
-  filePreview: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: colors.primarySoft,
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 10,
-  },
-  filePreviewText: {
-    flex: 1,
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  sheetField: {
-    marginBottom: 4,
-    backgroundColor: "#fff",
-  },
-  sheetPrimaryButton: {
-    marginTop: 4,
-    borderRadius: 10,
-  },
-  sheetPrimaryButtonContent: {
-    height: 42,
-  },
-  suggestions: {
-    marginTop: 8,
-    maxHeight: 260,
-  },
+  screen: { flex: 1, backgroundColor: "#f4f9fc" },
+  header: { backgroundColor: "#ffffff" },
+  headerTitle: { fontSize: 17, fontWeight: "800", color: colors.text },
+  state: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30, gap: 8 },
+  errorText: { color: colors.danger, fontSize: 13, textAlign: "center" },
+  content: { padding: 14, gap: 12 },
+
+  summary: { flexDirection: "row", alignItems: "center", borderRadius: 20, paddingVertical: 16 },
+  summaryItem: { flex: 1, alignItems: "center" },
+  summaryValue: { color: "#fff", fontSize: 24, fontWeight: "900" },
+  summaryLabel: { color: "rgba(255,255,255,0.88)", fontSize: 12, fontWeight: "700", marginTop: 1 },
+  summaryDivider: { width: 1, height: 34, backgroundColor: "rgba(255,255,255,0.3)" },
+
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", paddingHorizontal: 12, minHeight: 46 },
+  searchField: { flex: 1, color: colors.text, fontSize: 14, paddingVertical: 8 },
+
+  chipScroll: { flexGrow: 0, flexShrink: 0 },
+  chipRow: { gap: 8, paddingVertical: 2, alignItems: "center" },
+  chip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#d7e6f1" },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
+  chipTextActive: { color: "#ffffff" },
+  chipCount: { minWidth: 20, height: 20, borderRadius: 10, backgroundColor: "#eef4f9", alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
+  chipCountActive: { backgroundColor: "rgba(255,255,255,0.28)" },
+  chipCountText: { color: colors.textSecondary, fontSize: 11, fontWeight: "800" },
+  chipCountTextActive: { color: "#ffffff" },
+
+  card: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: "#e2eef7", padding: 14, gap: 12 },
+  cardTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  fileIcon: { width: 48, height: 48, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  cardName: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  cardMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  tag: { backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  tagText: { color: colors.primary, fontSize: 11, fontWeight: "800" },
+  cardBottom: { flexDirection: "row", alignItems: "center", gap: 8 },
+  statsRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  statText: { color: colors.textSecondary, fontSize: 12, fontWeight: "700" },
+  shareButton: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#16a34a", borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9 },
+  shareText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  deleteButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.dangerSoft, alignItems: "center", justifyContent: "center" },
+
+  empty: { alignItems: "center", paddingTop: 40, paddingHorizontal: 24, gap: 6 },
+  emptyIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  emptyTitle: { color: colors.text, fontSize: 16, fontWeight: "800" },
+  emptyText: { color: colors.textMuted, fontSize: 13, textAlign: "center", lineHeight: 19 },
+  emptyButton: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, backgroundColor: colors.primary, borderRadius: 999, paddingHorizontal: 20, paddingVertical: 12 },
+  emptyButtonText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+
+  fabWrap: { position: "absolute", right: 18 },
+  fab: { width: 58, height: 58, borderRadius: 29, alignItems: "center", justifyContent: "center", shadowColor: "#4f46e5", shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 8 },
+
+  overlay: { ...StyleSheet.absoluteFill, zIndex: 50, elevation: 50, backgroundColor: "#ffffff" },
+  overlayHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
+  overlayBack: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  overlayTitle: { color: colors.text, fontSize: 18, fontWeight: "800" },
+  formContent: { padding: 16, paddingBottom: 24 },
+  formError: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12 },
+  formErrorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "700" },
+  label: { color: colors.text, fontSize: 13, fontWeight: "800", marginTop: 18, marginBottom: 8 },
+  required: { color: colors.danger },
+  fieldInvalid: { borderColor: colors.danger },
+  fieldError: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 },
+  fieldErrorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600" },
+  picker: { borderRadius: 16, borderWidth: 2, borderStyle: "dashed", borderColor: "#bae6fd", backgroundColor: "#f0f9ff", padding: 16, flexDirection: "row", alignItems: "center", gap: 12, minHeight: 96 },
+  pickerFilled: { borderStyle: "solid", borderColor: "#d7e6f1", backgroundColor: "#ffffff" },
+  pickerEmpty: { flex: 1, alignItems: "center", gap: 4 },
+  pickerTitle: { color: colors.primary, fontSize: 15, fontWeight: "800" },
+  pickerHint: { color: colors.textMuted, fontSize: 12 },
+  input: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#f8fbfd", paddingHorizontal: 14, justifyContent: "center" },
+  inputText: { color: colors.text, fontSize: 15 },
+  categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  formFooter: { paddingHorizontal: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.borderSoft, backgroundColor: "#ffffff" },
+  saveButton: { height: 52, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  saveText: { color: "#ffffff", fontSize: 16, fontWeight: "800" },
 });
