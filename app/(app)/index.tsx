@@ -2,9 +2,10 @@ import { IconBell, SvgUserAdd, SvgCalendar, SvgFolder } from "@/components/Refer
 import { glass, GradientIcon, GradientNumber } from "@/components/Glass";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ImageBackground, InteractionManager, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
+  ImageBackground, Keyboard, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
 } from "react-native";
-import { ActivityIndicator, Appbar, Button, Card, TextInput } from "react-native-paper";
+import { ActivityIndicator, Appbar, Button, Card } from "react-native-paper";
+import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { router, useFocusEffect } from "expo-router";
@@ -14,9 +15,10 @@ import { colors } from "@/theme";
 import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboard";
 import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads, fetchIntegrationSettings, IntegrationSettings } from "@/api/integrations";
-import { fetchNotifications } from "@/api/notifications";
+import { fetchNotifications, notifyLeadsAdded } from "@/api/notifications";
 import { homeOrigin } from "@/navigation/homeOrigin";
 import { useAuth } from "@/contexts/AuthContext";
+import { useT } from "@/i18n/LanguageContext";
 
 const AI_IMAGE_SAMPLES = [
   { caption: "Product shot", source: require("../../assets/ai-samples/product-shot.png") },
@@ -30,6 +32,7 @@ const AI_IMAGE_SAMPLES = [
 ];
 
 const LAST_SYNC_KEY = "meta_leads_last_sync";
+const AI_TOOLS_VISITED_KEY = "setup_ai_tools_visited";
 const META_SYNC_THROTTLE_MS = 2 * 60 * 1000;
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -41,40 +44,69 @@ function pretty(value?: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-const SOURCE_ICON: Record<string, IconName> = {
-  meta_ads: "infinite-outline",
-  google_ads: "logo-google",
-  whatsapp: "logo-whatsapp",
-  referral: "people-outline",
-  manual: "create-outline",
-  website: "globe-outline",
-  walkin: "walk-outline",
+// Every lead source gets its own icon and colour, so the list can be read at a glance.
+type SourceLook = { icon: IconName; color: string; bg: string; label?: string };
+const SOURCE_LOOK: Record<string, SourceLook> = {
+  meta_ads: { icon: "logo-facebook", color: "#1877f2", bg: "#dbeafe", label: "Meta Ads" },
+  instagram: { icon: "logo-instagram", color: "#c026d3", bg: "#fae8ff", label: "Instagram" },
+  google_ads: { icon: "logo-google", color: "#ea4335", bg: "#fee2e2", label: "Google Ads" },
+  whatsapp: { icon: "logo-whatsapp", color: "#16a34a", bg: "#dcfce7", label: "WhatsApp" },
+  manual: { icon: "create", color: "#4f46e5", bg: "#e0e7ff", label: "Manual" },
+  referral: { icon: "people", color: "#d97706", bg: "#fef3c7", label: "Referral" },
+  website: { icon: "globe", color: "#0891b2", bg: "#cffafe", label: "Website" },
+  walkin: { icon: "walk", color: "#7c3aed", bg: "#ede9fe", label: "Walk-in" },
+  organic: { icon: "leaf", color: "#15803d", bg: "#dcfce7", label: "Organic" },
+  import: { icon: "cloud-upload", color: "#0369a1", bg: "#e0f2fe", label: "Imported" },
+  api: { icon: "code-slash", color: "#475569", bg: "#e2e8f0", label: "API" },
 };
+const DEFAULT_SOURCE_LOOK: SourceLook = { icon: "help-circle", color: "#64748b", bg: "#eef2f6" };
+
+// Sources are stored in different spellings ("WhatsApp", "whatsapp_inbound", "Meta Lead Ads"...),
+// so match on what the name contains instead of needing an exact key.
+function sourceLook(source: string): SourceLook {
+  if (SOURCE_LOOK[source]) return SOURCE_LOOK[source];
+  const key = (source || "").toLowerCase().replace(/[^a-z]/g, "");
+  if (key.includes("whatsapp")) return SOURCE_LOOK.whatsapp;
+  if (key.includes("instagram")) return SOURCE_LOOK.instagram;
+  if (key.includes("meta") || key.includes("facebook") || key === "fb") return SOURCE_LOOK.meta_ads;
+  if (key.includes("google")) return SOURCE_LOOK.google_ads;
+  if (key.includes("manual") || key.includes("typed")) return SOURCE_LOOK.manual;
+  if (key.includes("refer")) return SOURCE_LOOK.referral;
+  if (key.includes("web") || key.includes("site") || key.includes("form")) return SOURCE_LOOK.website;
+  if (key.includes("walk")) return SOURCE_LOOK.walkin;
+  if (key.includes("organic")) return SOURCE_LOOK.organic;
+  if (key.includes("import") || key.includes("csv") || key.includes("excel") || key.includes("sheet")) return SOURCE_LOOK.import;
+  if (key.includes("api") || key.includes("webhook")) return SOURCE_LOOK.api;
+  return DEFAULT_SOURCE_LOOK;
+}
 
 interface LeadSourceRow { source: string; leads: number; won: number; conversion: number }
 
 function StatTile({ label, value }: { label: string; value: string }) {
+  const { t } = useT();
   return (
     <View style={styles.statTile}>
-      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={styles.statLabel}>{t(label)}</Text>
       <GradientNumber value={value} tone={label.includes("Converted") ? "violet" : label.includes("New") ? "emerald" : label.includes("Due") ? "amber" : "sky"} />
     </View>
   );
 }
 
 function QuickTile({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+  const { t } = useT();
   const { width } = useWindowDimensions();
   return (
     <Card mode="contained" style={[styles.quickTile, { width: (width - 44) / 2 }]} onPress={onPress}>
       <Card.Content style={styles.quickTileContent}>
         <GradientIcon tone={label.includes("Schedule") ? "amber" : label.includes("Search") ? "emerald" : label.includes("Import") ? "violet" : "sky"}>{label.includes("Add") ? <SvgUserAdd color="#fff" /> : label.includes("Schedule") ? <SvgCalendar color="#fff" /> : label.includes("Import") ? <SvgFolder color="#fff" /> : <Ionicons name={icon} size={20} color="#fff" />}</GradientIcon>
-        <Text style={styles.quickLabel}>{label}</Text>
+        <Text style={styles.quickLabel}>{t(label)}</Text>
       </Card.Content>
     </Card>
   );
 }
 
 function LeadsByStageCard({ stages, onPress }: { stages: DashboardSummary["pipeline"]; onPress: () => void }) {
+  const { t } = useT();
   const { width } = useWindowDimensions();
   const columns = width >= 600 ? 5 : 2;
   const maxCount = Math.max(1, ...stages.map((stage) => stage.count));
@@ -82,8 +114,8 @@ function LeadsByStageCard({ stages, onPress }: { stages: DashboardSummary["pipel
   return (
     <View style={styles.stageCard}>
       <Pressable style={styles.stageCardHeader} onPress={onPress} accessibilityRole="button">
-        <Text style={styles.stageCardTitle}>Lead Pipeline</Text>
-        <Text style={styles.stageViewAll}>View all ›</Text>
+        <Text style={styles.stageCardTitle}>{t("Lead Pipeline")}</Text>
+        <Text style={styles.stageViewAll}>{t("View all ›")}</Text>
       </Pressable>
       {stages.length ? (
         <View style={styles.stageColumns}>
@@ -99,19 +131,20 @@ function LeadsByStageCard({ stages, onPress }: { stages: DashboardSummary["pipel
           ))}
         </View>
       ) : (
-        <Text style={styles.stageEmpty}>No stage data yet.</Text>
+        <Text style={styles.stageEmpty}>{t("No stage data yet.")}</Text>
       )}
     </View>
   );
 }
 
 function UrgentFollowupsCard({ count, onPress }: { count: number; onPress: () => void }) {
+  const { t } = useT();
   return (
     <Pressable style={styles.urgentCard} onPress={onPress} accessibilityRole="button">
       <View style={styles.urgentIcon}><Ionicons name="alert" size={18} color="#fff" /></View>
       <View style={styles.urgentCopy}>
-        <Text style={styles.urgentTitle}>{fmt(count)} follow-ups need urgent attention</Text>
-        <Text style={styles.urgentSubtitle}>Open the list and take action now</Text>
+        <Text style={styles.urgentTitle}>{t("{n} follow-ups need urgent attention", { n: fmt(count) })}</Text>
+        <Text style={styles.urgentSubtitle}>{t("Open the list and take action now")}</Text>
       </View>
       <Ionicons name="chevron-forward" size={25} color={colors.danger} />
     </Pressable>
@@ -119,10 +152,11 @@ function UrgentFollowupsCard({ count, onPress }: { count: number; onPress: () =>
 }
 
 function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowup[]; onPress: () => void }) {
+  const { t } = useT();
   return (
     <View style={styles.upcomingCard}>
       <Pressable style={styles.upcomingHeader} onPress={onPress}>
-        <Text style={styles.upcomingTitle}>Upcoming Follow Ups</Text>
+        <Text style={styles.upcomingTitle}>{t("Upcoming Follow Ups")}</Text>
         <Text style={styles.upcomingCount}>{followups.length}</Text>
       </Pressable>
       {followups.length ? followups.slice(0, 2).map((followup, index) => {
@@ -140,13 +174,14 @@ function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowu
           </Pressable>
         );
       }) : (
-        <Text style={styles.upcomingEmpty}>No upcoming follow-ups</Text>
+        <Text style={styles.upcomingEmpty}>{t("No upcoming follow-ups")}</Text>
       )}
     </View>
   );
 }
 
 function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
+  const { t } = useT();
   const insights = [
     { label: "Revenue", value: data.total_revenue || data.revenue_in_period },
     { label: "Avg. deal", value: data.avg_deal_value },
@@ -154,12 +189,12 @@ function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () =
   ];
   return (
     <Pressable style={styles.insightsSection} onPress={onPress} accessibilityRole="button">
-      <Text style={styles.insightsTitle}>Insights</Text>
+      <Text style={styles.insightsTitle}>{t("Insights")}</Text>
       <View style={styles.insightsRow}>
         {insights.map((item) => (
           <View key={item.label} style={styles.insightCard}>
-            <Text style={styles.insightLabel}>{item.label}</Text>
-            <Text style={styles.insightValue}>₹{fmt(item.value)}</Text>
+            <Text style={styles.insightLabel}>{t(item.label)}</Text>
+            <Text style={styles.insightValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>₹{fmt(item.value)}</Text>
           </View>
         ))}
       </View>
@@ -168,6 +203,7 @@ function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () =
 }
 
 function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
+  const { t } = useT();
   const items = [
     { icon: "person-add-outline", label: "New Leads", value: data.leads_today, tone: TONE.sky },
     { icon: "calendar-outline", label: "Follow-ups", value: data.followups_today, tone: TONE.emerald },
@@ -181,9 +217,9 @@ function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress:
     <View style={styles.activityCard}>
       <View style={styles.activityHeaderRow}>
         <View style={styles.activityIconWrap}><Ionicons name="calendar-outline" size={18} color={colors.primary} /></View>
-        <Text style={styles.activityTitle}>Today&apos;s Activity</Text>
+        <Text style={styles.activityTitle}>{t("Today's Activity")}</Text>
         <Pressable style={{ marginLeft: "auto" }} onPress={onPress}>
-          <Text style={styles.activityViewAll}>View all</Text>
+          <Text style={styles.activityViewAll}>{t("View all")}</Text>
         </Pressable>
       </View>
       <View style={styles.activityGrid}>
@@ -193,7 +229,7 @@ function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress:
               <View style={[styles.activityTileIcon, { backgroundColor: item.tone.bg }]}>
                 <Ionicons name={item.icon as IconName} size={14} color={item.tone.iconColor} />
               </View>
-              <Text style={styles.activityTileLabel} numberOfLines={1}>{item.label}</Text>
+              <Text style={styles.activityTileLabel} numberOfLines={1}>{t(item.label)}</Text>
             </View>
             <Text style={styles.activityTileValue}>{fmt(item.value)}</Text>
           </View>
@@ -211,6 +247,7 @@ const START_HERE: { icon: IconName; label: string; bg: string; iconColor: string
 ];
 
 function StartHereTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; onPress: () => void }) {
+  const { t } = useT();
   return (
     <Pressable style={styles.startTile} onPress={onPress}>
       <View style={[styles.startIconWrap, { backgroundColor: bg }]}>
@@ -225,7 +262,7 @@ function StartHereTile({ icon, label, bg, iconColor, badges, onPress }: { icon: 
         ) : null}
         <Ionicons name={icon} size={22} color={iconColor} />
       </View>
-      <Text style={styles.startLabel} numberOfLines={2}>{label}</Text>
+      <Text style={styles.startLabel} numberOfLines={2}>{t(label)}</Text>
     </Pressable>
   );
 }
@@ -285,6 +322,7 @@ function openGridItem(item: GridItem) {
 }
 
 function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; onPress: () => void }) {
+  const { t } = useT();
   return (
     <Pressable style={styles.gridTile} onPress={onPress}>
       <View style={[styles.startIconWrap, { backgroundColor: bg }]}>
@@ -299,12 +337,13 @@ function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconN
         ) : null}
         <Ionicons name={icon} size={22} color={iconColor} />
       </View>
-      <Text style={styles.startLabel} numberOfLines={2}>{label}</Text>
+      <Text style={styles.startLabel} numberOfLines={2}>{t(label)}</Text>
     </Pressable>
   );
 }
 
 export default function DashboardScreen() {
+  const { t } = useT();
   const { user, tenant } = useAuth();
   const insets = useSafeAreaInsets();
   const period: DashboardPeriod = "last_7_days";
@@ -316,14 +355,25 @@ export default function DashboardScreen() {
   const [error, setError] = useState("");
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Keeps the last results scrollable above the keyboard, whether or not Android also shrinks the window.
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (event) => setKeyboardHeight(event.endCoordinates.height));
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
 
   const [setupExpanded, setSetupExpanded] = useState(false);
   const [integrations, setIntegrations] = useState<IntegrationSettings | null>(null);
-  useEffect(() => {
+  const [aiToolsVisited, setAiToolsVisited] = useState(false);
+  // Refetch on focus so steps tick off as soon as the user comes back from connecting something.
+  useFocusEffect(useCallback(() => {
     // Non-admins may not have access to this endpoint — hide the setup banner rather than error out.
     fetchIntegrationSettings().then(setIntegrations).catch(() => setIntegrations(null));
-  }, []);
+    AsyncStorage.getItem(AI_TOOLS_VISITED_KEY).then((value) => setAiToolsVisited(value === "1")).catch(() => {});
+  }, []));
 
   const [leadSources, setLeadSources] = useState<LeadSourceRow[] | null>(null);
   const dashboardReady = !!data;
@@ -333,7 +383,8 @@ export default function DashboardScreen() {
     // That's a big download, so it waits until the dashboard has painted instead of competing with it.
     if (!dashboardReady) return;
     let cancelled = false;
-    const task = InteractionManager.runAfterInteractions(() => {
+    // A short delay lets the dashboard paint first (InteractionManager is deprecated).
+    const task = setTimeout(() => {
       fetchLeads({ limit: 500 }).then((page) => {
         if (cancelled) return;
         const bySource = new Map<string, { leads: number; won: number }>();
@@ -349,8 +400,8 @@ export default function DashboardScreen() {
           .sort((a, b) => b.leads - a.leads);
         setLeadSources(rows);
       }).catch(() => { if (!cancelled) setLeadSources(null); });
-    });
-    return () => { cancelled = true; task.cancel(); };
+    }, 300);
+    return () => { cancelled = true; clearTimeout(task); };
   }, [dashboardReady]);
 
   const load = useCallback(async (refresh = false) => {
@@ -399,6 +450,7 @@ export default function DashboardScreen() {
       if (cancelled) return;
       try {
         const result = await facebookSyncLeads();
+        if (result.created) notifyLeadsAdded(result.created, "Facebook").catch(() => {});
         if (!cancelled && result.created) load();
       } catch { /* silently ignore — e.g. no Facebook page connected for this tenant */ }
     })();
@@ -408,17 +460,18 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.screen}>
+      <LinearGradient pointerEvents="none" colors={["#e0f2fe", "#f0f9ff", "#FFFFFF"]} style={styles.topGlow} />
       <Appbar.Header style={styles.header} elevated={false}>
-        <View style={styles.profileRow}>
+        <Pressable style={styles.profileRow} accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => router.push("/(app)/more/account")}>
           <View style={styles.profileAvatar}>
             <Text style={styles.profileAvatarText}>{(user?.name?.charAt(0) || "?").toUpperCase()}</Text>
           </View>
           <Text style={styles.profileName} numberOfLines={1}>{tenant?.name || user?.name || "Account"}</Text>
-        </View>
+        </Pressable>
         <View style={{ flex: 1 }} />
-        {user?.role ? (
+        {user ? (
           <View style={styles.roleBadge}>
-            <Text style={styles.roleBadgeText}>{user.role.replace(/_/g, " ")}</Text>
+            <Text style={styles.roleBadgeText}>{t(user.role === "super_admin" ? "Super Admin" : user.role === "admin" ? "Admin" : "Staff")}</Text>
           </View>
         ) : null}
         <Pressable style={styles.notificationButton} onPress={() => router.push("/(app)/notifications")}>
@@ -431,7 +484,7 @@ export default function DashboardScreen() {
 
       <Pressable style={styles.searchRow} onPress={() => setSearchOpen(true)}>
         <Ionicons name="search-outline" size={18} color={colors.textMuted} />
-        <Text style={styles.searchPlaceholder}>Search tools & settings</Text>
+        <Text style={styles.searchPlaceholder}>{t("Search tools & settings")}</Text>
       </Pressable>
 
       <ScrollView
@@ -440,75 +493,73 @@ export default function DashboardScreen() {
         showsVerticalScrollIndicator={false}
       >
         {loading && !data ? (
-          <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.stateText}>Getting your latest numbers…</Text></View>
+          <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.stateText}>{t("Getting your latest numbers…")}</Text></View>
         ) : error && !data ? (
           <View style={styles.state}>
-            <Text style={styles.stateTitle}>Couldn&apos;t load dashboard</Text>
+            <Text style={styles.stateTitle}>{t("Couldn't load dashboard")}</Text>
             <Text style={styles.stateText}>{error}</Text>
-            <Button mode="contained" onPress={() => load()} style={styles.retry}>Try again</Button>
+            <Button mode="contained" onPress={() => load()} style={styles.retry}>{t("Try again")}</Button>
           </View>
         ) : data ? (
           <>
-            <View style={styles.setupCard}>
-              <Pressable style={styles.setupHeaderRow} onPress={() => setSetupExpanded((open) => !open)}>
-                <Text style={styles.setupHeaderEmoji}>💰</Text>
-                <Text style={styles.setupHeadline}>Finish setup to unlock the full CRM experience</Text>
-                <Ionicons name={setupExpanded ? "chevron-up" : "chevron-down"} size={18} color={colors.text} />
-              </Pressable>
-              {(() => {
-                const steps = [
-                  { label: "Connect WhatsApp", done: !!integrations?.whatsapp_configured, href: "/(app)/more/integrations" },
-                  { label: "Connect Facebook Ads", done: !!integrations?.meta_configured, href: "/(app)/more/integrations" },
-                  { label: "Add your first lead", done: (data.leads_in_period ?? 0) > 0, href: "/(app)/leads/new" },
-                  { label: "Explore AI Tools", done: false, href: "/(app)/more/ai-tools" },
-                ];
-                const allDone = steps.every((step) => step.done);
-                return setupExpanded ? (
-                  <View>
-                    {steps.map((step, idx) => (
-                      <Pressable key={step.label} style={styles.setupStepRowVertical} onPress={() => router.push(step.href as never)}>
-                        <View style={styles.setupStepIconCol}>
-                          <View style={[styles.setupStepDot, step.done && styles.setupStepDotDone]}>
-                            <Ionicons name={step.done ? "checkmark" : "alert"} size={12} color="#fff" />
-                          </View>
-                          <View style={styles.setupStepLineVertical} />
-                        </View>
-                        <View style={{ flex: 1, paddingBottom: 18 }}>
-                          <Text style={styles.setupStepStepLabel}>{`Step ${idx + 1}`}</Text>
-                          <Text style={styles.setupStepText}>{step.label}</Text>
-                        </View>
-                      </Pressable>
-                    ))}
-                    <View style={styles.setupStepRowVertical}>
-                      <View style={styles.setupStepIconCol}><Text style={styles.setupCrown}>👑</Text></View>
-                      <Text style={[styles.setupStepText, { marginTop: 4 }]}>{allDone ? "All set!" : "All set"}</Text>
+            {(() => {
+              const steps: { label: string; hint: string; icon: IconName; done: boolean; href: string }[] = [
+                { label: "Connect WhatsApp", hint: "Message leads from the app", icon: "logo-whatsapp", done: !!integrations?.whatsapp_configured, href: "/(app)/more/integrations" },
+                { label: "Connect Facebook Ads", hint: "Pull in leads automatically", icon: "logo-facebook", done: !!integrations?.meta_configured, href: "/(app)/more/integrations" },
+                { label: "Add your first lead", hint: "Start building your pipeline", icon: "person-add-outline", done: (data.total_leads ?? 0) > 0, href: "/(app)/leads/new" },
+                { label: "Explore AI Tools", hint: "Let AI do the busywork", icon: "sparkles-outline", done: aiToolsVisited, href: "/(app)/more/ai-tools" },
+              ];
+              const doneCount = steps.filter((step) => step.done).length;
+              const allDone = doneCount === steps.length;
+              return (
+                <View style={styles.setupCard}>
+                  <Pressable style={styles.setupHeaderRow} onPress={() => setSetupExpanded((open) => !open)}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.setupHeadline}>{allDone ? t("You're all set 🎉") : t("Finish setting up")}</Text>
+                      <Text style={styles.setupSub}>{t("{done} of {total} steps done", { done: doneCount, total: steps.length })}</Text>
                     </View>
+                    <Ionicons name={setupExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textSecondary} />
+                  </Pressable>
+                  <View style={styles.setupTrack}>
+                    <View style={[styles.setupFill, { width: `${(doneCount / steps.length) * 100}%` }]} />
                   </View>
-                ) : (
-                  <View style={styles.setupStepRow}>
-                    {steps.map((step, idx) => (
-                      <React.Fragment key={step.label}>
-                        <Pressable style={styles.setupStepCol} onPress={() => router.push(step.href as never)}>
-                          <View style={[styles.setupStepDot, step.done && styles.setupStepDotDone]}>
-                            <Ionicons name={step.done ? "checkmark" : "alert"} size={14} color="#fff" />
+                  {setupExpanded ? (
+                    <View style={styles.setupList}>
+                      {steps.map((step) => (
+                        <Pressable
+                          key={step.label}
+                          style={styles.setupItem}
+                          onPress={() => {
+                            if (step.href === "/(app)/more/ai-tools") {
+                              AsyncStorage.setItem(AI_TOOLS_VISITED_KEY, "1").catch(() => {});
+                              setAiToolsVisited(true);
+                            }
+                            router.push(step.href as never);
+                          }}
+                        >
+                          <View style={[styles.setupItemIcon, step.done && styles.setupItemIconDone]}>
+                            <Ionicons name={step.done ? "checkmark" : step.icon} size={18} color={step.done ? colors.success : colors.primary} />
                           </View>
-                          <Text style={styles.setupStepLabel}>{`Step ${idx + 1}`}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.setupItemTitle, step.done && styles.setupItemTitleDone]}>{t(step.label)}</Text>
+                            <Text style={styles.setupItemHint} numberOfLines={1}>{t(step.hint)}</Text>
+                          </View>
+                          {step.done ? (
+                            <View style={styles.setupDonePill}><Text style={styles.setupDonePillText}>{t("Done")}</Text></View>
+                          ) : (
+                            <View style={styles.setupGoPill}><Text style={styles.setupGoPillText}>{t("Set up")}</Text></View>
+                          )}
                         </Pressable>
-                        <View style={styles.setupStepLine} />
-                      </React.Fragment>
-                    ))}
-                    <View style={styles.setupStepCol}>
-                      <Text style={[styles.setupCrown, !allDone && styles.setupCrownMuted]}>👑</Text>
-                      <Text style={styles.setupStepLabel} numberOfLines={1}>All set</Text>
+                      ))}
                     </View>
-                  </View>
-                );
-              })()}
-            </View>
+                  ) : null}
+                </View>
+              );
+            })()}
 
             <View style={styles.startHereSection}>
-              <Text style={styles.startHereTitle}>Start here</Text>
-              <Text style={styles.startHereSubtitle}>Your everyday actions</Text>
+              <Text style={styles.startHereTitle}>{t("Start here")}</Text>
+              <Text style={styles.startHereSubtitle}>{t("Your everyday actions")}</Text>
               <View style={styles.startHereRow}>
                 {START_HERE.map((item) => (
                   <StartHereTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
@@ -526,11 +577,11 @@ export default function DashboardScreen() {
                   <Ionicons name="hardware-chip-outline" size={22} color="#7c3aed" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.aiImagesTitle}>AI Images</Text>
-                  <Text style={styles.aiImagesSubtitle}>Create high-quality product or fashion photoshoot</Text>
+                  <Text style={styles.aiImagesTitle}>{t("AI Images")}</Text>
+                  <Text style={styles.aiImagesSubtitle}>{t("Create high-quality product or fashion photoshoot")}</Text>
                 </View>
                 <Pressable onPress={() => router.push("/(app)/more/ai-tools")}>
-                  <Text style={styles.aiImagesCreate}>Create</Text>
+                  <Text style={styles.aiImagesCreate}>{t("Create")}</Text>
                 </Pressable>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.aiImagesRow}>
@@ -555,9 +606,9 @@ export default function DashboardScreen() {
             <View style={styles.activityCard}>
               <View style={styles.activityHeaderRow}>
                 <View style={styles.activityIconWrap}><Ionicons name="calendar-outline" size={18} color={colors.primary} /></View>
-                <Text style={styles.activityTitle}>Today's Activity</Text>
+                <Text style={styles.activityTitle}>{t("Today's Activity")}</Text>
                 <Pressable style={{ marginLeft: "auto" }} onPress={() => router.push("/(app)/leads")}>
-                  <Text style={styles.activityViewAll}>View all ›</Text>
+                  <Text style={styles.activityViewAll}>{t("View all ›")}</Text>
                 </Pressable>
               </View>
               <View style={styles.activityGrid}>
@@ -574,7 +625,7 @@ export default function DashboardScreen() {
                       <View style={[styles.activityTileIcon, { backgroundColor: item.tone.bg }]}>
                         <Ionicons name={item.icon as IconName} size={14} color={item.tone.iconColor} />
                       </View>
-                      <Text style={styles.activityTileLabel} numberOfLines={1}>{item.label}</Text>
+                      <Text style={styles.activityTileLabel} numberOfLines={1}>{t(item.label)}</Text>
                     </View>
                     <Text style={styles.activityTileValue}>{fmt(item.value)}</Text>
                   </View>
@@ -587,22 +638,24 @@ export default function DashboardScreen() {
               <View style={styles.sourcesCard}>
                 <View style={styles.sourcesHeaderRow}>
                   <Ionicons name="pie-chart-outline" size={16} color={colors.text} />
-                  <Text style={styles.sourcesTitle}>Lead Sources</Text>
+                  <Text style={styles.sourcesTitle}>{t("Lead Sources")}</Text>
                   <Pressable style={{ marginLeft: "auto" }} onPress={() => router.push("/(app)/leads")}>
-                    <Text style={styles.sourcesViewAll}>View all ›</Text>
+                    <Text style={styles.sourcesViewAll}>{t("View all ›")}</Text>
                   </Pressable>
                 </View>
                 <View style={styles.sourcesColumnHeader}>
-                  <Text style={[styles.sourcesColumnLabel, { flex: 1 }]}>SOURCE</Text>
-                  <Text style={[styles.sourcesColumnLabel, { width: 44, textAlign: "right" }]}>LEADS</Text>
+                  <Text style={[styles.sourcesColumnLabel, { flex: 1 }]}>{t("SOURCE")}</Text>
+                  <Text style={[styles.sourcesColumnLabel, { width: 44, textAlign: "right" }]}>{t("LEADS")}</Text>
                   <Text style={[styles.sourcesColumnLabel, { width: 44, textAlign: "right" }]}>WON</Text>
-                  <Text style={[styles.sourcesColumnLabel, { width: 70, textAlign: "right" }]}>CONV.</Text>
+                  <Text style={[styles.sourcesColumnLabel, { width: 70, textAlign: "right" }]}>{t("CONV.")}</Text>
                 </View>
                 {leadSources.slice(0, 5).map((row) => (
                   <View key={row.source} style={styles.sourceRow}>
                     <View style={styles.sourceNameCell}>
-                      <Ionicons name={SOURCE_ICON[row.source] || "help-circle-outline"} size={15} color={colors.textSecondary} />
-                      <Text style={styles.sourceNameText} numberOfLines={1}>{pretty(row.source)}</Text>
+                      <View style={[styles.sourceIcon, { backgroundColor: sourceLook(row.source).bg }]}>
+                        <Ionicons name={sourceLook(row.source).icon} size={16} color={sourceLook(row.source).color} />
+                      </View>
+                      <Text style={styles.sourceNameText} numberOfLines={1}>{sourceLook(row.source).label || pretty(row.source)}</Text>
                     </View>
                     <Text style={[styles.sourceValueText, { width: 44, textAlign: "right" }]}>{row.leads}</Text>
                     <Text style={[styles.sourceValueText, styles.sourceWonText, { width: 44, textAlign: "right" }]}>{row.won}</Text>
@@ -617,8 +670,8 @@ export default function DashboardScreen() {
             ) : null}
 
             <View style={styles.startHereSection}>
-              <Text style={styles.startHereTitle}>Grow your business</Text>
-              <Text style={styles.startHereSubtitle}>Reach, engage and convert customers</Text>
+              <Text style={styles.startHereTitle}>{t("Grow your business")}</Text>
+              <Text style={styles.startHereSubtitle}>{t("Reach, engage and convert customers")}</Text>
               <View style={styles.gridWrap}>
                 {GROW_BUSINESS.map((item) => (
                   <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
@@ -627,8 +680,8 @@ export default function DashboardScreen() {
             </View>
 
             <View style={styles.startHereSection}>
-              <Text style={styles.startHereTitle}>Manage your business</Text>
-              <Text style={styles.startHereSubtitle}>People, data and workspace tools</Text>
+              <Text style={styles.startHereTitle}>{t("Manage your business")}</Text>
+              <Text style={styles.startHereSubtitle}>{t("People, data and workspace tools")}</Text>
               <View style={styles.gridWrap}>
                 {MANAGE_BUSINESS.map((item) => (
                   <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
@@ -654,23 +707,28 @@ export default function DashboardScreen() {
         ) : null}
       </ScrollView>
 
-      <Modal visible={searchOpen} animationType="slide" onRequestClose={() => setSearchOpen(false)}>
+      <Modal visible={searchOpen} animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setSearchOpen(false)}>
         <View style={[styles.searchScreen, { paddingTop: insets.top + 12 }]}>
           <View style={styles.searchModalRow}>
             <View style={styles.searchModalInputWrap}>
               <Ionicons name="search-outline" size={18} color={colors.textMuted} />
               <TextInput
-                autoFocus mode="flat" value={searchQuery} onChangeText={setSearchQuery}
-                placeholder="Search tools & settings" style={styles.searchModalInput}
-                underlineColor="transparent" activeUnderlineColor="transparent"
+                autoFocus value={searchQuery} onChangeText={setSearchQuery}
+                placeholder={t("Search tools & settings")} placeholderTextColor={colors.textMuted}
+                style={styles.searchModalInput} returnKeyType="search" autoCorrect={false}
               />
+              {searchQuery ? (
+                <Pressable onPress={() => setSearchQuery("")} hitSlop={10}>
+                  <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+                </Pressable>
+              ) : null}
             </View>
             <Pressable onPress={() => { setSearchOpen(false); setSearchQuery(""); }} hitSlop={10}>
               <Text style={styles.searchModalCancel}>Cancel</Text>
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.searchResults} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={[styles.searchResults, { paddingBottom: 24 + Math.max(keyboardHeight, insets.bottom) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
             {(searchQuery.trim()
               ? SEARCH_ITEMS.filter((item) => item.label.toLowerCase().includes(searchQuery.trim().toLowerCase()))
               : SEARCH_ITEMS
@@ -682,7 +740,7 @@ export default function DashboardScreen() {
                 <View style={[styles.searchResultIcon, { backgroundColor: item.bg }]}>
                   <Ionicons name={item.icon} size={18} color={item.iconColor} />
                 </View>
-                <Text style={styles.searchResultLabel}>{item.label}</Text>
+                <Text style={styles.searchResultLabel}>{t(item.label)}</Text>
                 <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
               </Pressable>
             ))}
@@ -697,13 +755,14 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.surfaceMuted },
+  screen: { flex: 1, backgroundColor: "#FFFFFF" },
+  topGlow: { position: "absolute", top: 0, left: 0, right: 0, height: 280 },
   header: { height: 80, paddingHorizontal: 12, backgroundColor: "transparent" },
   profileRow: { flexDirection: "row", alignItems: "center", gap: 8, maxWidth: "45%" },
   profileAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.success, alignItems: "center", justifyContent: "center" },
   profileAvatarText: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" },
   profileName: { color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold", flexShrink: 1 },
-  roleBadge: { backgroundColor: colors.surfaceMuted, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8, borderWidth: 1, borderColor: colors.border },
+  roleBadge: { backgroundColor: "#FFFFFF", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8, borderWidth: 1, borderColor: colors.border },
   roleBadgeText: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "capitalize" },
   notificationButton: {
     ...glass,
@@ -736,9 +795,9 @@ const styles = StyleSheet.create({
   searchScreen: { flex: 1, backgroundColor: colors.background },
   searchModalRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingBottom: 12 },
   searchModalInputWrap: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12 },
-  searchModalInput: { flex: 1, backgroundColor: "transparent", fontSize: 14, height: 46 },
+  searchModalInput: { flex: 1, color: colors.text, fontSize: 14, paddingVertical: 0, height: 46 },
   searchModalCancel: { color: colors.primary, fontSize: 14, fontFamily: "Inter_700Bold" },
-  searchResults: { paddingHorizontal: 16, paddingBottom: 40, gap: 4 },
+  searchResults: { paddingHorizontal: 16, paddingBottom: 24, gap: 4 },
   searchResultRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
   searchResultIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   searchResultLabel: { flex: 1, color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
@@ -749,24 +808,23 @@ const styles = StyleSheet.create({
   stateText: { color: colors.textSecondary, fontSize: 13, textAlign: "center", lineHeight: 19, marginTop: 9 },
   retry: { marginTop: 16 },
 
-  setupCard: { backgroundColor: "#e7f9ef", borderRadius: 16, marginHorizontal: 16, marginBottom: 16, padding: 16 },
-  setupHeaderRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 20 },
-  setupHeaderEmoji: { fontSize: 20 },
-  setupHeadline: { flex: 1, color: colors.text, fontSize: 13, fontFamily: "Inter_700Bold", lineHeight: 18 },
-  setupStepRow: { flexDirection: "row", alignItems: "flex-start" },
-  setupStepCol: { alignItems: "center", gap: 6, width: 44 },
-  setupStepDot: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.warning, alignItems: "center", justifyContent: "center" },
-  setupStepDotDone: { backgroundColor: colors.success },
-  setupStepLine: { flex: 1, height: 0, borderTopWidth: 2, borderStyle: "dashed", borderColor: "rgba(217,119,6,0.35)", marginTop: 16, marginHorizontal: 2 },
-  setupStepLabel: { color: colors.text, fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  setupCrown: { fontSize: 26 },
-  setupCrownMuted: { opacity: 0.35 },
-
-  setupStepRowVertical: { flexDirection: "row" },
-  setupStepIconCol: { alignItems: "center", width: 34 },
-  setupStepLineVertical: { flex: 1, width: 2, backgroundColor: "rgba(217,119,6,0.25)", marginTop: 2 },
-  setupStepStepLabel: { color: colors.warning, fontSize: 11, fontFamily: "Inter_700Bold" },
-  setupStepText: { color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold", marginTop: 2 },
+  setupCard: { ...glass, marginHorizontal: 16, marginBottom: 16, padding: 16 },
+  setupHeaderRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  setupHeadline: { color: colors.text, fontSize: 16, fontFamily: "Inter_700Bold" },
+  setupSub: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 2 },
+  setupTrack: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceMuted, overflow: "hidden", marginTop: 12 },
+  setupFill: { height: 6, borderRadius: 3, backgroundColor: colors.success },
+  setupList: { marginTop: 8 },
+  setupItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
+  setupItemIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  setupItemIconDone: { backgroundColor: "#dcfce7" },
+  setupItemTitle: { color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  setupItemTitleDone: { color: colors.textSecondary },
+  setupItemHint: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
+  setupDonePill: { backgroundColor: "#dcfce7", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  setupDonePillText: { color: "#15803d", fontSize: 11, fontFamily: "Inter_700Bold" },
+  setupGoPill: { backgroundColor: colors.primary, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 },
+  setupGoPillText: { color: "#ffffff", fontSize: 11, fontFamily: "Inter_700Bold" },
 
   statGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginHorizontal: 16, marginBottom: 16 },
   statTile: { ...glass, width: "48%", flexGrow: 1, padding: 16 },
@@ -791,6 +849,7 @@ const styles = StyleSheet.create({
   sourcesColumnHeader: { flexDirection: "row", marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "rgba(224,242,254,0.6)" },
   sourcesColumnLabel: { color: colors.textMuted, fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   sourceRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
+  sourceIcon: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   sourceNameCell: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
   sourceNameText: { flex: 1, color: colors.text, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   sourceValueText: { color: colors.textSecondary, fontSize: 13, fontFamily: "Inter_600SemiBold" },
@@ -876,5 +935,5 @@ const styles = StyleSheet.create({
   insightsRow: { flexDirection: "row", gap: 8 },
   insightCard: { ...glass, flex: 1, minHeight: 70, padding: 10, backgroundColor: "rgba(255,255,255,0.78)" },
   insightLabel: { color: colors.textSecondary, fontSize: 10, fontFamily: "Inter_700Bold" },
-  insightValue: { color: colors.text, fontSize: 17, fontFamily: "DMSans_700Bold", marginTop: 8 },
+  insightValue: { color: colors.text, fontSize: 16, fontFamily: "DMSans_700Bold", marginTop: 8 },
 });

@@ -29,8 +29,7 @@ export default function InviteTeamScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <Pressable style={styles.backdropTap} onPress={close} />
-      <View style={styles.sheet}>
+      <View style={[styles.sheet, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Text style={styles.title}>Invite Team Member</Text>
           <Pressable accessibilityLabel="Close" hitSlop={10} onPress={close}>
@@ -114,9 +113,8 @@ function InviteSelect({ label, value, open, onPress, options, onSelect }: { labe
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
-  backdropTap: { ...StyleSheet.absoluteFill },
-  sheet: { maxHeight: "88%", backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden" },
+  backdrop: { flex: 1, backgroundColor: colors.surface },
+  sheet: { flex: 1, backgroundColor: colors.surface },
   header: { minHeight: 52, paddingHorizontal: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.borderSoft, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { color: colors.text, fontSize: 16, fontWeight: "800" },
   body: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },

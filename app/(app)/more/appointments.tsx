@@ -430,7 +430,7 @@ function AppointmentsContent() {
         </View>
       </ScrollView>
 
-      <Modal visible={sheetOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={closeSheet}>
+      <Modal visible={sheetOpen} animationType="slide" presentationStyle="fullScreen" statusBarTranslucent navigationBarTranslucent onRequestClose={closeSheet}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.sheetKeyboard}>
           <View style={[styles.fullSheet, { paddingTop: insets.top }]}>
             <View style={styles.fullSheetHeader}>

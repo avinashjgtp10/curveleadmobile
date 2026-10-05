@@ -15,6 +15,8 @@ interface AuthContextValue {
   requestOtp: (email: string) => Promise<void>;
   verifyOtp: (email: string, otp: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Re-reads the signed-in user and workspace, e.g. after a plan payment. */
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -68,6 +70,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setTenant(data.tenant);
   }
 
+  async function refreshProfile() {
+    try {
+      const { data } = await apiClient.get<{ user: AuthUser; tenant: Tenant }>("/auth/me");
+      setUser(data.user);
+      setTenant(data.tenant);
+    } catch {
+      // Keep what we have; the next launch will try again.
+    }
+  }
+
   async function logout() {
     await clearStoredToken();
     setUser(null);
@@ -75,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, tenant, isLoading, login, requestOtp, verifyOtp, logout }}>
+    <AuthContext.Provider value={{ user, tenant, isLoading, login, requestOtp, verifyOtp, logout, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

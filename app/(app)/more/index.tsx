@@ -7,6 +7,7 @@ import { router, useFocusEffect } from "expo-router";
 import { homeOrigin } from "@/navigation/homeOrigin";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useT } from "@/i18n/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermission } from "@/hooks/usePermission";
 import { UserRole } from "@/types";
@@ -42,6 +43,7 @@ const MENU: MenuItem[] = [
 
 export default function MoreScreen() {
   const { user, tenant, logout } = useAuth();
+  const { t } = useT();
   const { can } = usePermission();
   const insets = useSafeAreaInsets();
 
@@ -55,8 +57,8 @@ export default function MoreScreen() {
   return (
     <View style={{ flex: 1 }}><GlassBackground />
     <ScrollView style={styles.container} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 105 }} showsVerticalScrollIndicator={false}>
-      <Text style={styles.eyebrow}>WORKSPACE</Text>
-      <Text style={styles.title}>More</Text>
+      <Text style={styles.eyebrow}>{t("WORKSPACE")}</Text>
+      <Text style={styles.title}>{t("More")}</Text>
       {user && (
         <Text style={styles.subtitle}>
           {user.name} · {user.role} · {tenant?.name ?? "—"}
@@ -70,7 +72,7 @@ export default function MoreScreen() {
           return <View key={`${item.href}-${item.label}`}>
             <Pressable accessibilityRole="button" onPress={() => router.push(item.href as never)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: "rgba(224,242,254,0.6)" }]}>
               <GradientIcon tone={tones[i] || "slate"}>{Icon ? <Icon color="#fff" /> : <Ionicons name={item.icon} size={20} color="#fff" />}</GradientIcon>
-              <Text style={[styles.rowLabel, { flex: 1 }]}>{item.label}</Text><Icons.IconChevronRight />
+              <Text style={[styles.rowLabel, { flex: 1 }]}>{t(item.label)}</Text><Icons.IconChevronRight />
             </Pressable>
             {index < visibleItems.length - 1 && <View style={{ height: 1, backgroundColor: "rgba(224,242,254,0.6)", marginHorizontal: 16 }} />}
           </View>;
@@ -81,7 +83,7 @@ export default function MoreScreen() {
         mode="outlined" icon={() => <Icons.IconLogout />} textColor={colors.danger} style={styles.logout} contentStyle={styles.logoutContent}
         onPress={async () => { await logout(); router.replace("/(auth)/login"); }}
       >
-        Log out
+        {t("Log out")}
       </Button>
     </ScrollView></View>
   );

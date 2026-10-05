@@ -303,7 +303,7 @@ export default function FollowupsScreen() {
 
       <Modal visible={addOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !saving && setAddOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !saving && setAddOpen(false)}>
-          <Pressable style={styles.sheet} onPress={() => {}}>
+          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8 }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Add Follow-up</Text>
             <ScrollView
@@ -399,6 +399,7 @@ const styles = StyleSheet.create({
   popoverText: { color: colors.text, fontSize: 14, fontWeight: "600" },
 
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
+  fullSheet: { height: "100%", maxHeight: "100%", borderTopLeftRadius: 0, borderTopRightRadius: 0 },
   sheet: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
   sheetHandle: { width: 34, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 10 },
   sheetTitle: { color: colors.text, fontSize: 15, fontWeight: "800", marginBottom: 10 },

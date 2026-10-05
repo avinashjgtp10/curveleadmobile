@@ -1,68 +1,51 @@
-import { GlassBackground, glass } from "@/components/Glass";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Appbar, Button, Chip, Divider, List, Searchbar, Switch, Text } from "react-native-paper";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Appbar, Button, Switch, Text, TextInput } from "react-native-paper";
 import axios from "axios";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
-import { useStages } from "@/hooks/useStages";
-import { fetchLeads, LeadListItem } from "@/api/leads";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  AutomationLead, AutomationRule, AutomationSequence, AutomationStatus, AutomationSummary,
+  fetchAutomationLeads, fetchRules, fetchSequences, setRuleActive, setSequenceActive, triggerLabel,
+} from "@/api/automations";
 
 const PAGE_SIZE = 25;
-const STATUS_FILTERS = [
-  { value: "", label: "All Status" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "converted", label: "Converted" },
-  { value: "lost", label: "Lost" },
-];
+
+type StatusKey = "" | "In Progress" | "Converted" | "Lost";
 
 function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
 
-function stageKey(name: string) {
-  return name.toLowerCase().replace(/\s+/g, "_");
-}
+const STATUS_STYLE: Record<AutomationStatus, { color: string; bg: string }> = {
+  "Not Enrolled": { color: "#64748b", bg: "#eef2f6" },
+  "In Progress": { color: "#1d4ed8", bg: "#dbeafe" },
+  Completed: { color: "#0f766e", bg: "#ccfbf1" },
+  Cancelled: { color: "#6b7280", bg: "#f3f4f6" },
+  Converted: { color: "#15803d", bg: "#dcfce7" },
+  Lost: { color: "#b91c1c", bg: "#fee2e2" },
+};
 
-function pretty(value?: string) {
-  if (!value) return "-";
-  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function statusFor(lead: LeadListItem, wonStages: string[], lostStages: string[]) {
-  const stage = (lead.stage || "").toLowerCase();
-  if (wonStages.includes(stage)) return "Converted";
-  if (lostStages.includes(stage)) return "Lost";
-  return "In Progress";
-}
-
-function statTone(value: string) {
-  if (value === "converted") return { icon: "checkmark-circle-outline" as const, bg: "#d1fae5", color: colors.success };
-  if (value === "lost") return { icon: "close-circle-outline" as const, bg: "#ffe4e6", color: colors.danger };
-  if (value === "in_progress") return { icon: "time-outline" as const, bg: "#fef3c7", color: colors.warning };
-  return { icon: "people-outline" as const, bg: "#e0e7ff", color: "#4f46e5" };
-}
-
-function StatCard({ label, value, tone }: { label: string; value: number; tone: string }) {
-  const item = statTone(tone);
+function StatTile({ label, value, icon, tint, bg, active, onPress }: {
+  label: string; value: number; icon: keyof typeof Ionicons.glyphMap; tint: string; bg: string; active: boolean; onPress: () => void;
+}) {
   return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIcon, { backgroundColor: item.color }]}>
-        <Ionicons name={item.icon} size={18} color={colors.surface} />
+    <Pressable onPress={onPress} style={[styles.statTile, active && { borderColor: tint, backgroundColor: bg }]}>
+      <View style={[styles.statIcon, { backgroundColor: active ? "#ffffff" : bg }]}>
+        <Ionicons name={icon} size={18} color={tint} />
       </View>
-      <View style={styles.statGlow} />
-      <Text style={styles.statLabel}>{label}</Text>
       <Text style={styles.statValue}>{value.toLocaleString("en-IN")}</Text>
-    </View>
+      <Text style={styles.statLabel} numberOfLines={1}>{label}</Text>
+    </Pressable>
   );
 }
 
-function AutomationLeadRow({ lead, wonStages, lostStages }: { lead: LeadListItem; wonStages: string[]; lostStages: string[] }) {
-  const status = statusFor(lead, wonStages, lostStages);
-  const statusColor = status === "Converted" ? colors.success : status === "Lost" ? colors.danger : colors.warning;
+function LeadCard({ lead }: { lead: AutomationLead }) {
+  const tone = STATUS_STYLE[lead.status] || STATUS_STYLE["Not Enrolled"];
   return (
     <Pressable
       accessibilityRole="button"
@@ -70,116 +53,77 @@ function AutomationLeadRow({ lead, wonStages, lostStages }: { lead: LeadListItem
         pathname: "/(app)/leads/[id]",
         params: { id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage || "new", source: lead.source || "" },
       })}
-      style={({ pressed }) => [styles.leadRow, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.leadCard, pressed && styles.pressed]}
     >
-      <View style={styles.leadIdentity}>
+      <View style={[styles.leadAvatar, { backgroundColor: tone.bg }]}>
+        <Text style={[styles.leadAvatarText, { color: tone.color }]}>{(lead.name?.charAt(0) || "?").toUpperCase()}</Text>
+      </View>
+      <View style={styles.leadBody}>
         <Text style={styles.leadName} numberOfLines={1}>{lead.name}</Text>
         <Text style={styles.leadPhone} numberOfLines={1}>{lead.phone}</Text>
-      </View>
-      <View style={styles.leadMeta}>
-        <Text style={styles.stepText} numberOfLines={1}>{pretty(lead.stage || "new")}</Text>
-        <View style={[styles.statusPill, { backgroundColor: `${statusColor}18` }]}>
-          <Text style={[styles.statusText, { color: statusColor }]}>{status}</Text>
+        <View style={styles.leadTags}>
+          <View style={styles.stepTag}>
+            <Ionicons name="git-branch-outline" size={11} color={colors.primary} />
+            <Text style={styles.stepTagText} numberOfLines={1}>{lead.step || "-"}</Text>
+          </View>
+          {lead.opted_out ? (
+            <View style={styles.optOutTag}><Text style={styles.optOutText}>Opted out</Text></View>
+          ) : null}
         </View>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+      <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
+        <Text style={[styles.statusText, { color: tone.color }]}>{lead.status}</Text>
+      </View>
     </Pressable>
-  );
-}
-
-function SettingRow({ title, description, value, onValueChange }: {
-  title: string; description: string; value: boolean; onValueChange: (value: boolean) => void;
-}) {
-  return (
-    <List.Item
-      title={title}
-      description={description}
-      titleStyle={styles.settingTitle}
-      descriptionStyle={styles.settingDescription}
-      right={() => <Switch value={value} onValueChange={onValueChange} color={colors.primary} />}
-      style={styles.settingRow}
-    />
   );
 }
 
 export default function LeadAutomationScreen() {
   const insets = useSafeAreaInsets();
-  const { stages } = useStages();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestId = useRef(0);
-  const [tab, setTab] = useState<"leads" | "settings">("leads");
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [tab, setTab] = useState<"leads" | "automations">("leads");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [stageFilter, setStageFilter] = useState("");
-  const [leads, setLeads] = useState<LeadListItem[]>([]);
+  const [statusFilter, setStatusFilter] = useState<StatusKey>("");
+  const [stepFilter, setStepFilter] = useState("");
+  const [leads, setLeads] = useState<AutomationLead[]>([]);
+  const [steps, setSteps] = useState<string[]>([]);
+  const [summary, setSummary] = useState<AutomationSummary>({ total: 0, inProgress: 0, converted: 0, lost: 0 });
   const [total, setTotal] = useState(0);
-  const [stats, setStats] = useState({ inProgress: 0, converted: 0, lost: 0 });
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
-  const [settings, setSettings] = useState({
-    autoAssign: true,
-    followupReminders: true,
-    inactiveLeadNudge: true,
-    conversionAlerts: true,
-  });
-  const activeFilterCount = [query, statusFilter, stageFilter].filter(Boolean).length;
-
-  const wonStages = useMemo(() => {
-    const configured = stages.filter((stage) => stage.is_won).map((stage) => stage.name.toLowerCase());
-    return configured.length ? configured : ["won", "converted", "enrolled"];
-  }, [stages]);
-
-  const lostStages = useMemo(() => {
-    const configured = stages.filter((stage) => stage.is_lost).map((stage) => stage.name.toLowerCase());
-    return configured.length ? configured : ["lost"];
-  }, [stages]);
-
-  const availableStages = useMemo(() => stages.length ? stages : [
-    { id: "new", name: "New", color: "blue", statuses: [] },
-    { id: "contacted", name: "Contacted", color: "yellow", statuses: [] },
-    { id: "qualified", name: "Qualified", color: "green", statuses: [] },
-  ], [stages]);
-
-  function paramsForStatus() {
-    if (stageFilter) return { stage: stageKey(stageFilter) };
-    if (statusFilter === "converted") return { stage: wonStages[0] };
-    if (statusFilter === "lost") return { stage: lostStages[0] };
-    if (statusFilter === "in_progress") return { hide_stages: [...wonStages, ...lostStages].join(",") };
-    return {};
-  }
+  const [sequences, setSequences] = useState<AutomationSequence[]>([]);
+  const [rules, setRules] = useState<AutomationRule[]>([]);
+  const [automationsLoading, setAutomationsLoading] = useState(false);
+  const [automationsError, setAutomationsError] = useState("");
+  const hasFilters = !!(query || statusFilter || stepFilter);
 
   const load = useCallback(async (nextPage = 1, append = false) => {
     const id = ++requestId.current;
     append ? setLoadingMore(true) : setLoading(true);
     setError("");
     try {
-      const [leadResult, totalResult, convertedResult, lostResult] = await Promise.all([
-        fetchLeads({
-          page: nextPage,
-          limit: PAGE_SIZE,
-          ...(query ? { search: query } : null),
-          ...paramsForStatus(),
-        }),
-        append ? Promise.resolve(null) : fetchLeads({ page: 1, limit: 1 }),
-        append ? Promise.resolve(null) : fetchLeads({ page: 1, limit: 1, stage: wonStages[0] }),
-        append ? Promise.resolve(null) : fetchLeads({ page: 1, limit: 1, stage: lostStages[0] }),
-      ]);
+      const result = await fetchAutomationLeads({
+        page: nextPage,
+        limit: PAGE_SIZE,
+        ...(query ? { search: query } : null),
+        ...(statusFilter ? { status: statusFilter } : null),
+        ...(stepFilter ? { step: stepFilter } : null),
+      });
       if (id !== requestId.current) return;
-      setLeads((current) => append ? [...current, ...leadResult.leads.filter((lead) => !current.some((item) => item.id === lead.id))] : leadResult.leads);
-      setTotal(leadResult.pagination.total);
-      setPage(leadResult.pagination.page);
-      setPages(leadResult.pagination.pages);
-      if (totalResult && convertedResult && lostResult) {
-        const converted = convertedResult.pagination.total;
-        const lost = lostResult.pagination.total;
-        setStats({ converted, lost, inProgress: Math.max(0, totalResult.pagination.total - converted - lost) });
-      }
+      setLeads((current) => append ? [...current, ...result.leads.filter((lead) => !current.some((item) => item.id === lead.id))] : result.leads);
+      setTotal(result.pagination.total);
+      setPage(result.pagination.page);
+      setPages(result.pagination.pages);
+      setSummary(result.summary);
+      setSteps(result.steps);
     } catch (loadError) {
       if (id !== requestId.current) return;
       setError(errorMessage(loadError, "Could not load automation leads."));
@@ -190,9 +134,25 @@ export default function LeadAutomationScreen() {
         setLoadingMore(false);
       }
     }
-  }, [query, statusFilter, stageFilter, wonStages, lostStages]);
+  }, [query, statusFilter, stepFilter]);
+
+  const loadAutomations = useCallback(async () => {
+    setAutomationsLoading(true);
+    setAutomationsError("");
+    try {
+      const [sequenceList, ruleList] = await Promise.all([fetchSequences(), fetchRules()]);
+      setSequences(sequenceList);
+      setRules(ruleList);
+    } catch (loadError) {
+      setAutomationsError(errorMessage(loadError, "Could not load your automations."));
+    } finally {
+      setAutomationsLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => { loadAutomations(); }, [loadAutomations]));
 
   useEffect(() => () => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -206,23 +166,40 @@ export default function LeadAutomationScreen() {
 
   function refresh() {
     setRefreshing(true);
-    load();
-  }
-
-  function setSetting(key: keyof typeof settings, value: boolean) {
-    setSettings((current) => ({ ...current, [key]: value }));
+    if (tab === "leads") load(); else loadAutomations();
   }
 
   function clearFilters() {
-    updateSearch("");
+    setSearch("");
     setQuery("");
     setStatusFilter("");
-    setStageFilter("");
+    setStepFilter("");
+  }
+
+  async function toggleSequence(item: AutomationSequence) {
+    const next = !item.is_active;
+    setSequences((current) => current.map((entry) => entry.id === item.id ? { ...entry, is_active: next } : entry));
+    try {
+      await setSequenceActive(item.id, next);
+    } catch (toggleError) {
+      setSequences((current) => current.map((entry) => entry.id === item.id ? { ...entry, is_active: !next } : entry));
+      Alert.alert("Couldn't update", errorMessage(toggleError, "Please try again."));
+    }
+  }
+
+  async function toggleRule(item: AutomationRule) {
+    const next = !item.is_active;
+    setRules((current) => current.map((entry) => entry.id === item.id ? { ...entry, is_active: next } : entry));
+    try {
+      await setRuleActive(item.id, next);
+    } catch (toggleError) {
+      setRules((current) => current.map((entry) => entry.id === item.id ? { ...entry, is_active: !next } : entry));
+      Alert.alert("Couldn't update", errorMessage(toggleError, "Please try again."));
+    }
   }
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
-      <GlassBackground />
+    <View style={styles.screen}>
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title="Lead Automation" titleStyle={styles.headerTitle} />
@@ -230,242 +207,232 @@ export default function LeadAutomationScreen() {
       </Appbar.Header>
 
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 104 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 110 }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} colors={[colors.primary]} />}
       >
-        <LinearGradient colors={["#4f46e5", "#4338ca"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
-          <View style={styles.heroIcon}>
-            <Ionicons name="git-network-outline" size={24} color={colors.surface} />
-          </View>
-          <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>Lead Automation</Text>
-            <Text style={styles.heroSubtitle}>Automate and track your lead follow-up journey.</Text>
+        <LinearGradient colors={["#4f46e5", "#0ea5e9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+          <View style={styles.heroIcon}><Ionicons name="git-network-outline" size={24} color="#ffffff" /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.heroTitle}>Follow-up on autopilot</Text>
+            <Text style={styles.heroSubtitle}>Track every lead's journey and let the follow-ups run themselves.</Text>
           </View>
           <View style={styles.heroCircleLarge} />
           <View style={styles.heroCircleSmall} />
         </LinearGradient>
 
-        <View style={styles.statsGrid}>
-          <StatCard label="Total Leads" value={total || stats.inProgress + stats.converted + stats.lost} tone="total" />
-          <StatCard label="In Progress" value={stats.inProgress} tone="in_progress" />
-          <StatCard label="Converted" value={stats.converted} tone="converted" />
-          <StatCard label="Lost" value={stats.lost} tone="lost" />
-        </View>
-
-        <View style={styles.tabs}>
-          <Pressable onPress={() => setTab("leads")} style={[styles.tabButton, tab === "leads" && styles.tabActive]}>
-            <Text style={[styles.tabText, tab === "leads" && styles.tabTextActive]}>Automation Leads</Text>
+        <View style={styles.segment}>
+          <Pressable onPress={() => setTab("leads")} style={[styles.segmentButton, tab === "leads" && styles.segmentActive]}>
+            <Ionicons name="people-outline" size={16} color={tab === "leads" ? colors.primary : colors.textSecondary} />
+            <Text style={[styles.segmentText, tab === "leads" && styles.segmentTextActive]}>Leads</Text>
           </Pressable>
-          <Pressable onPress={() => setTab("settings")} style={[styles.tabButton, tab === "settings" && styles.tabActive]}>
-            <Ionicons name="settings-outline" size={14} color={tab === "settings" ? colors.primary : colors.textSecondary} />
-            <Text style={[styles.tabText, tab === "settings" && styles.tabTextActive]}>Automation Settings</Text>
+          <Pressable onPress={() => setTab("automations")} style={[styles.segmentButton, tab === "automations" && styles.segmentActive]}>
+            <Ionicons name="flash-outline" size={16} color={tab === "automations" ? colors.primary : colors.textSecondary} />
+            <Text style={[styles.segmentText, tab === "automations" && styles.segmentTextActive]}>Automations</Text>
           </Pressable>
         </View>
 
         {tab === "leads" ? (
-          <View style={styles.panel}>
-            <View style={styles.panelHeader}>
-              <Text style={styles.panelTitle}>Automation Leads</Text>
-              <Button
-                mode={activeFilterCount ? "contained" : "outlined"}
-                icon="filter-variant"
-                compact
-                onPress={() => setFiltersOpen(true)}
-                style={styles.filterButton}
-              >
-                {activeFilterCount ? `Filters (${activeFilterCount})` : "Filters"}
-              </Button>
+          <>
+            <View style={styles.statsRow}>
+              <StatTile label="All" value={summary.total} icon="people-outline" tint="#4f46e5" bg="#e0e7ff" active={statusFilter === ""} onPress={() => setStatusFilter("")} />
+              <StatTile label="Active" value={summary.inProgress} icon="time-outline" tint="#2563eb" bg="#dbeafe" active={statusFilter === "In Progress"} onPress={() => setStatusFilter("In Progress")} />
+              <StatTile label="Won" value={summary.converted} icon="checkmark-circle-outline" tint="#16a34a" bg="#dcfce7" active={statusFilter === "Converted"} onPress={() => setStatusFilter("Converted")} />
+              <StatTile label="Lost" value={summary.lost} icon="close-circle-outline" tint="#dc2626" bg="#fee2e2" active={statusFilter === "Lost"} onPress={() => setStatusFilter("Lost")} />
             </View>
-            {activeFilterCount ? (
-              <View style={styles.activeFilters}>
-                {query ? <Chip compact onClose={() => updateSearch("")} style={styles.activeFilterChip}>Search: {query}</Chip> : null}
-                {statusFilter ? <Chip compact onClose={() => setStatusFilter("")} style={styles.activeFilterChip}>{STATUS_FILTERS.find((item) => item.value === statusFilter)?.label}</Chip> : null}
-                {stageFilter ? <Chip compact onClose={() => setStageFilter("")} style={styles.activeFilterChip}>Step: {stageFilter}</Chip> : null}
-              </View>
-            ) : null}
 
-            <View style={styles.tableHeader}>
-              <Text style={[styles.tableHeaderText, styles.nameColumn]}>Lead Name</Text>
-              <Text style={[styles.tableHeaderText, styles.stepColumn]}>Current Step</Text>
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={18} color={colors.textMuted} />
+              <TextInput
+                mode="flat"
+                value={search}
+                onChangeText={updateSearch}
+                placeholder="Search by name or phone"
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+                style={styles.searchField}
+                dense
+              />
+              {search ? (
+                <Pressable onPress={() => updateSearch("")} hitSlop={8}><Ionicons name="close-circle" size={18} color={colors.textMuted} /></Pressable>
+              ) : null}
+            </View>
+
+            {steps.length ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stepRow}>
+                <Pressable onPress={() => setStepFilter("")} style={[styles.stepChip, !stepFilter && styles.stepChipActive]}>
+                  <Text style={[styles.stepChipText, !stepFilter && styles.stepChipTextActive]}>All steps</Text>
+                </Pressable>
+                {steps.map((step) => {
+                  const active = stepFilter === step;
+                  return (
+                    <Pressable key={step} onPress={() => setStepFilter(active ? "" : step)} style={[styles.stepChip, active && styles.stepChipActive]}>
+                      <Text style={[styles.stepChipText, active && styles.stepChipTextActive]}>{step}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : <View style={{ height: 12 }} />}
+
+            <View style={styles.listHeader}>
+              <Text style={styles.listTitle}>{loading && !leads.length ? "Loading..." : `${total.toLocaleString("en-IN")} ${total === 1 ? "lead" : "leads"}`}</Text>
+              {hasFilters ? (
+                <Pressable onPress={clearFilters} hitSlop={8} style={styles.clearButton}>
+                  <Ionicons name="close" size={14} color={colors.primary} />
+                  <Text style={styles.clearText}>Clear filters</Text>
+                </Pressable>
+              ) : null}
             </View>
 
             {loading && !leads.length ? (
-              <View style={styles.center}>
-                <ActivityIndicator color={colors.primary} />
-                <Text style={styles.loadingText}>Loading automation leads...</Text>
-              </View>
+              <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>
             ) : error && !leads.length ? (
               <View style={styles.center}>
-                <Text style={styles.errorTitle}>Could not load leads</Text>
-                <Text style={styles.errorText}>{error}</Text>
+                <Ionicons name="cloud-offline-outline" size={30} color={colors.textMuted} />
+                <Text style={styles.emptyTitle}>Could not load leads</Text>
+                <Text style={styles.emptyText}>{error}</Text>
                 <Button mode="contained" onPress={() => load()} style={styles.retry}>Try again</Button>
               </View>
             ) : leads.length ? (
               <View style={styles.leadsList}>
-                {leads.map((lead) => <AutomationLeadRow key={lead.id} lead={lead} wonStages={wonStages} lostStages={lostStages} />)}
+                {leads.map((lead) => <LeadCard key={lead.id} lead={lead} />)}
                 {page < pages ? (
-                  <Button mode="outlined" loading={loadingMore} disabled={loadingMore} onPress={() => load(page + 1, true)} style={styles.loadMore}>
-                    Load more
-                  </Button>
+                  <Pressable style={styles.loadMore} onPress={() => load(page + 1, true)} disabled={loadingMore}>
+                    {loadingMore ? <ActivityIndicator size="small" color={colors.primary} /> : <Text style={styles.loadMoreText}>Load more</Text>}
+                  </Pressable>
                 ) : null}
               </View>
             ) : (
               <View style={styles.center}>
-                <Text style={styles.errorTitle}>No automation leads</Text>
-                <Text style={styles.errorText}>Try changing the status, step, or search.</Text>
+                <View style={styles.emptyIcon}><Ionicons name="funnel-outline" size={28} color={colors.primary} /></View>
+                <Text style={styles.emptyTitle}>No leads found</Text>
+                <Text style={styles.emptyText}>Try a different status, step or search.</Text>
               </View>
             )}
+          </>
+        ) : automationsLoading && !sequences.length && !rules.length ? (
+          <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>
+        ) : automationsError && !sequences.length && !rules.length ? (
+          <View style={styles.center}>
+            <Ionicons name="cloud-offline-outline" size={30} color={colors.textMuted} />
+            <Text style={styles.emptyTitle}>Could not load automations</Text>
+            <Text style={styles.emptyText}>{automationsError}</Text>
+            <Button mode="contained" onPress={loadAutomations} style={styles.retry}>Try again</Button>
           </View>
         ) : (
-          <View style={[styles.panel, styles.settingsPanel]}>
-            <View style={styles.settingsIntro}>
-              <Text style={styles.panelTitle}>Automation Settings</Text>
-              <Text style={styles.panelSubtitle}>Configure the same follow-up workflow controls for mobile.</Text>
-            </View>
-            <View style={styles.settingsList}>
-              <SettingRow title="Auto Assign New Leads" description="Route fresh leads to available team members." value={settings.autoAssign} onValueChange={(value) => setSetting("autoAssign", value)} />
-              <Divider />
-              <SettingRow title="Follow-up Reminders" description="Notify users before pending lead activities." value={settings.followupReminders} onValueChange={(value) => setSetting("followupReminders", value)} />
-              <Divider />
-              <SettingRow title="Inactive Lead Nudges" description="Surface leads that have not moved recently." value={settings.inactiveLeadNudge} onValueChange={(value) => setSetting("inactiveLeadNudge", value)} />
-              <Divider />
-              <SettingRow title="Conversion Alerts" description="Alert admins when a lead is converted or lost." value={settings.conversionAlerts} onValueChange={(value) => setSetting("conversionAlerts", value)} />
-            </View>
+          <View style={styles.settingsList}>
+            {!isAdmin ? <Text style={styles.settingsHint}>Only admins can switch automations on or off.</Text> : null}
+
+            <Text style={styles.groupTitle}>Sequences</Text>
+            <Text style={styles.groupHint}>Message series sent to a lead over time.</Text>
+            {sequences.length ? sequences.map((item) => (
+              <View key={item.id} style={styles.settingCard}>
+                <View style={[styles.settingIcon, { backgroundColor: "#e0e7ff" }]}>
+                  <Ionicons name="layers-outline" size={20} color="#4f46e5" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingTitle} numberOfLines={1}>{item.name}</Text>
+                  <Text style={styles.settingDescription} numberOfLines={2}>
+                    {item.steps?.length || 0} {item.steps?.length === 1 ? "step" : "steps"}{item.description ? ` · ${item.description}` : ""}
+                  </Text>
+                </View>
+                <Switch value={!!item.is_active} onValueChange={() => toggleSequence(item)} disabled={!isAdmin} color={colors.primary} />
+              </View>
+            )) : <Text style={styles.noneText}>No sequences yet. Create one on the web.</Text>}
+
+            <Text style={[styles.groupTitle, { marginTop: 10 }]}>Trigger rules</Text>
+            <Text style={styles.groupHint}>When a rule matches, the lead joins a sequence automatically.</Text>
+            {rules.length ? rules.map((item) => (
+              <View key={item.id} style={styles.settingCard}>
+                <View style={[styles.settingIcon, { backgroundColor: "#fef3c7" }]}>
+                  <Ionicons name="flash-outline" size={20} color="#d97706" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingTitle} numberOfLines={1}>{item.name}</Text>
+                  <Text style={styles.settingDescription} numberOfLines={2}>
+                    {triggerLabel(item)}{item.sequence_name ? ` → ${item.sequence_name}` : ""}
+                  </Text>
+                </View>
+                <Switch value={!!item.is_active} onValueChange={() => toggleRule(item)} disabled={!isAdmin} color={colors.primary} />
+              </View>
+            )) : <Text style={styles.noneText}>No trigger rules yet. Create one on the web.</Text>}
           </View>
         )}
       </ScrollView>
-
-      <Modal visible={filtersOpen} animationType="slide" onRequestClose={() => setFiltersOpen(false)}>
-        <View style={styles.filterBackdrop}>
-          <View style={[styles.filterPanel, { paddingTop: insets.top + 24, paddingBottom: Math.max(insets.bottom, 18) }]}>
-            <View style={styles.filterTopBar}>
-              <Pressable accessibilityRole="button" onPress={() => setFiltersOpen(false)} style={styles.filterBackButton}>
-                <Ionicons name="arrow-back" size={30} color={colors.text} />
-              </Pressable>
-              <Text style={styles.filterTitle}>Filters</Text>
-            </View>
-            <ScrollView style={styles.filterContent} contentContainerStyle={styles.filterContentInner} showsVerticalScrollIndicator={false}>
-            <Searchbar
-              value={search}
-              onChangeText={updateSearch}
-              placeholder="Search Lead"
-              style={styles.search}
-              inputStyle={styles.searchInput}
-            />
-
-            <Text style={styles.filterLabel}>Status</Text>
-            <View style={styles.sheetChipRow}>
-              {STATUS_FILTERS.map((item) => (
-                <Chip
-                  key={item.value || "all"}
-                  selected={statusFilter === item.value}
-                  showSelectedCheck={false}
-                  onPress={() => setStatusFilter(item.value)}
-                  style={[styles.filterChip, statusFilter === item.value && styles.filterChipActive]}
-                >
-                  {item.label}
-                </Chip>
-              ))}
-            </View>
-
-            <Text style={styles.filterLabel}>Steps</Text>
-            <View style={styles.sheetChipRow}>
-              <Chip selected={!stageFilter} showSelectedCheck={false} onPress={() => setStageFilter("")} style={[styles.filterChip, !stageFilter && styles.filterChipActive]}>All Steps</Chip>
-              {availableStages.map((stage) => (
-                <Chip
-                  key={stage.id || stage.name}
-                  selected={stageFilter === stage.name}
-                  showSelectedCheck={false}
-                  onPress={() => setStageFilter(stageFilter === stage.name ? "" : stage.name)}
-                  style={[styles.filterChip, stageFilter === stage.name && styles.filterChipActive]}
-                >
-                  {stage.name}
-                </Chip>
-              ))}
-            </View>
-            </ScrollView>
-
-            <View style={styles.filterFooter}>
-              <Button mode="outlined" onPress={clearFilters} style={styles.sheetActionButton} contentStyle={styles.filterActionContent}>Clear</Button>
-              <Button mode="contained" onPress={() => setFiltersOpen(false)} style={styles.sheetActionButton} contentStyle={styles.filterActionContent}>Done</Button>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: "transparent" },
-  headerTitle: { color: colors.text, fontSize: 16, fontWeight: "800" },
-  hero: { minHeight: 98, borderRadius: 14, padding: 18, flexDirection: "row", alignItems: "center", overflow: "hidden", marginTop: 8 },
-  heroIcon: { width: 44, height: 44, borderRadius: 11, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", marginRight: 14 },
-  heroCopy: { flex: 1, zIndex: 2 },
-  heroTitle: { color: colors.surface, fontSize: 20, fontWeight: "900" },
-  heroSubtitle: { color: "#e0e7ff", fontSize: 13, marginTop: 4 },
-  heroCircleLarge: { position: "absolute", width: 126, height: 126, borderRadius: 63, backgroundColor: "rgba(255,255,255,0.12)", right: -30, top: -28 },
-  heroCircleSmall: { position: "absolute", width: 78, height: 78, borderRadius: 39, backgroundColor: "rgba(255,255,255,0.13)", right: 44, bottom: -26 },
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 14 },
-  statCard: { ...glass, width: "48%", minHeight: 118, borderRadius: 12, padding: 14, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.82)" },
-  statIcon: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  statGlow: { position: "absolute", width: 74, height: 74, borderRadius: 37, right: -14, top: -14, backgroundColor: "rgba(79,70,229,0.09)" },
-  statLabel: { color: colors.textSecondary, fontSize: 12, marginTop: 12 },
-  statValue: { color: colors.text, fontSize: 26, fontWeight: "900", marginTop: 2 },
-  tabs: { flexDirection: "row", gap: 8, marginTop: 20, marginBottom: 14 },
-  tabButton: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 14, borderRadius: 9, backgroundColor: "rgba(255,255,255,0.48)" },
-  tabActive: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSoft },
-  tabText: { color: colors.textSecondary, fontSize: 13, fontWeight: "800" },
-  tabTextActive: { color: colors.primary },
-  panel: { ...glass, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.88)", padding: 14 },
-  panelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 },
-  panelTitle: { color: colors.text, fontSize: 16, fontWeight: "900", lineHeight: 22 },
-  panelSubtitle: { color: colors.textSecondary, fontSize: 13, lineHeight: 20, marginTop: 18 },
-  settingsPanel: { paddingTop: 28 },
-  settingsIntro: { marginBottom: 22 },
-  filterButton: { borderRadius: 8 },
-  activeFilters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
-  activeFilterChip: { backgroundColor: colors.primarySoft },
-  search: { height: 44, borderRadius: 8, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSoft },
-  searchInput: { fontSize: 13, minHeight: 44 },
-  filterChip: { borderRadius: 8, backgroundColor: colors.surface },
-  filterChipActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  tableHeader: { flexDirection: "row", paddingTop: 18, paddingBottom: 8, paddingHorizontal: 2 },
-  tableHeaderText: { color: colors.textMuted, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
-  nameColumn: { flex: 1.1 },
-  stepColumn: { flex: 0.9, textAlign: "right" },
-  leadsList: { borderWidth: 1, borderColor: colors.borderSoft, borderRadius: 12, overflow: "hidden", backgroundColor: colors.surface },
-  leadRow: { minHeight: 70, flexDirection: "row", alignItems: "center", paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
-  pressed: { backgroundColor: colors.primarySoft },
-  leadIdentity: { flex: 1.1, minWidth: 0 },
-  leadName: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  leadPhone: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
-  leadMeta: { flex: 0.9, alignItems: "flex-end", minWidth: 0, marginHorizontal: 8 },
-  stepText: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", maxWidth: 130 },
-  statusPill: { marginTop: 6, borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3 },
-  statusText: { fontSize: 10, fontWeight: "900" },
-  loadMore: { margin: 12, borderRadius: 8 },
-  center: { minHeight: 190, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
-  loadingText: { color: colors.textSecondary, fontSize: 12, marginTop: 10 },
-  errorTitle: { color: colors.text, fontSize: 15, fontWeight: "900" },
-  errorText: { color: colors.textSecondary, fontSize: 12, textAlign: "center", marginTop: 6, lineHeight: 18 },
-  retry: { marginTop: 14 },
-  settingsList: { borderWidth: 1, borderColor: colors.borderSoft, borderRadius: 12, overflow: "hidden", backgroundColor: colors.surface },
-  settingRow: { paddingVertical: 8 },
+  screen: { flex: 1, backgroundColor: "#ffffff" },
+  header: { backgroundColor: "#ffffff" },
+  headerTitle: { color: colors.text, fontSize: 17, fontWeight: "800" },
+
+  hero: { borderRadius: 20, padding: 18, flexDirection: "row", alignItems: "center", gap: 14, overflow: "hidden", marginTop: 4 },
+  heroIcon: { width: 46, height: 46, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  heroTitle: { color: "#ffffff", fontSize: 18, fontWeight: "900" },
+  heroSubtitle: { color: "rgba(255,255,255,0.88)", fontSize: 12, lineHeight: 17, marginTop: 3 },
+  heroCircleLarge: { position: "absolute", width: 120, height: 120, borderRadius: 60, backgroundColor: "rgba(255,255,255,0.1)", right: -30, top: -34 },
+  heroCircleSmall: { position: "absolute", width: 70, height: 70, borderRadius: 35, backgroundColor: "rgba(255,255,255,0.1)", right: 50, bottom: -28 },
+
+  segment: { flexDirection: "row", backgroundColor: "#f1f6fa", borderRadius: 14, padding: 4, marginTop: 16 },
+  segmentButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 40, borderRadius: 11 },
+  segmentActive: { backgroundColor: "#ffffff", shadowColor: "#0f172a", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  segmentText: { color: colors.textSecondary, fontSize: 14, fontWeight: "700" },
+  segmentTextActive: { color: colors.primary },
+
+  statsRow: { flexDirection: "row", gap: 8, marginTop: 14 },
+  statTile: { flex: 1, borderRadius: 16, borderWidth: 1.5, borderColor: "#e2eef7", backgroundColor: "#ffffff", paddingVertical: 12, paddingHorizontal: 8, alignItems: "center" },
+  statIcon: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  statValue: { color: colors.text, fontSize: 18, fontWeight: "900", marginTop: 8 },
+  statLabel: { color: colors.textSecondary, fontSize: 11, fontWeight: "700", marginTop: 1 },
+
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f4f9fc", borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", paddingLeft: 12, paddingRight: 12, minHeight: 48, marginTop: 14 },
+  searchField: { flex: 1, backgroundColor: "transparent", fontSize: 14 },
+
+  stepRow: { gap: 8, paddingVertical: 12 },
+  stepChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#d7e6f1" },
+  stepChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  stepChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
+  stepChipTextActive: { color: "#ffffff" },
+
+  listHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  listTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  clearButton: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  clearText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
+
+  leadsList: { gap: 10 },
+  leadCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: "#e2eef7", padding: 12 },
+  pressed: { backgroundColor: "#f4f9fc" },
+  leadAvatar: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
+  leadAvatarText: { fontSize: 18, fontWeight: "900" },
+  leadBody: { flex: 1, minWidth: 0 },
+  leadName: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  leadPhone: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  leadTags: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
+  stepTag: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, flexShrink: 1 },
+  stepTagText: { color: colors.primary, fontSize: 11, fontWeight: "800", flexShrink: 1 },
+  optOutTag: { backgroundColor: "#fee2e2", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  optOutText: { color: "#b91c1c", fontSize: 10, fontWeight: "800" },
+  statusPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  statusText: { fontSize: 11, fontWeight: "800" },
+  loadMore: { alignItems: "center", justifyContent: "center", height: 46, borderRadius: 14, borderWidth: 1.5, borderColor: "#bae6fd", backgroundColor: "#f0f9ff" },
+  loadMoreText: { color: colors.primary, fontSize: 14, fontWeight: "800" },
+
+  center: { minHeight: 200, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, gap: 6 },
+  emptyIcon: { width: 60, height: 60, borderRadius: 20, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  emptyTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  emptyText: { color: colors.textSecondary, fontSize: 12, textAlign: "center", lineHeight: 18 },
+  retry: { marginTop: 10 },
+
+  settingsList: { gap: 10, marginTop: 14 },
+  settingsHint: { color: colors.textSecondary, fontSize: 12, backgroundColor: "#fff7ed", borderRadius: 12, padding: 10 },
+  groupTitle: { color: colors.text, fontSize: 16, fontWeight: "900" },
+  groupHint: { color: colors.textSecondary, fontSize: 12, marginTop: -6 },
+  noneText: { color: colors.textMuted, fontSize: 13, textAlign: "center", paddingVertical: 14, backgroundColor: "#f8fbfd", borderRadius: 14 },
+  settingCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: "#e2eef7", padding: 14 },
+  settingIcon: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   settingTitle: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  settingDescription: { color: colors.textSecondary, fontSize: 12, lineHeight: 17 },
-  filterBackdrop: { flex: 1, backgroundColor: colors.background },
-  filterPanel: { flex: 1, backgroundColor: colors.background },
-  filterTopBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 24, marginBottom: 24 },
-  filterBackButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", marginRight: 20 },
-  filterTitle: { color: colors.text, fontSize: 22, fontWeight: "900" },
-  filterContent: { flex: 1 },
-  filterContentInner: { paddingHorizontal: 24, paddingBottom: 24 },
-  filterLabel: { color: colors.text, fontSize: 12, fontWeight: "900", marginTop: 18, marginBottom: 10 },
-  sheetChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  filterFooter: { flexDirection: "row", gap: 14, paddingHorizontal: 24, paddingTop: 18, paddingBottom: 24, borderTopWidth: 1, borderTopColor: colors.borderSoft, backgroundColor: colors.background },
-  sheetActionButton: { flex: 1 },
-  filterActionContent: { height: 50 },
+  settingDescription: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 2 },
 });

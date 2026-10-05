@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { ImportLeadsResult, importLeadsFile } from "@/api/leads";
+import { notifyLeadsAdded } from "@/api/notifications";
 
 const FILE_TYPES = [
   "text/csv",
@@ -36,6 +37,7 @@ export default function ImportLeadsScreen() {
     try {
       const uploaded = await importLeadsFile({ uri: file.uri, name: file.name, mimeType: file.mimeType });
       setResult(uploaded);
+      notifyLeadsAdded(uploaded.inserted, "Spreadsheet import").catch(() => {});
     } catch (uploadError) {
       setError(errorMessage(uploadError, "Could not import this file. Check the format and try again."));
     } finally { setUploading(false); }

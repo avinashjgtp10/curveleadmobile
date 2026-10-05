@@ -72,3 +72,26 @@ export async function syncAdInsights() {
   const { data } = await apiClient.post<{ message: string }>("/integrations/facebook/sync-ad-insights");
   return data;
 }
+
+export interface GoogleAdsIntegration {
+  id: string;
+  name?: string;
+  is_active: boolean;
+}
+
+// The web decides "Google Ads connected" from this list (any active integration), not from the settings flag.
+export async function fetchGoogleAdsIntegrations() {
+  const { data } = await apiClient.get<{ integrations: GoogleAdsIntegration[] }>("/integrations/google-ads");
+  return data.integrations || [];
+}
+
+export interface WhatsappReconnectResult {
+  warning?: string;
+  display_phone_number?: string;
+}
+
+// Re-checks the saved WhatsApp token with Meta and re-subscribes webhooks.
+export async function reconnectWhatsapp() {
+  const { data } = await apiClient.post<WhatsappReconnectResult>("/integrations/whatsapp/reconnect");
+  return data;
+}
