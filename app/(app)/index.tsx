@@ -2,7 +2,7 @@ import { IconBell, SvgUserAdd, SvgCalendar, SvgFolder } from "@/components/Refer
 import { glass, GradientIcon, GradientNumber } from "@/components/Glass";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ImageBackground, InteractionManager, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
+  ImageBackground, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card, TextInput } from "react-native-paper";
 import { LinearGradient } from "expo-linear-gradient";
@@ -338,7 +338,8 @@ export default function DashboardScreen() {
     // That's a big download, so it waits until the dashboard has painted instead of competing with it.
     if (!dashboardReady) return;
     let cancelled = false;
-    const task = InteractionManager.runAfterInteractions(() => {
+    // A short delay lets the dashboard paint first (InteractionManager is deprecated).
+    const task = setTimeout(() => {
       fetchLeads({ limit: 500 }).then((page) => {
         if (cancelled) return;
         const bySource = new Map<string, { leads: number; won: number }>();
@@ -354,8 +355,8 @@ export default function DashboardScreen() {
           .sort((a, b) => b.leads - a.leads);
         setLeadSources(rows);
       }).catch(() => { if (!cancelled) setLeadSources(null); });
-    });
-    return () => { cancelled = true; task.cancel(); };
+    }, 300);
+    return () => { cancelled = true; clearTimeout(task); };
   }, [dashboardReady]);
 
   const load = useCallback(async (refresh = false) => {
