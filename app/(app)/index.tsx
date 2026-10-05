@@ -2,7 +2,7 @@ import { IconBell, SvgUserAdd, SvgCalendar, SvgFolder } from "@/components/Refer
 import { glass, GradientIcon, GradientNumber } from "@/components/Glass";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ImageBackground, InteractionManager, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
+  ImageBackground, InteractionManager, Keyboard, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card } from "react-native-paper";
 import { LinearGradient } from "expo-linear-gradient";
@@ -344,6 +344,14 @@ export default function DashboardScreen() {
   const [error, setError] = useState("");
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Keeps the last results scrollable above the keyboard, whether or not Android also shrinks the window.
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (event) => setKeyboardHeight(event.endCoordinates.height));
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
 
   const [setupExpanded, setSetupExpanded] = useState(false);
@@ -687,8 +695,8 @@ export default function DashboardScreen() {
         ) : null}
       </ScrollView>
 
-      <Modal visible={searchOpen} animationType="slide" statusBarTranslucent onRequestClose={() => setSearchOpen(false)}>
-        <KeyboardAvoidingView style={[styles.searchScreen, { paddingTop: insets.top + 12 }]} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <Modal visible={searchOpen} animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setSearchOpen(false)}>
+        <View style={[styles.searchScreen, { paddingTop: insets.top + 12 }]}>
           <View style={styles.searchModalRow}>
             <View style={styles.searchModalInputWrap}>
               <Ionicons name="search-outline" size={18} color={colors.textMuted} />
@@ -708,7 +716,7 @@ export default function DashboardScreen() {
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.searchResults} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={[styles.searchResults, { paddingBottom: 24 + Math.max(keyboardHeight, insets.bottom) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
             {(searchQuery.trim()
               ? SEARCH_ITEMS.filter((item) => item.label.toLowerCase().includes(searchQuery.trim().toLowerCase()))
               : SEARCH_ITEMS
@@ -728,7 +736,7 @@ export default function DashboardScreen() {
               <Text style={styles.searchEmptyText}>No matches for "{searchQuery.trim()}".</Text>
             ) : null}
           </ScrollView>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
     </View>
   );
