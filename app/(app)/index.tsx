@@ -210,7 +210,7 @@ function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress:
     { icon: "videocam-outline", label: "Demos", value: data.demos_today, tone: TONE.violet },
     { icon: "alert-circle-outline", label: "Overdue", value: data.overdue_followups, tone: TONE.pink },
     { icon: "flame-outline", label: "Hot Leads", value: data.hot_leads, tone: TONE.amber },
-    { icon: "warning-outline", label: "Critical Follow-ups", value: data.critical_followups, tone: TONE.pink },
+    { icon: "warning-outline", label: "Critical", value: data.critical_followups, tone: TONE.pink },
   ];
 
   return (
@@ -224,14 +224,12 @@ function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress:
       </View>
       <View style={styles.activityGrid}>
         {items.map((item) => (
-          <View key={item.label} style={styles.activityTile}>
-            <View style={styles.activityTileTop}>
-              <View style={[styles.activityTileIcon, { backgroundColor: item.tone.bg }]}>
-                <Ionicons name={item.icon as IconName} size={14} color={item.tone.iconColor} />
-              </View>
-              <Text style={styles.activityTileLabel} numberOfLines={1}>{t(item.label)}</Text>
+          <View key={item.label} style={[styles.activityTile, { backgroundColor: item.tone.bg }]}>
+            <View style={styles.activityTileIcon}>
+              <Ionicons name={item.icon as IconName} size={16} color={item.tone.iconColor} />
             </View>
-            <Text style={styles.activityTileValue}>{fmt(item.value)}</Text>
+            <Text style={[styles.activityTileValue, { color: item.tone.iconColor }]}>{fmt(item.value)}</Text>
+            <Text style={styles.activityTileLabel} numberOfLines={1}>{t(item.label)}</Text>
           </View>
         ))}
       </View>
@@ -602,38 +600,6 @@ export default function DashboardScreen() {
               <StatTile label="Follow-ups Due Today" value={fmt(data.followups_today)} />
             </View>
 
-            {false ? (
-            <View style={styles.activityCard}>
-              <View style={styles.activityHeaderRow}>
-                <View style={styles.activityIconWrap}><Ionicons name="calendar-outline" size={18} color={colors.primary} /></View>
-                <Text style={styles.activityTitle}>{t("Today's Activity")}</Text>
-                <Pressable style={{ marginLeft: "auto" }} onPress={() => router.push("/(app)/leads")}>
-                  <Text style={styles.activityViewAll}>{t("View all ›")}</Text>
-                </Pressable>
-              </View>
-              <View style={styles.activityGrid}>
-                {[
-                  { icon: "person-add-outline", label: "New Leads", value: data?.leads_today, tone: TONE.sky },
-                  { icon: "calendar-outline", label: "Follow-ups", value: data?.followups_today, tone: TONE.emerald },
-                  { icon: "videocam-outline", label: "Demos", value: data?.demos_today, tone: TONE.violet },
-                  { icon: "alert-circle-outline", label: "Overdue", value: data?.overdue_followups, tone: TONE.pink },
-                  { icon: "flame-outline", label: "Hot Leads", value: data?.hot_leads, tone: TONE.amber },
-                  { icon: "warning-outline", label: "Critical Follow-ups", value: data?.critical_followups, tone: TONE.pink },
-                ].map((item) => (
-                  <View key={item.label} style={styles.activityTile}>
-                    <View style={styles.activityTileTop}>
-                      <View style={[styles.activityTileIcon, { backgroundColor: item.tone.bg }]}>
-                        <Ionicons name={item.icon as IconName} size={14} color={item.tone.iconColor} />
-                      </View>
-                      <Text style={styles.activityTileLabel} numberOfLines={1}>{t(item.label)}</Text>
-                    </View>
-                    <Text style={styles.activityTileValue}>{fmt(item.value)}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-            ) : null}
-
             {leadSources?.length ? (
               <View style={styles.sourcesCard}>
                 <View style={styles.sourcesHeaderRow}>
@@ -836,11 +802,10 @@ const styles = StyleSheet.create({
   activityTitle: { color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold" },
   activityViewAll: { color: colors.primary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
   activityGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  activityTile: { width: "31%", flexGrow: 1, backgroundColor: colors.surfaceMuted, borderRadius: 12, padding: 10 },
-  activityTileTop: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
-  activityTileIcon: { width: 22, height: 22, borderRadius: 7, alignItems: "center", justifyContent: "center" },
-  activityTileLabel: { flex: 1, color: colors.textSecondary, fontSize: 10, fontFamily: "Inter_600SemiBold" },
-  activityTileValue: { color: colors.text, fontSize: 18, fontFamily: "Inter_700Bold" },
+  activityTile: { width: "31%", flexGrow: 1, borderRadius: 16, padding: 12, alignItems: "flex-start" },
+  activityTileIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.85)", alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  activityTileLabel: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_600SemiBold", marginTop: 1 },
+  activityTileValue: { fontSize: 22, fontFamily: "Inter_700Bold" },
 
   sourcesCard: { ...glass, marginHorizontal: 16, marginBottom: 16, padding: 16 },
   sourcesHeaderRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 },
