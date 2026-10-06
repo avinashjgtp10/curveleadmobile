@@ -244,6 +244,10 @@ export default function LeadDetailScreen() {
   const [followupNotes, setFollowupNotes] = useState("");
   const [followupMeetingUrl, setFollowupMeetingUrl] = useState("");
   const [schedulingFollowup, setSchedulingFollowup] = useState(false);
+  const [emailSheetOpen, setEmailSheetOpen] = useState(false);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [savingEmail, setSavingEmail] = useState(false);
 
   const [activityOptionsOpen, setActivityOptionsOpen] = useState(false);
   const [logSheetOpen, setLogSheetOpen] = useState(false);
@@ -287,6 +291,33 @@ export default function LeadDetailScreen() {
       created_at: now,
     }, ...current]);
     openUrl(url, fallback);
+  }
+
+  function openEmailAction() {
+    if (!lead) return;
+    if (lead.email) {
+      contactLead("email", `mailto:${lead.email}`, "Email could not be opened.");
+      return;
+    }
+    setEmailDraft("");
+    setEmailError("");
+    setEmailSheetOpen(true);
+  }
+
+  async function saveEmailAndOpen() {
+    if (!lead) return;
+    const email = emailDraft.trim();
+    if (!email) { setEmailError("Enter an email address."); return; }
+    if (!/^\S+@\S+\.\S+$/.test(email)) { setEmailError("Enter a valid email address."); return; }
+    setSavingEmail(true); setEmailError("");
+    try {
+      const updated = await updateLeadDetails(lead.id, { email });
+      setLead((current) => current ? { ...current, ...updated } : updated);
+      setEmailSheetOpen(false);
+      await contactLead("email", `mailto:${email}`, "Email could not be opened.");
+    } catch (saveEmailError) {
+      setEmailError(errorMessage(saveEmailError, "Could not save this email. Please try again."));
+    } finally { setSavingEmail(false); }
   }
 
   async function saveField(field: keyof UpdateLeadInput, value: string) {
@@ -443,7 +474,7 @@ export default function LeadDetailScreen() {
         <View style={styles.actionsRow}>
           <Button mode="contained" icon="phone" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")}>Call</Button>
           <Button mode="outlined" icon="whatsapp" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("whatsapp", `https://wa.me/${lead.phone.replace(/\D/g, "")}`, "WhatsApp could not be opened.")}>WhatsApp</Button>
-          <Button mode="outlined" icon="email-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => lead.email ? contactLead("email", `mailto:${lead.email}`, "Email could not be opened.") : Alert.alert("No email", "Add an email address to this lead first.")}>Email</Button>
+          <Button mode="outlined" icon="email-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={openEmailAction}>Email</Button>
         </View>
 
         <SegmentedButtons
@@ -649,6 +680,32 @@ export default function LeadDetailScreen() {
               ))}
             </View>
             <Button mode="outlined" onPress={() => setActivityOptionsOpen(false)} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={emailSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !savingEmail && setEmailSheetOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => !savingEmail && setEmailSheetOpen(false)}>
+          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Add Email</Text>
+            <Text style={styles.sheetHint}>Save an email address for {lead.name}, then the email composer will open.</Text>
+            {emailError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{emailError}</Text></View> : null}
+            <TextInput
+              mode="outlined"
+              label="Email address"
+              value={emailDraft}
+              onChangeText={(value) => { setEmailDraft(value); setEmailError(""); }}
+              placeholder="email@gmail.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="email"
+              disabled={savingEmail}
+              style={styles.sheetField}
+            />
+            <Button mode="contained" onPress={saveEmailAndOpen} loading={savingEmail} disabled={savingEmail} style={styles.sheetPrimaryButton} contentStyle={styles.sheetButtonContent}>Save & Email</Button>
+            <Button mode="outlined" onPress={() => setEmailSheetOpen(false)} disabled={savingEmail} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
           </Pressable>
         </Pressable>
       </Modal>
