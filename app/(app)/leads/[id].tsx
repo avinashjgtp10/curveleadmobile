@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert, Linking, Modal, Pressable,
+  Alert, Keyboard, Linking, Modal, Pressable,
   RefreshControl, ScrollView, StyleSheet, TextInput as RNTextInput, View,
 } from "react-native";
 import {
@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
+import { LeadNotes } from "@/components/LeadNotes";
 import { useStages } from "@/hooks/useStages";
 import { telUrl } from "@/api/phone";
 import {
@@ -227,6 +228,24 @@ export default function LeadDetailScreen() {
   const [error, setError] = useState("");
   const [notFound, setNotFound] = useState(false);
 
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useRef(0);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (event) => setKeyboardHeight(event.endCoordinates.height));
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+
+  // Bring a form that sits below the keyboard up to just under the header.
+  const revealInScroll = useCallback((view: View | null) => {
+    setTimeout(() => {
+      view?.measureInWindow((_x, y) => {
+        scrollRef.current?.scrollTo({ y: Math.max(0, scrollY.current + y - 130), animated: true });
+      });
+    }, 250);
+  }, []);
+
   const { stages, colorFor, statusesFor } = useStages();
   const [stageSheetOpen, setStageSheetOpen] = useState(false);
   const [updatingStage, setUpdatingStage] = useState(false);
@@ -430,7 +449,9 @@ export default function LeadDetailScreen() {
       </Appbar.Header>
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: insets.bottom + 60 }} showsVerticalScrollIndicator={false}
+        ref={scrollRef} keyboardShouldPersistTaps="handled" scrollEventThrottle={16}
+        onScroll={(event) => { scrollY.current = event.nativeEvent.contentOffset.y; }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 60 + keyboardHeight }} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} colors={[colors.primary]} />}
       >
         <View style={styles.nameBlock}>
@@ -486,6 +507,8 @@ export default function LeadDetailScreen() {
               icon="chatbubble-ellipses-outline" label="Interaction Notes" value={lead.notes || ""} multiline
               placeholder="Add useful context for your team…" onSave={(value) => saveField("notes", value)}
             />
+
+            <LeadNotes leadId={lead.id} onAdded={() => load(true)} onFormOpen={revealInScroll} />
           </View>
         ) : tab === "details" ? (
           <View style={styles.body}>
