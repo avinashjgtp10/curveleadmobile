@@ -105,6 +105,9 @@ function QuickTile({ icon, label, onPress }: { icon: IconName; label: string; on
   );
 }
 
+const STAGE_COLORS = ["#0ea5e9", "#6366f1", "#f59e0b", "#10b981", "#ec4899", "#8b5cf6"];
+const STAGE_TINTS = ["#e0f2fe", "#e0e7ff", "#fef3c7", "#dcfce7", "#fce7f3", "#ede9fe"];
+
 function LeadsByStageCard({ stages, onPress }: { stages: DashboardSummary["pipeline"]; onPress: () => void }) {
   const { t } = useT();
   const { width } = useWindowDimensions();
@@ -119,13 +122,13 @@ function LeadsByStageCard({ stages, onPress }: { stages: DashboardSummary["pipel
       </Pressable>
       {stages.length ? (
         <View style={styles.stageColumns}>
-          {stages.map((stage) => (
-            <Pressable key={stage.name} style={[styles.stageColumn, { width: `${(100 - (columns - 1) * 3) / columns}%` }]} onPress={onPress}>
+          {stages.map((stage, stageIndex) => (
+            <Pressable key={stage.name} style={[styles.stageColumn, { width: `${(100 - (columns - 1) * 3) / columns}%`, backgroundColor: STAGE_TINTS[stageIndex % STAGE_TINTS.length], borderColor: STAGE_TINTS[stageIndex % STAGE_TINTS.length] }]} onPress={onPress}>
               <Text style={styles.stageName} numberOfLines={1}>{pretty(stage.name).toUpperCase()}</Text>
-              <Text style={styles.stageCount}>{fmt(stage.count)}</Text>
+              <Text style={[styles.stageCount, { color: STAGE_COLORS[stageIndex % STAGE_COLORS.length] }]}>{fmt(stage.count)}</Text>
               <Text style={styles.stagePercent}>{totalCount ? `${Math.round((stage.count / totalCount) * 100)}%` : "0%"}</Text>
               <View style={styles.stageTrack}>
-                <View style={[styles.stageFill, { width: `${Math.max(4, (stage.count / maxCount) * 100)}%` }]} />
+                <View style={[styles.stageFill, { width: `${Math.max(4, (stage.count / maxCount) * 100)}%`, backgroundColor: STAGE_COLORS[stageIndex % STAGE_COLORS.length] }]} />
               </View>
             </Pressable>
           ))}
@@ -875,7 +878,7 @@ const styles = StyleSheet.create({
   stageName: { color: colors.textMuted, fontSize: 9, fontFamily: "Inter_700Bold", textAlign: "center" },
   stageCount: { color: colors.text, fontSize: 18, fontFamily: "DMSans_700Bold", textAlign: "center", marginTop: 5 },
   stagePercent: { color: colors.textMuted, fontSize: 9, textAlign: "center", marginTop: 1, marginBottom: 6 },
-  stageTrack: { height: 5, borderRadius: 3, backgroundColor: "#dff2fb", overflow: "hidden" },
+  stageTrack: { height: 5, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.8)", overflow: "hidden" },
   stageFill: { height: "100%", minWidth: 4, borderRadius: 5, backgroundColor: colors.primary },
   stageEmpty: { color: colors.textMuted, fontSize: 12, paddingVertical: 10 },
   urgentCard: { flexDirection: "row", alignItems: "center", gap: 9, marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 14, backgroundColor: "#fcecef", borderWidth: 1, borderColor: "#f0b8c4" },
