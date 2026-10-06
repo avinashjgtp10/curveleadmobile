@@ -217,6 +217,10 @@ export default function FollowupsScreen() {
     setAddOpen(true);
   }
 
+  function closeAdd() {
+    if (!saving) setAddOpen(false);
+  }
+
   async function saveFollowup() {
     if (!selectedLead) { setAddError("Search and select a lead first."); return; }
     setSaving(true); setAddError("");
@@ -301,11 +305,17 @@ export default function FollowupsScreen() {
         </ScrollView>
       ) : null}
 
-      <Modal visible={addOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !saving && setAddOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => !saving && setAddOpen(false)}>
+      <Modal visible={addOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeAdd}>
+        <Pressable style={styles.sheetBackdrop} onPress={closeAdd}>
           <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8 }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Add Follow-up</Text>
+            <View style={styles.sheetHeader}>
+              <Pressable accessibilityLabel="Back" disabled={saving} hitSlop={10} onPress={closeAdd} style={styles.sheetBackButton}>
+                <Ionicons name="arrow-back" size={24} color={saving ? colors.textMuted : colors.text} />
+              </Pressable>
+              <Text style={styles.sheetTitle}>Add Follow-up</Text>
+              <View style={styles.sheetHeaderSpacer} />
+            </View>
             <ScrollView
               contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) }}
               keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
@@ -402,7 +412,10 @@ const styles = StyleSheet.create({
   fullSheet: { height: "100%", maxHeight: "100%", borderTopLeftRadius: 0, borderTopRightRadius: 0 },
   sheet: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
   sheetHandle: { width: 34, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 10 },
-  sheetTitle: { color: colors.text, fontSize: 15, fontWeight: "800", marginBottom: 10 },
+  sheetHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
+  sheetBackButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", marginLeft: -8 },
+  sheetHeaderSpacer: { width: 32 },
+  sheetTitle: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "800" },
   sheetSectionLabel: { color: colors.text, fontSize: 11, fontWeight: "700", marginTop: 10, marginBottom: 5 },
   required: { color: colors.danger },
   sheetError: { flexDirection: "row", alignItems: "center", gap: 8, padding: 8, marginBottom: 4, borderRadius: 8, backgroundColor: colors.dangerSoft },

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Appbar, Text } from "react-native-paper";
 import axios from "axios";
 import { LinearGradient } from "expo-linear-gradient";
@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
+import { useAuth } from "@/contexts/AuthContext";
 import { FeedbackType, sendFeedback } from "@/api/feedback";
 
 const MAX_MESSAGE = 1000;
@@ -20,11 +21,17 @@ const TYPES: { key: FeedbackType; label: string; hint: string; icon: keyof typeo
 const RATING_LABELS = ["", "Not good", "Could be better", "It's okay", "Good", "Love it!"];
 
 function errorMessage(error: unknown, fallback: string) {
-  return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
+  if (!axios.isAxiosError(error)) return fallback;
+  const status = error.response?.status;
+  const serverMessage = error.response?.data?.error;
+  if (typeof serverMessage === "string" && serverMessage.trim().length > 8) return serverMessage;
+  if (status) return `${fallback} (error ${status})`;
+  return error.request ? "No connection. Check your internet and try again." : fallback;
 }
 
 export default function FeedbackScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [type, setType] = useState<FeedbackType>("idea");
   const [rating, setRating] = useState(0);
   const [message, setMessage] = useState("");
@@ -39,12 +46,24 @@ export default function FeedbackScreen() {
     setError("");
     setSending(true);
     try {
-      await sendFeedback({ type, message, rating });
+      await sendFeedback({ type, message, rating, name: user?.name, email: user?.email });
       setSent(true);
       setMessage("");
       setRating(0);
     } catch (sendError) {
-      setError(errorMessage(sendError, "Couldn't send your feedback. Please try again."));
+      const reason = errorMessage(sendError, "Couldn't send your feedback. Please try again.");
+      setError(reason);
+      // The ticket service is unavailable, so offer to send the same feedback by email instead.
+      const body = `${message.trim()}${rating ? `
+
+App rating: ${rating}/5` : ""}
+
+${user?.name || ""} ${user?.email || ""}`.trim();
+      const url = `mailto:support@curvelead.com?subject=${encodeURIComponent(`${current.label}: CurveLead app feedback`)}&body=${encodeURIComponent(body)}`;
+      Alert.alert("Couldn't save feedback", "Our server isn't accepting it right now. Send it to the team by email instead?", [
+        { text: "Not now", style: "cancel" },
+        { text: "Send email", onPress: () => Linking.openURL(url).catch(() => Alert.alert("No email app", "Write to us at support@curvelead.com")) },
+      ]);
     } finally {
       setSending(false);
     }

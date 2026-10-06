@@ -15,13 +15,15 @@ const SUBJECT_PREFIX: Record<FeedbackType, string> = {
   other: "Feedback",
 };
 
-export async function sendFeedback(input: { type: FeedbackType; message: string; rating: number }) {
+export async function sendFeedback(input: { type: FeedbackType; message: string; rating: number; name?: string; email?: string }) {
   const message = input.message.trim();
   const firstLine = message.split("\n")[0].slice(0, 60);
   await apiClient.post("/support/tickets", {
+    name: input.name,
+    email: input.email,
     subject: `${SUBJECT_PREFIX[input.type]}: ${firstLine}`,
     category: CATEGORY[input.type],
-    priority: input.type === "bug" ? "medium" : "low",
+    priority: "medium",
     message: input.rating ? `${message}\n\nApp rating: ${input.rating}/5` : message,
   });
 }

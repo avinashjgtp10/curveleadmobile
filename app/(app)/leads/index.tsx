@@ -42,6 +42,26 @@ const SOURCES = [
   { value: "walkin", label: "Walk-in" },
 ];
 
+// Android clips emoji drawn inside a custom-font Text: it measures them narrower than it paints them, so the last
+// emoji of a name came out cut in half. Each emoji is drawn in its own fixed-width box instead; the plain text
+// around it keeps the normal font and is the only part that truncates.
+const EMOJI_RUN = /(\p{Extended_Pictographic}(?:‍\p{Extended_Pictographic}|️|\p{Emoji_Modifier})*)/u;
+
+function LeadName({ name }: { name: string }) {
+  let parts: string[] = [name];
+  try { if (/\p{Extended_Pictographic}/u.test(name)) parts = name.split(EMOJI_RUN).filter(Boolean); } catch { /* plain name */ }
+  if (parts.length === 1 && !EMOJI_RUN.test(parts[0])) {
+    return <Text style={styles.leadName} numberOfLines={1} ellipsizeMode="tail">{name}</Text>;
+  }
+  return (
+    <View style={styles.leadNameRow}>
+      {parts.map((part, index) => (EMOJI_RUN.test(part)
+        ? <Text key={index} style={styles.leadNameEmoji}>{part}</Text>
+        : <Text key={index} style={styles.leadName} numberOfLines={1} ellipsizeMode="tail">{part}</Text>))}
+    </View>
+  );
+}
+
 function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
@@ -161,7 +181,7 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
         )}
         <View style={styles.leadContent}>
           <View style={styles.nameRow}>
-            <Text style={styles.leadName} numberOfLines={1}>{lead.name}</Text>
+            <LeadName name={lead.name || ""} />
             {score ? (
               <View style={[styles.scoreBadge, { backgroundColor: score.bg }]}>
                 <Ionicons name={score.icon} size={11} color={score.color} />
@@ -784,8 +804,8 @@ const styles = StyleSheet.create({
   leadTop: { flexDirection: "row", alignItems: "center", gap: 12 },
   avatarCircle: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
   avatarLetter: { color: "#ffffff", fontSize: 19, fontWeight: "900" },
-  timeText: { color: colors.textMuted, fontSize: 11, fontWeight: "600" },
-  scoreBadge: { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2 },
+  timeText: { flexShrink: 0, color: colors.textMuted, fontSize: 11, fontWeight: "600" },
+  scoreBadge: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2 },
   scoreText: { fontSize: 10, fontWeight: "800" },
   stageTag: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, maxWidth: "48%" },
   stageTagDot: { width: 6, height: 6, borderRadius: 3 },
@@ -805,7 +825,9 @@ const styles = StyleSheet.create({
   },
   popoverItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   popoverText: { color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  leadContent: { flex: 1 }, nameRow: { flexDirection: "row", alignItems: "center", gap: 6 }, leadName: { flexShrink: 1, color: colors.text, fontSize: 15, fontFamily: "Inter_700Bold" },
+  leadContent: { flex: 1, minWidth: 0 }, nameRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }, leadName: { flexShrink: 1, minWidth: 0, color: colors.text, fontSize: 15, lineHeight: 22, paddingRight: 2, fontFamily: "Inter_700Bold" },
+  leadNameRow: { flexShrink: 1, minWidth: 0, flexDirection: "row", alignItems: "center", overflow: "hidden" },
+  leadNameEmoji: { flexShrink: 0, width: 26, fontSize: 16, lineHeight: 22, textAlign: "left" },
   subtitle: { color: colors.textSecondary, fontSize: 13, marginTop: 2 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   sourcePill: { maxWidth: 130, backgroundColor: colors.text, height: 24, borderRadius: 6 }, sourcePillText: { color: colors.surface, fontSize: 10, fontWeight: "700", lineHeight: 12 },
