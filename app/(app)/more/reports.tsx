@@ -526,39 +526,35 @@ export default function ReportsScreen() {
             </View>
             {messagesLoading && messagePage === 1 ? <View style={styles.spinner}><ActivityIndicator color={colors.primary} /></View> : messages.length ? (
               <>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.tableWrap}>
-                    <TableHeader columns={[
-                      { label: "Lead", width: 140 }, { label: "Direction", width: 80 }, { label: "Type", width: 80 },
-                      { label: "Source", width: 90 }, { label: "Status", width: 80 }, { label: "Sent At", width: 130, align: "right" },
-                    ]} />
-                    {messages.map((m) => (
-                      <View key={m.id} style={styles.tableRow}>
-                        <View style={{ width: 140 }}>
-                          <Text style={[styles.tableCell, { fontWeight: "700" }]} numberOfLines={1}>{m.lead_name}</Text>
-                          <Text style={styles.tableCellSub} numberOfLines={1}>{m.lead_phone}</Text>
-                        </View>
-                        <Text style={[styles.tableCell, { width: 80 }]}>{pretty(m.direction)}</Text>
-                        <Text style={[styles.tableCell, { width: 80 }]} numberOfLines={1}>{pretty(m.message_type)}</Text>
-                        <Text style={[styles.tableCell, { width: 90 }]} numberOfLines={1}>{m.is_automated ? (m.is_ai_generated ? "AI Automated" : "Automated") : "Manual"}</Text>
-                        <View style={{ width: 80 }}>
-                          <View style={[styles.statusPill, {
-                            backgroundColor: m.status === "delivered" || m.status === "read" ? colors.successSoft
-                              : m.status === "sent" ? colors.primarySoft : m.status === "failed" ? colors.dangerSoft : colors.surfaceMuted,
-                          }]}>
-                            <Text style={[styles.statusPillText, {
-                              color: m.status === "delivered" || m.status === "read" ? colors.success
-                                : m.status === "sent" ? colors.primary : m.status === "failed" ? colors.danger : colors.textSecondary,
-                            }]}>{m.status?.toUpperCase()}</Text>
-                          </View>
-                        </View>
-                        <Text style={[styles.tableCell, { width: 130, textAlign: "right", color: colors.textMuted }]}>
-                          {new Date(m.sent_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" })}
-                        </Text>
+                <View style={styles.tableWrap}>
+                  <TableHeader columns={[
+                    { label: "Lead", flex: 1 }, { label: "Source", width: 66 }, { label: "Status", width: 78 }, { label: "Sent At", width: 88, align: "right" },
+                  ]} />
+                  {messages.map((m) => (
+                    <View key={m.id} style={styles.tableRow}>
+                      <View style={styles.messageLeadCell}>
+                        <Text style={[styles.tableCell, { fontWeight: "700" }]} numberOfLines={1}>{m.lead_name || "Unknown"}</Text>
+                        <Text style={styles.tableCellSub} numberOfLines={1}>{m.lead_phone}</Text>
+                        <Text style={styles.tableCellSub} numberOfLines={1}>{pretty(m.direction)} · {pretty(m.message_type)}</Text>
                       </View>
-                    ))}
-                  </View>
-                </ScrollView>
+                      <Text style={[styles.tableCell, styles.messageSourceCell]} numberOfLines={2}>{m.is_automated ? (m.is_ai_generated ? "AI" : "Auto") : "Manual"}</Text>
+                      <View style={styles.messageStatusCell}>
+                        <View style={[styles.statusPill, {
+                          backgroundColor: m.status === "delivered" || m.status === "read" ? colors.successSoft
+                            : m.status === "sent" ? colors.primarySoft : m.status === "failed" ? colors.dangerSoft : colors.surfaceMuted,
+                        }]}>
+                          <Text style={[styles.statusPillText, {
+                            color: m.status === "delivered" || m.status === "read" ? colors.success
+                              : m.status === "sent" ? colors.primary : m.status === "failed" ? colors.danger : colors.textSecondary,
+                          }]} numberOfLines={1}>{m.status?.toUpperCase() || "—"}</Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.tableCell, styles.messageSentAtCell]}>
+                        {new Date(m.sent_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" })}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
                 <Text style={styles.countText}>Showing {messages.length} of {messagesTotal} messages</Text>
                 {messages.length < messagesTotal ? (
                   <Button mode="outlined" onPress={() => loadMessages(messagePage + 1)} loading={messagesLoading && messagePage > 1} style={{ marginTop: 8 }}>Load more</Button>
@@ -622,6 +618,10 @@ const styles = StyleSheet.create({
   tableHeadCell: { color: colors.textMuted, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
   tableCell: { color: colors.text, fontSize: 12 },
   tableCellSub: { color: colors.textMuted, fontSize: 10, marginTop: 1 },
+  messageLeadCell: { flex: 1, minWidth: 0, paddingRight: 8 },
+  messageSourceCell: { width: 66, paddingRight: 8 },
+  messageStatusCell: { width: 78, alignItems: "flex-start" },
+  messageSentAtCell: { width: 88, textAlign: "right", color: colors.textMuted, fontSize: 11 },
 
   searchBox: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 10, height: 38, marginBottom: 12 },
   searchInput: { flex: 1, color: colors.text, fontSize: 12 },
