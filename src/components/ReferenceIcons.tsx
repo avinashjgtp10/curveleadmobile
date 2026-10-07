@@ -2,7 +2,7 @@ import React from "react";
 import Svg, { Path, Circle, Rect, Line, Polyline } from "react-native-svg";
 export function IconHome({ active }: { active?: boolean }) {
   return (
-    <Svg width="22" height="22" viewBox="0 0 24 24" fill={active ? "#0ea5e9" : "none"} stroke={active ? "#0ea5e9" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#0ea5e9" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <Path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z" />
       <Path d="M9 21V12h6v9" />
     </Svg>
