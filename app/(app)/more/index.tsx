@@ -24,7 +24,7 @@ const MENU: MenuItem[] = [
   { icon: "git-network-outline", label: "Lead Automation", href: "/(app)/more/lead-automation" },
   { icon: "sparkles-outline", label: "AI Agent", href: "/(app)/more/ai-tools" },
   { icon: "albums-outline", label: "Content Library", href: "/(app)/content" },
-  { icon: "megaphone-outline", label: "Campaigns", href: "/(app)/more/campaigns" },
+  { icon: "trending-up-outline", label: "Ads Manager", href: "/(app)/more/campaigns" },
   { icon: "sparkles-outline", label: "AI Tools", href: "/(app)/more/ai-tools" },
   { icon: "document-text-outline", label: "Quotations", href: "/(app)/more/quotations" },
   { icon: "folder-open-outline", label: "Brochures", href: "/(app)/more/brochures" },
