@@ -241,7 +241,7 @@ function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress:
 }
 
 const START_HERE: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; href: string }[] = [
-  { icon: "megaphone-outline", label: "Campaigns", bg: colors.successSoft, iconColor: colors.success, href: "/(app)/more/campaigns" },
+  { icon: "trending-up-outline", label: "Ads Manager", bg: colors.successSoft, iconColor: colors.success, href: "/(app)/more/campaigns" },
   { icon: "git-network-outline", label: "Lead Automation", bg: colors.primarySoft, iconColor: colors.primary, badges: [{ text: "NEW", bg: colors.success }], href: "/(app)/more/lead-automation" },
   { icon: "albums-outline", label: "Content", bg: colors.warningSoft, iconColor: colors.warning, badges: [{ text: "NEW", bg: colors.success }], href: "/(app)/content" },
   { icon: "logo-whatsapp", label: "AI Templates", bg: "#ede9fe", iconColor: "#7c3aed", href: "/(app)/more/whatsapp-templates" },
@@ -282,7 +282,7 @@ const TONE = {
 const GROW_BUSINESS: GridItem[] = [
   { icon: "people-outline", label: "Leads", ...TONE.sky, href: "/(app)/leads" },
   { icon: "folder-open-outline", label: "Brochures", ...TONE.amber, href: "/(app)/more/brochures" },
-  { icon: "megaphone-outline", label: "Campaigns", ...TONE.emerald, href: "/(app)/more/campaigns" },
+  { icon: "trending-up-outline", label: "Ads Manager", ...TONE.emerald, href: "/(app)/more/campaigns" },
   { icon: "sparkles", label: "AI Agent", ...TONE.violet, badges: [{ text: "AI", bg: "#7c3aed" }], href: "/(app)/more/ai-tools" },
   { icon: "logo-whatsapp", label: "WhatsApp", ...TONE.emerald, href: "/(app)/more/whatsapp" },
   { icon: "location-outline", label: "GMB", ...TONE.pink, href: "/(app)/more/gmb" },
