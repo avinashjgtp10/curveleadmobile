@@ -63,8 +63,9 @@
       "facebookAppId": "1551778202757963",
       "router": {},
       "eas": {
-        "projectId": "1b2165d6-eb2a-411b-b7e8-9b0843cdfa82"
+        "projectId": "6317252b-44d0-48d5-9a0c-8fbc3e265ad9"
       }
-    }
+    },
+    "owner": "salonox-tech"
   }
 }
