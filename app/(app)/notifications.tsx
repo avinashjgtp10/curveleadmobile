@@ -1,6 +1,7 @@
 import { GlassBackground, glass } from "@/components/Glass";
 import { SvgCalendar } from "@/components/ReferenceIcons";
 import { AppNotification, fetchNotifications, markAllNotificationsRead, markNotificationRead } from "@/api/notifications";
+import { useT } from "@/i18n/LanguageContext";
 import { navigateToNotification } from "@/notifications/navigateToNotification";
 import { colors } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,25 +12,49 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "r
 import { ActivityIndicator, Appbar, Button } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-function formatDate(value?: string) {
+type Translate = (text: string, vars?: Record<string, string | number>) => string;
+
+// Notification text is stored in English with names/counts baked in, so match the known
+// patterns and translate them with the value pulled back out. Anything else stays as sent.
+const TITLE_PATTERNS: [RegExp, string, "name" | "n"][] = [
+  [/^Follow-up overdue - (.+)$/, "Follow-up overdue - {name}", "name"],
+  [/^New lead created - (.+)$/, "New lead created - {name}", "name"],
+  [/^Lead deleted - (.+)$/, "Lead deleted - {name}", "name"],
+  [/^WhatsApp message sent - (.+)$/, "WhatsApp message sent - {name}", "name"],
+  [/^Source: (.+)$/, "Source: {name}", "name"],
+  [/^(\d+) new leads? added$/, "{n} new leads added", "n"],
+  [/^(\d+) leads deleted$/, "{n} leads deleted", "n"],
+];
+
+function translateText(text: string, t: Translate) {
+  const exact = t(text);
+  if (exact !== text) return exact;
+  for (const [pattern, key, variable] of TITLE_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) return t(key, { [variable]: match[1] });
+  }
+  return text;
+}
+
+function formatDate(value: string | undefined, locale: string) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+  return date.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" })
     + ", "
-    + date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }).toLowerCase();
+    + date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" }).toLowerCase();
 }
 
-function relativeTime(value?: string) {
+function relativeTime(value: string | undefined, t: Translate) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60_000));
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return t("Just now");
+  if (minutes < 60) return t("{n}m ago", { n: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return t("{n}h ago", { n: hours });
+  return t("{n}d ago", { n: Math.floor(hours / 24) });
 }
 
 function openNotification(item: AppNotification) {
@@ -40,6 +65,8 @@ function openNotification(item: AppNotification) {
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
+  const { t, language } = useT();
+  const locale = language === "hi" ? "hi-IN" : "en-IN";
   const [items, setItems] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -55,7 +82,7 @@ export default function NotificationsScreen() {
     } catch (loadError) {
       setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string"
         ? loadError.response.data.error
-        : "Could not load notifications.");
+        : t("Could not load notifications."));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -94,29 +121,29 @@ export default function NotificationsScreen() {
       <GlassBackground />
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction color={colors.text} onPress={() => router.back()} />
-        <Appbar.Content title="Notifications" titleStyle={styles.headerTitle} />
+        <Appbar.Content title={t("Notifications")} titleStyle={styles.headerTitle} />
         {unreadCount ? <Text style={styles.headerBadge}>{unreadCount > 99 ? "99+" : unreadCount}</Text> : null}
       </Appbar.Header>
 
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
-          <Text style={styles.panelTitle}>Notifications</Text>
+          <Text style={styles.panelTitle}>{t("Notifications")}</Text>
           <Pressable style={styles.markReadButton} onPress={handleMarkAllRead} disabled={!unreadCount}>
             <Ionicons name="checkmark-done" size={15} color={unreadCount ? colors.primary : colors.textMuted} />
-            <Text style={[styles.markReadText, !unreadCount && styles.disabledText]}>Mark all read</Text>
+            <Text style={[styles.markReadText, !unreadCount && styles.disabledText]}>{t("Mark all read")}</Text>
           </Pressable>
         </View>
 
         {loading ? (
           <View style={styles.state}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={styles.stateText}>Loading notifications...</Text>
+            <Text style={styles.stateText}>{t("Loading notifications...")}</Text>
           </View>
         ) : error ? (
           <View style={styles.state}>
-            <Text style={styles.stateTitle}>Could not load notifications</Text>
+            <Text style={styles.stateTitle}>{t("Could not load notifications")}</Text>
             <Text style={styles.stateText}>{error}</Text>
-            <Button mode="contained" onPress={() => load()} style={styles.retry}>Try again</Button>
+            <Button mode="contained" onPress={() => load()} style={styles.retry}>{t("Try again")}</Button>
           </View>
         ) : (
           <ScrollView
@@ -130,9 +157,9 @@ export default function NotificationsScreen() {
                 <Pressable key={item.id} style={[styles.notificationItem, unread && styles.unreadItem]} onPress={() => handlePress(item)}>
                   <View style={styles.iconWrap}><SvgCalendar color="#f59e0b" /></View>
                   <View style={styles.notificationCopy}>
-                    <Text style={styles.notificationTitle} numberOfLines={2}>{item.title}</Text>
-                    {item.message ? <Text style={styles.notificationDate}>{formatDate(item.message)}</Text> : null}
-                    <Text style={styles.notificationTime}>{relativeTime(item.created_at || item.message)}</Text>
+                    <Text style={styles.notificationTitle} numberOfLines={2}>{translateText(item.title, t)}</Text>
+                    {item.message ? <Text style={styles.notificationDate}>{formatDate(item.message, locale) === item.message ? translateText(item.message, t) : formatDate(item.message, locale)}</Text> : null}
+                    <Text style={styles.notificationTime}>{relativeTime(item.created_at || item.message, t)}</Text>
                   </View>
                   {unread ? <View style={styles.unreadDot} /> : null}
                 </Pressable>
@@ -141,8 +168,8 @@ export default function NotificationsScreen() {
             {!items.length ? (
               <View style={styles.emptyState}>
                 <Ionicons name="notifications-outline" size={34} color={colors.textMuted} />
-                <Text style={styles.stateTitle}>No notifications yet</Text>
-                <Text style={styles.stateText}>Follow-up reminders and lead updates will appear here.</Text>
+                <Text style={styles.stateTitle}>{t("No notifications yet")}</Text>
+                <Text style={styles.stateText}>{t("Follow-up reminders and lead updates will appear here.")}</Text>
               </View>
             ) : null}
           </ScrollView>
