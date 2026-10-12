@@ -21,7 +21,7 @@
       "bundleIdentifier": "com.curvelead.mobile"
     },
     "android": {
-      "package": "com.curvelead",
+      "package": "com.curvelead.app",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/curvelead-adaptive-icon.png",
