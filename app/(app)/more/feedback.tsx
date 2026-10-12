@@ -91,15 +91,8 @@ ${user?.name || ""} ${user?.email || ""}`.trim();
           </Pressable>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 130 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <LinearGradient colors={["#f59e0b", "#ec4899"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
-            <View style={styles.heroIcon}><Ionicons name="heart" size={24} color="#fff" /></View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.heroTitle}>We'd love to hear from you</Text>
-              <Text style={styles.heroSub}>Your ideas and bug reports go straight to the CurveLead team.</Text>
-            </View>
-            <View style={styles.heroCircle} />
-          </LinearGradient>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <Text style={styles.intro}>Your ideas and bug reports go straight to the CurveLead team.</Text>
 
           <Text style={styles.label}>What's this about?</Text>
           <View style={styles.typeRow}>
@@ -107,9 +100,8 @@ ${user?.name || ""} ${user?.email || ""}`.trim();
               const active = type === item.key;
               return (
                 <Pressable key={item.key} style={[styles.typeTile, active && { borderColor: item.color, backgroundColor: item.bg }]} onPress={() => setType(item.key)}>
-                  <View style={[styles.typeIcon, { backgroundColor: active ? "#ffffff" : item.bg }]}><Ionicons name={item.icon} size={20} color={item.color} /></View>
+                  <View style={[styles.typeIcon, { backgroundColor: active ? "#ffffff" : item.bg }]}><Ionicons name={item.icon} size={18} color={item.color} /></View>
                   <Text style={[styles.typeLabel, active && { color: item.color }]}>{item.label}</Text>
-                  <Text style={styles.typeHint} numberOfLines={1}>{item.hint}</Text>
                 </Pressable>
               );
             })}
@@ -120,7 +112,7 @@ ${user?.name || ""} ${user?.email || ""}`.trim();
             <View style={styles.starRow}>
               {[1, 2, 3, 4, 5].map((value) => (
                 <Pressable key={value} onPress={() => setRating(rating === value ? 0 : value)} hitSlop={6}>
-                  <Ionicons name={value <= rating ? "star" : "star-outline"} size={34} color={value <= rating ? "#f59e0b" : "#cbd5e1"} />
+                  <Ionicons name={value <= rating ? "star" : "star-outline"} size={28} color={value <= rating ? "#f59e0b" : "#cbd5e1"} />
                 </Pressable>
               ))}
             </View>
@@ -138,15 +130,19 @@ ${user?.name || ""} ${user?.email || ""}`.trim();
             {error ? <Text style={styles.errorText}>{error}</Text> : <View />}
             <Text style={styles.counter}>{message.length} / {MAX_MESSAGE}</Text>
           </View>
+        </ScrollView>
+      )}
 
+      {!sent ? (
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 10 }]}>
           <Pressable onPress={handleSubmit} disabled={sending} style={sending && { opacity: 0.6 }}>
             <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submitButton}>
               {sending ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={17} color="#fff" />}
               <Text style={styles.submitText}>Send feedback</Text>
             </LinearGradient>
           </Pressable>
-        </ScrollView>
-      )}
+        </View>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -155,35 +151,30 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#f4f9fc" },
   header: { backgroundColor: "#ffffff" },
   headerTitle: { fontSize: 17, fontWeight: "800", color: colors.text },
-  content: { padding: 14, gap: 4 },
-
-  hero: { borderRadius: 22, padding: 18, flexDirection: "row", alignItems: "center", gap: 14, overflow: "hidden", marginBottom: 8 },
-  heroIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.25)", alignItems: "center", justifyContent: "center" },
-  heroTitle: { color: "#fff", fontSize: 18, fontWeight: "900" },
-  heroSub: { color: "rgba(255,255,255,0.92)", fontSize: 12, lineHeight: 17, marginTop: 3 },
-  heroCircle: { position: "absolute", width: 120, height: 120, borderRadius: 60, backgroundColor: "rgba(255,255,255,0.12)", right: -30, top: -36 },
+  content: { padding: 14, gap: 2 },
+  intro: { color: colors.textSecondary, fontSize: 13, lineHeight: 18, marginBottom: 2 },
+  footer: { paddingHorizontal: 14, paddingTop: 10, backgroundColor: "#ffffff", borderTopWidth: 1, borderTopColor: "#e2eef7" },
 
   label: { color: colors.text, fontSize: 14, fontWeight: "800", marginTop: 14, marginBottom: 8 },
   optional: { color: colors.textMuted, fontSize: 12, fontWeight: "600" },
 
   typeRow: { flexDirection: "row", gap: 10 },
-  typeTile: { flex: 1, alignItems: "center", gap: 4, paddingVertical: 14, paddingHorizontal: 6, borderRadius: 18, borderWidth: 2, borderColor: "#e2eef7", backgroundColor: "#ffffff" },
-  typeIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center", marginBottom: 2 },
+  typeTile: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 6, borderRadius: 14, borderWidth: 2, borderColor: "#e2eef7", backgroundColor: "#ffffff" },
+  typeIcon: { width: 30, height: 30, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   typeLabel: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  typeHint: { color: colors.textMuted, fontSize: 11 },
 
-  ratingCard: { backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: "#e2eef7", paddingVertical: 14, alignItems: "center", gap: 6 },
+  ratingCard: { backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: "#e2eef7", paddingVertical: 10, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 12 },
   starRow: { flexDirection: "row", gap: 8 },
   ratingText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
 
-  inputBox: { minHeight: 150, borderRadius: 16, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#ffffff", paddingHorizontal: 14, paddingVertical: 6 },
+  inputBox: { minHeight: 120, borderRadius: 16, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#ffffff", paddingHorizontal: 14, paddingVertical: 6 },
   inputError: { borderColor: colors.danger },
-  inputText: { color: colors.text, fontSize: 14, minHeight: 136, paddingVertical: 8 },
+  inputText: { color: colors.text, fontSize: 14, minHeight: 106, paddingVertical: 8 },
   counterRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
   counter: { color: colors.textMuted, fontSize: 11 },
   errorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "700" },
 
-  submitButton: { marginTop: 14, height: 52, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  submitButton: { height: 50, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   submitText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 
   successState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30 },
