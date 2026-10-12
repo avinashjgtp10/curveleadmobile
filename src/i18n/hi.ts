@@ -144,4 +144,23 @@ export const hi: Record<string, string> = {
   "We'll tell you when {name} is ready.": "{name} तैयार होते ही हम आपको बताएंगे।",
   "Request removed.": "अनुरोध हटा दिया गया।",
   "Couldn't save. Please try again.": "सहेजा नहीं जा सका। कृपया फिर कोशिश करें।",
+
+  // Notifications screen
+  "Mark all read": "सभी पढ़ा हुआ करें",
+  "Loading notifications...": "सूचनाएं लोड हो रही हैं...",
+  "Could not load notifications": "सूचनाएं लोड नहीं हो सकीं",
+  "Could not load notifications.": "सूचनाएं लोड नहीं हो सकीं।",
+  "No notifications yet": "अभी कोई सूचना नहीं",
+  "Follow-up reminders and lead updates will appear here.": "फ़ॉलो-अप रिमाइंडर और लीड अपडेट यहाँ दिखेंगे।",
+  "Follow-up overdue - {name}": "फ़ॉलो-अप में देरी - {name}",
+  "New lead created - {name}": "नया लीड बना - {name}",
+  "Lead deleted - {name}": "लीड हटाया गया - {name}",
+  "WhatsApp message sent - {name}": "व्हाट्सऐप मैसेज भेजा गया - {name}",
+  "Source: {name}": "स्रोत: {name}",
+  "{n} new leads added": "{n} नए लीड जोड़े गए",
+  "{n} leads deleted": "{n} लीड हटाए गए",
+  "Lead added successfully.": "लीड सफलतापूर्वक जोड़ा गया।",
+  "Your message was sent.": "आपका मैसेज भेज दिया गया।",
+  "This lead was deleted.": "यह लीड हटा दिया गया।",
+  "The selected leads were deleted.": "चुने हुए लीड हटा दिए गए।",
 };

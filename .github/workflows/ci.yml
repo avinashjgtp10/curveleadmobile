@@ -29,7 +29,7 @@ jobs:
   eas-build:
     name: EAS Android build
     needs: checks
-    if: github.event_name == 'workflow_dispatch' && inputs.build_profile != 'none'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev' && inputs.build_profile != 'none'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +40,7 @@ jobs:
       - uses: expo/expo-github-action@v8
         with:
           eas-version: latest
+          packager: npm
           token: ${{ secrets.EXPO_TOKEN }}
       - run: npm ci
       - run: eas build --platform android --profile ${{ inputs.build_profile }} --non-interactive --no-wait
