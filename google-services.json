@@ -23,6 +23,44 @@
           "other_platform_oauth_client": []
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:705017645632:android:d9f7f77b69618f9fa2ada5",
+        "android_client_info": {
+          "package_name": "com.curvelead.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD0IKPPY59cj0O9lnl84p6ZLWKjQ5omUZw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:705017645632:android:9d1db3ee8e874e29a2ada5",
+        "android_client_info": {
+          "package_name": "com.curvelead.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD0IKPPY59cj0O9lnl84p6ZLWKjQ5omUZw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
     }
   ],
   "configuration_version": "1"
