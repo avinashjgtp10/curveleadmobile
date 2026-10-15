@@ -34,6 +34,7 @@ const MENU: MenuItem[] = [
   { icon: "bar-chart-outline", label: "Reports", href: "/(app)/more/reports" },
   { icon: "card-outline", label: "Billing", href: "/(app)/more/billing", roles: ["admin", "super_admin"] },
   { icon: "settings-outline", label: "Settings", href: "/(app)/more/settings" },
+  { icon: "notifications-outline", label: "Notification Settings", href: "/(app)/more/notification-settings" },
   { icon: "language-outline", label: "Language", href: "/(app)/more/language" },
   { icon: "bulb-outline", label: "Submit Feedback", href: "/(app)/more/feedback" },
   { icon: "help-circle-outline", label: "Help & Support", href: "/(app)/more/help-support" },

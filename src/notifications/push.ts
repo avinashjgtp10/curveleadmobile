@@ -83,6 +83,32 @@ export async function presentLocalNotification(title: string, body: string | und
   }
 }
 
+export type NotificationPermission = "granted" | "denied" | "undetermined" | "unsupported";
+
+/** Current OS-level notification permission. "unsupported" in Expo Go and on web. */
+export async function getNotificationPermission(): Promise<NotificationPermission> {
+  if (isExpoGo || Platform.OS === "web") return "unsupported";
+  try {
+    const { status } = await loadNotifications().getPermissionsAsync();
+    return status;
+  } catch {
+    return "unsupported";
+  }
+}
+
+/** Asks for permission (the OS only shows its prompt while undecided) and makes sure the Android channels exist. */
+export async function requestNotificationPermission(): Promise<NotificationPermission> {
+  if (isExpoGo || Platform.OS === "web") return "unsupported";
+  try {
+    const Notifications = loadNotifications();
+    await ensureAndroidChannel();
+    const { status } = await Notifications.requestPermissionsAsync();
+    return status;
+  } catch {
+    return "unsupported";
+  }
+}
+
 export type PushPermissionResult =
   | { status: "granted"; token: string }
   | { status: "denied" }

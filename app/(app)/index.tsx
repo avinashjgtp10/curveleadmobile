@@ -306,6 +306,7 @@ const MANAGE_BUSINESS: GridItem[] = [
 const OTHER_DESTINATIONS: GridItem[] = [
   { icon: "chatbox-ellipses-outline", label: "Message Templates", ...TONE.sky, href: "/(app)/more/templates" },
   { icon: "notifications-outline", label: "Notifications", ...TONE.sky, href: "/(app)/notifications" },
+  { icon: "options-outline", label: "Notification Settings", ...TONE.emerald, href: "/(app)/more/notification-settings" },
   { icon: "lock-closed-outline", label: "Security", ...TONE.violet, href: "/(app)/more/security" },
   { icon: "language-outline", label: "Language", ...TONE.amber, href: "/(app)/more/language" },
   { icon: "person-circle-outline", label: "Account", ...TONE.emerald, href: "/(app)/more/account" },
