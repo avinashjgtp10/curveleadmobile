@@ -186,7 +186,7 @@ function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowu
 function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
   const { t } = useT();
   const insights = [
-    { label: "Revenue", value: data.total_revenue || data.revenue_in_period },
+    { label: "Revenue", value: data.revenue_in_period },
     { label: "Avg. deal", value: data.avg_deal_value },
     { label: "Balance due", value: data.balance_due_in_period },
   ];
