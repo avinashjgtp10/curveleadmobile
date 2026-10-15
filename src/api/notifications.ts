@@ -5,6 +5,28 @@ import { presentLocalNotification } from "@/notifications/push";
 
 const LOCAL_NOTIFICATIONS_KEY = "curvelead_local_notifications";
 
+export interface NotificationGroup {
+  key: string;
+  label: string;
+  description: string;
+}
+
+// Used if /notifications/groups can't be reached. Keys must match the backend's notificationTypes.
+export const FALLBACK_NOTIFICATION_GROUPS: NotificationGroup[] = [
+  { key: "new_leads", label: "New leads", description: "A new lead came in from any source." },
+  { key: "new_messages", label: "New WhatsApp messages", description: "A lead sends you a new WhatsApp message." },
+  { key: "assigned_to_me", label: "Leads assigned to me", description: "A lead is assigned or reassigned to you." },
+  { key: "sla_alerts", label: "Uncontacted lead alerts", description: "A lead has gone too long without a first response." },
+  { key: "followups", label: "Follow-up & demo reminders", description: "A follow-up or demo is due soon, overdue, or was never scheduled." },
+  { key: "ai_handoff", label: "AI handoff needed", description: "The AI auto-reply needs a human to take over a conversation." },
+  { key: "hot_leads", label: "Hot lead escalation", description: "A hot lead or priority-campaign lead needs personal attention." },
+];
+
+export async function fetchNotificationGroups() {
+  const { data } = await apiClient.get<{ groups?: NotificationGroup[] }>("/notifications/groups");
+  return data.groups?.length ? data.groups : FALLBACK_NOTIFICATION_GROUPS;
+}
+
 export interface AppNotification {
   id: string;
   title: string;
