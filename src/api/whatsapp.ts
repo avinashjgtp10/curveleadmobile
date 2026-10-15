@@ -73,6 +73,10 @@ export async function setConversationAiPaused(leadId: string, paused: boolean) {
   await apiClient.put(`/whatsapp/conversation/${leadId}/ai`, { paused });
 }
 
+export async function deleteConversation(leadId: string) {
+  await apiClient.delete(`/whatsapp/conversation/${leadId}`);
+}
+
 export async function markConversationsRead(leadIds: string[]) {
   await apiClient.put("/whatsapp/conversations/read", { lead_ids: leadIds });
 }
