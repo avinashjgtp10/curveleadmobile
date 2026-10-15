@@ -596,11 +596,16 @@ export default function DashboardScreen() {
               </ScrollView>
             </View>
 
-            <View style={styles.statGrid}>
-              <StatTile label="Total Leads" value={fmt(data.leads_in_period)} />
-              <StatTile label="Total Converted" value={fmt(data.won_in_period)} />
-              <StatTile label="New Leads Today" value={fmt(data.leads_today)} />
-              <StatTile label="Follow-ups Due Today" value={fmt(data.followups_today)} />
+            <View style={styles.statSection}>
+              <Pressable style={styles.statSectionViewAll} onPress={() => router.push("/(app)/more/reports")} accessibilityRole="button">
+                <Text style={styles.activityViewAll}>{t("View all")}</Text>
+              </Pressable>
+              <View style={styles.statGrid}>
+                <StatTile label="Total Leads" value={fmt(data.leads_in_period)} />
+                <StatTile label="Total Converted" value={fmt(data.won_in_period)} />
+                <StatTile label="New Leads Today" value={fmt(data.leads_today)} />
+                <StatTile label="Follow-ups Due Today" value={fmt(data.followups_today)} />
+              </View>
             </View>
 
             {leadSources?.length ? (
@@ -795,7 +800,9 @@ const styles = StyleSheet.create({
   setupGoPill: { backgroundColor: colors.primary, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 },
   setupGoPillText: { color: "#ffffff", fontSize: 11, fontFamily: "Inter_700Bold" },
 
-  statGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginHorizontal: 16, marginBottom: 16 },
+  statSection: { marginBottom: 16 },
+  statSectionViewAll: { alignSelf: "flex-end", marginRight: 20, marginBottom: 6 },
+  statGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginHorizontal: 16 },
   statTile: { ...glass, width: "48%", flexGrow: 1, padding: 16 },
   statLabel: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_500Medium" },
 
