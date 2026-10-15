@@ -40,6 +40,10 @@ const SOURCES = [
   { value: "manual", label: "Manual" },
   { value: "website", label: "Website" },
   { value: "walkin", label: "Walk-in" },
+  { value: "instagram", label: "Instagram" },
+  { value: "organic", label: "Organic" },
+  { value: "import", label: "Imported" },
+  { value: "api", label: "API" },
 ];
 
 // Android clips emoji drawn inside a custom-font Text: it measures them narrower than it paints them, so the last
@@ -200,7 +204,7 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
           <Text style={[styles.stageTagText, { color: stageColors.text }]} numberOfLines={1}>{stageLabel}</Text>
         </View>
         {lead.source ? <View style={styles.sourceTag}><Text style={styles.sourceTagText} numberOfLines={1}>{pretty(lead.source)}</Text></View> : null}
-        <Text style={styles.assignedText} numberOfLines={1}>{lead.assigned_to_name || t("You")}</Text>
+        <Text style={styles.assignedText} numberOfLines={1}>{lead.assigned_to_name || t("Unassigned")}</Text>
       </View>
 
       {!selectMode ? (
@@ -252,6 +256,8 @@ export default function LeadsScreen() {
   const [leads, setLeads] = useState<LeadListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const pageRef = useRef(1);
+  const [prefsReady, setPrefsReady] = useState(false);
   const [pages, setPages] = useState(1);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -294,14 +300,16 @@ export default function LeadsScreen() {
 
   const activeFilterCount = [score, filterStage, filterSource, filterAssignedTo].filter(Boolean).length;
 
-  const load = useCallback(async (nextPage = 1, append = false) => {
+  // `silent` re-fetches everything already on screen in one request without a spinner or losing the scroll depth.
+  const load = useCallback(async (nextPage = 1, append = false, silent = false) => {
     const id = ++requestId.current;
     if (append) setLoadingMore(true);
-    else setLoading(true);
+    else if (!silent) setLoading(true);
     setError("");
     try {
+      const loadedPages = silent ? Math.max(1, pageRef.current) : 1;
       const result = await fetchLeads({
-        page: nextPage, limit: PAGE_SIZE,
+        page: nextPage, limit: PAGE_SIZE * loadedPages,
         ...(query && { search: query }),
         ...(score && { score }),
         ...(filterStage && { stage: filterStage }),
@@ -311,8 +319,11 @@ export default function LeadsScreen() {
       });
       if (id !== requestId.current) return;
       setLeads((current) => append ? [...current, ...result.leads.filter((lead) => !current.some((item) => item.id === lead.id))] : result.leads);
-      setPage(result.pagination.page);
-      setPages(result.pagination.pages);
+      // A silent refresh asks for several pages at once, so page numbers are worked out in PAGE_SIZE units.
+      const shownPages = silent ? Math.max(1, Math.ceil(result.leads.length / PAGE_SIZE)) : result.pagination.page;
+      pageRef.current = shownPages;
+      setPage(shownPages);
+      setPages(silent ? Math.max(1, Math.ceil(result.pagination.total / PAGE_SIZE)) : result.pagination.pages);
       setTotal(result.pagination.total);
     } catch (loadError) {
       if (id !== requestId.current) return;
@@ -322,11 +333,24 @@ export default function LeadsScreen() {
     }
   }, [query, score, filterStage, filterSource, filterAssignedTo, hiddenStages]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  // First load and any filter/search change. It waits for the hidden-stages preference so those stages never flash.
+  useEffect(() => { if (prefsReady) load(); }, [load, prefsReady]);
+
+  // Coming back to this screen (e.g. from a lead's page): refresh in place instead of jumping back to page 1.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const focusedOnce = useRef(false);
+  useFocusEffect(useCallback(() => {
+    if (!focusedOnce.current) { focusedOnce.current = true; return; } // the effect above handles the first load
+    loadRef.current(1, false, true);
+  }, []));
   useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); }, []);
 
   useEffect(() => {
-    fetchPreferences().then((prefs) => setHiddenStages(prefs.hidden_lead_stages || [])).catch(() => {});
+    fetchPreferences()
+      .then((prefs) => setHiddenStages(prefs.hidden_lead_stages || []))
+      .catch(() => {})
+      .finally(() => setPrefsReady(true));
   }, []);
 
   function toggleHiddenStage(stageName: string) {
@@ -559,9 +583,9 @@ export default function LeadsScreen() {
           ListEmptyComponent={
             <View style={styles.empty}>
               <View style={styles.emptyIcon}><Ionicons name="people-outline" size={26} color={colors.primary} /></View>
-              <Text style={styles.emptyTitle}>{query || score ? t("No matching leads") : t("No leads yet")}</Text>
-              <Text style={styles.emptyText}>{query || score ? t("Try changing your search or filter.") : t("Add your first lead to start building your pipeline.")}</Text>
-              {!query && !score ? <Pressable style={styles.emptyButton} onPress={goToNewLead}><Text style={styles.emptyButtonText}>{t("＋ Add first lead")}</Text></Pressable> : null}
+              <Text style={styles.emptyTitle}>{query || activeFilterCount ? t("No matching leads") : t("No leads yet")}</Text>
+              <Text style={styles.emptyText}>{query || activeFilterCount ? t("Try changing your search or filter.") : t("Add your first lead to start building your pipeline.")}</Text>
+              {!query && !activeFilterCount ? <Pressable style={styles.emptyButton} onPress={goToNewLead}><Text style={styles.emptyButtonText}>{t("＋ Add first lead")}</Text></Pressable> : null}
             </View>
           }
         />
