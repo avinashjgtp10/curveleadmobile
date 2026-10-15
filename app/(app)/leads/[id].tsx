@@ -467,6 +467,10 @@ export default function LeadDetailScreen() {
   const stage = lead.stage || "";
   const stageColors = colorFor(stage);
   const currentStage = stages.find((item) => item.name.toLowerCase() === stage.toLowerCase());
+  const TAB_ORDER: Tab[] = ["overview", "details", "activities"];
+  const nextTab = TAB_ORDER[TAB_ORDER.indexOf(tab) + 1];
+  const prevTab = TAB_ORDER[TAB_ORDER.indexOf(tab) - 1];
+
   const availableStatuses = statusesFor(stage);
   const pendingFollowups = followups.filter((item) => !item.is_completed);
   const nextFollowup = pendingFollowups.sort((a, b) => new Date(a.next_followup_at).getTime() - new Date(b.next_followup_at).getTime())[0];
@@ -475,8 +479,9 @@ export default function LeadDetailScreen() {
   return (
     <View style={styles.screen}>
       <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
+        <Appbar.BackAction onPress={() => prevTab ? setTab(prevTab) : router.back()} />
         <Appbar.Content title="Lead details" titleStyle={styles.headerTitle} />
+        <Appbar.Action icon="arrow-right" onPress={() => nextTab && setTab(nextTab)} disabled={!nextTab} />
       </Appbar.Header>
 
       <ScrollView
