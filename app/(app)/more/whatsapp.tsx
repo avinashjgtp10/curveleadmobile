@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AppState, BackHandler, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { Alert, AppState, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Appbar, Searchbar, Text } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,7 +12,7 @@ import { fetchLeads, LeadListItem } from "@/api/leads";
 import { fetchTemplates, MessageTemplate } from "@/api/templates";
 import { notifyMessageSent } from "@/api/notifications";
 import {
-  fetchConversation, fetchInbox, fetchSendableWhatsAppTemplates, InboxConversation, markConversationsRead, replyWindowLeftMs,
+  deleteConversation, fetchConversation, fetchInbox, fetchSendableWhatsAppTemplates, InboxConversation, markConversationsRead, replyWindowLeftMs,
   SendableWhatsAppTemplate, sendWhatsAppMessage, sendWhatsAppTemplate, setConversationAiPaused, WhatsAppMessage,
 } from "@/api/whatsapp";
 
@@ -113,7 +113,20 @@ export default function WhatsAppScreen() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [inboxFailed, setInboxFailed] = useState(false);
   const chatScrollRef = useRef<ScrollView>(null);
+
+  // Android doesn't resize the in-page chat overlay for the keyboard, so lift the composer by hand.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== "android") return undefined;
+    const show = Keyboard.addListener("keyboardDidShow", (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+      requestAnimationFrame(() => chatScrollRef.current?.scrollToEnd({ animated: false }));
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
 
   async function load() {
     setError("");
@@ -132,12 +145,18 @@ export default function WhatsAppScreen() {
     try {
       const [leadPage, conversations] = await Promise.all([
         fetchLeads({ limit: 80 }),
-        fetchInbox().catch(() => [] as InboxConversation[]),
+        fetchInbox().catch(() => null),
       ]);
-      const indexed = indexInbox(conversations);
       setLeads(leadPage.leads);
-      setInbox(indexed);
-      AsyncStorage.setItem(INBOX_CACHE_KEY, JSON.stringify({ leads: leadPage.leads, inbox: indexed })).catch(() => {});
+      if (conversations) {
+        const indexed = indexInbox(conversations);
+        setInbox(indexed);
+        setInboxFailed(false);
+        AsyncStorage.setItem(INBOX_CACHE_KEY, JSON.stringify({ leads: leadPage.leads, inbox: indexed })).catch(() => {});
+      } else {
+        // Don't treat a failed fetch as "no chats": keep the last known conversations and say so.
+        setInboxFailed(true);
+      }
     } catch {
       setLeads((current) => { if (!current.length) setError("Could not load WhatsApp inbox."); return current; });
     } finally {
@@ -172,6 +191,7 @@ export default function WhatsAppScreen() {
     inboxBusy.current = true;
     try {
       setInbox(indexInbox(await fetchInbox()));
+      setInboxFailed(false);
     } catch {
       // Keep showing what we have; the next poll will try again.
     } finally {
@@ -184,7 +204,12 @@ export default function WhatsAppScreen() {
     chatBusy.current = true;
     try {
       const list = await fetchConversation(leadId);
-      setMessages((current) => (sameMessages(current, list) ? current : list));
+      // Keep messages still being sent so a poll doesn't make them vanish.
+      setMessages((current) => {
+        const pending = current.filter((item) => item.id.startsWith("pending-"));
+        if (!pending.length && sameMessages(current, list)) return current;
+        return [...list, ...pending];
+      });
     } catch {
       // Keep the current messages on a failed poll.
     } finally {
@@ -249,6 +274,29 @@ export default function WhatsAppScreen() {
       else next.add(id);
       return next;
     });
+  }
+
+  function confirmDeleteChat(lead: LeadListItem) {
+    Alert.alert("Delete chat?", `Delete the whole conversation with ${lead.name}? This can't be undone.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deleteConversation(lead.id);
+            setInbox((current) => {
+              const { [lead.id]: _removed, ...rest } = current;
+              return rest;
+            });
+            if (selectedId === lead.id) setSelectedId("");
+            refreshInbox();
+          } catch {
+            Alert.alert("Couldn't delete", "Could not delete this chat. Please try again.");
+          }
+        },
+      },
+    ]);
   }
 
   async function toggleTakeOver(id: string) {
@@ -357,18 +405,26 @@ export default function WhatsAppScreen() {
       Alert.alert("Add message", "Type a message or choose a saved reply.");
       return;
     }
+    // Show the message in the chat right away; swap in the saved one once the server confirms.
+    const leadId = selected.id;
+    const pendingId = `pending-${Date.now()}`;
+    const pending: WhatsAppMessage = { id: pendingId, direction: "outbound", message: body, sent_at: new Date().toISOString(), status: "sending" };
+    setMessages((current) => [...current, pending]);
+    setMessage("");
     setSending(true);
     try {
-      const result = await sendWhatsAppMessage(selected.id, body);
-      addSentMessage(selected.id, result.message);
-      setMessage("");
-      loadConversation(selected.id);
+      const result = await sendWhatsAppMessage(leadId, body);
+      setMessages((current) => current.map((item) => (item.id === pendingId ? result.message : item)));
+      refreshInbox();
+      loadConversation(leadId);
       if (result.delivery?.success === false) {
         Alert.alert("Message not delivered", result.delivery.error || "WhatsApp rejected this message.");
       } else {
         notifyMessageSent(selected).catch(() => {});
       }
     } catch {
+      setMessages((current) => current.filter((item) => item.id !== pendingId));
+      setMessage(body);
       Alert.alert("Message not sent", "Could not send this message. Please try again.");
     } finally {
       setSending(false);
@@ -454,6 +510,11 @@ export default function WhatsAppScreen() {
 
           <View style={styles.conversationCard}>
             <Text style={styles.sectionTitle}>Conversations</Text>
+            {inboxFailed ? (
+              <Pressable onPress={load} style={styles.inboxWarning}>
+                <Text style={styles.inboxWarningText}>Couldn't load your chats. Tap to retry.</Text>
+              </Pressable>
+            ) : null}
             <Searchbar value={search} onChangeText={setSearch} placeholder="Search conversations..." elevation={0} inputStyle={styles.searchInput} style={styles.searchBox} />
             <View style={styles.filterRow}>
               {FILTERS.map((item) => {
@@ -474,14 +535,21 @@ export default function WhatsAppScreen() {
               return (
                 <Pressable key={lead.id} style={[styles.conversationRow, active && styles.conversationRowActive]} onPress={() => setSelectedId(lead.id)}>
                   <View style={[styles.avatar, unread && styles.avatarUnread]}><Text style={styles.avatarText}>{initials(lead.name)}</Text></View>
-                  <View style={{ flex: 1 }}>
+                  <View style={styles.rowBody}>
                     <View style={styles.rowTop}>
-                      <Text style={styles.leadName} numberOfLines={1}>{lead.name}</Text>
-                      <Text style={styles.timeText}>{relativeTime(conversation?.sent_at || undefined)}</Text>
+                      <Text style={[styles.leadName, unread && styles.leadNameUnread]} numberOfLines={1}>{lead.name}</Text>
+                      <Text style={[styles.timeText, unread && styles.timeTextUnread]}>{relativeTime(conversation?.sent_at || undefined)}</Text>
                     </View>
-                    <Text style={[styles.previewText, !conversation?.message && styles.previewEmpty]} numberOfLines={1}>{previewFor(lead, conversation)}</Text>
+                    <View style={styles.rowBottom}>
+                      <Text style={[styles.previewText, !conversation?.message && styles.previewEmpty]} numberOfLines={1}>{previewFor(lead, conversation)}</Text>
+                      {unread ? <View style={styles.unreadBadge}><Text style={styles.unreadText}>{conversation.unread_count}</Text></View> : null}
+                      {conversation?.message ? (
+                        <Pressable hitSlop={8} onPress={() => confirmDeleteChat(lead)} style={styles.deleteChatButton}>
+                          <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                        </Pressable>
+                      ) : null}
+                    </View>
                   </View>
-                  {unread ? <View style={styles.unreadBadge}><Text style={styles.unreadText}>{conversation.unread_count}</Text></View> : null}
                 </Pressable>
               );
             }) : (
@@ -493,7 +561,7 @@ export default function WhatsAppScreen() {
 
       <View style={selected ? styles.chatOverlay : styles.chatHidden}>
         {selected ? (
-          <KeyboardAvoidingView style={styles.chatScreen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <KeyboardAvoidingView style={[styles.chatScreen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
             <View style={[styles.chatHeader, { paddingTop: insets.top + 8 }]}>
               <Pressable onPress={() => setSelectedId("")} hitSlop={10} style={styles.chatBack}>
                 <Ionicons name="arrow-back" size={24} color={colors.text} />
@@ -580,7 +648,7 @@ export default function WhatsAppScreen() {
               })}
             </ScrollView>
 
-            <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+            <View style={[styles.composer, { paddingBottom: keyboardHeight ? 10 : Math.max(insets.bottom, 10) }]}>
               {!canReply ? (
                 <View style={styles.templatePrompt}>
                   <View style={styles.templatePromptIcon}><Ionicons name="lock-closed" size={16} color="#ea580c" /></View>
@@ -656,27 +724,34 @@ const styles = StyleSheet.create({
   sectionTitle: { color: colors.text, fontSize: 15, fontFamily: "Inter_700Bold", marginBottom: 10 },
   searchBox: { backgroundColor: "rgba(255,255,255,0.82)", borderRadius: 12, borderWidth: 1, borderColor: colors.border, height: 44 },
   searchInput: { fontSize: 13, minHeight: 42 },
+  inboxWarning: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10, marginBottom: 10 },
+  inboxWarningText: { color: colors.danger, fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  deleteChatButton: { padding: 6, marginLeft: 4 },
   filterRow: { flexDirection: "row", gap: 8, marginTop: 12, marginBottom: 8 },
   filterChip: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.7)" },
   filterChipActive: { backgroundColor: colors.primary },
   filterText: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_700Bold" },
   filterTextActive: { color: "#fff" },
-  conversationRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, padding: 10 },
+  conversationRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 4 },
   conversationRowActive: { backgroundColor: "rgba(224,242,254,0.86)" },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#fee2e2", alignItems: "center", justifyContent: "center" },
+  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#fee2e2", alignItems: "center", justifyContent: "center" },
   avatarUnread: { backgroundColor: colors.successSoft },
-  avatarText: { color: colors.text, fontSize: 12, fontFamily: "Inter_700Bold" },
+  avatarText: { color: colors.text, fontSize: 16, fontFamily: "Inter_700Bold" },
+  rowBody: { flex: 1, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(0,0,0,0.1)", paddingBottom: 10 },
   rowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
-  leadName: { flex: 1, color: colors.text, fontSize: 13, fontFamily: "Inter_700Bold" },
-  timeText: { color: colors.textMuted, fontSize: 10 },
-  previewText: { color: colors.textSecondary, fontSize: 11, marginTop: 3 },
+  rowBottom: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3 },
+  leadName: { flex: 1, color: colors.text, fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  leadNameUnread: { fontFamily: "Inter_700Bold" },
+  timeText: { color: colors.textMuted, fontSize: 12 },
+  timeTextUnread: { color: colors.success },
+  previewText: { flex: 1, color: colors.textSecondary, fontSize: 14 },
   previewEmpty: { fontStyle: "italic", color: colors.textMuted },
   mediaImage: { width: 220, height: 160, borderRadius: 12, marginBottom: 6 },
   docRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   docText: { flex: 1, color: colors.primary, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   emptyChat: { alignItems: "center", paddingVertical: 40, gap: 8 },
   emptyChatText: { color: colors.textMuted, fontSize: 12, textAlign: "center" },
-  unreadBadge: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.success, alignItems: "center", justifyContent: "center" },
+  unreadBadge: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: colors.success, alignItems: "center", justifyContent: "center" },
   unreadText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
   chatOverlay: { ...StyleSheet.absoluteFill, zIndex: 50, elevation: 50, backgroundColor: "#f4f9fc" },
   chatHidden: { display: "none" },
