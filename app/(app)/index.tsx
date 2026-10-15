@@ -1,6 +1,6 @@
 import { IconBell, SvgUserAdd, SvgCalendar, SvgFolder } from "@/components/ReferenceIcons";
 import { glass, GradientIcon, GradientNumber } from "@/components/Glass";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ImageBackground, Keyboard, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
 } from "react-native";
@@ -405,8 +405,9 @@ export default function DashboardScreen() {
     return () => { cancelled = true; clearTimeout(task); };
   }, [dashboardReady]);
 
-  const load = useCallback(async (refresh = false) => {
-    refresh ? setRefreshing(true) : setLoading(true);
+  // `silent` re-fetches in the background (no spinner, no error alert) when returning to the screen.
+  const load = useCallback(async (refresh = false, silent = false) => {
+    if (!silent) refresh ? setRefreshing(true) : setLoading(true);
     setError("");
     try {
       const [summary, todayFollowups] = await Promise.all([
@@ -428,6 +429,13 @@ export default function DashboardScreen() {
   }, [period]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Coming back to Home (e.g. after completing follow-ups): refresh the numbers quietly so they aren't stale.
+  const focusedOnce = useRef(false);
+  useFocusEffect(useCallback(() => {
+    if (!focusedOnce.current) { focusedOnce.current = true; return; } // the first load is handled above
+    load(false, true);
+  }, [load]));
 
   useFocusEffect(useCallback(() => {
     let cancelled = false;
