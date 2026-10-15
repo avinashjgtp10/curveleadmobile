@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, BackHandler, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { Alert, BackHandler, Linking, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Appbar, Button, Text } from "react-native-paper";
 import axios from "axios";
 import * as AuthSession from "expo-auth-session";
@@ -239,6 +239,14 @@ export default function IntegrationsScreen() {
     ]);
   }
 
+  function contactUs() {
+    const subject = encodeURIComponent("Integration request - CurveLead");
+    const body = encodeURIComponent("Hi CurveLead team,\n\nI would like to request support for this integration provider:");
+    Linking.openURL(`mailto:support@curvelead.com?subject=${subject}&body=${body}`).catch(() =>
+      Alert.alert("Contact us", "Email support@curvelead.com to request an integration.")
+    );
+  }
+
   async function shareText(message: string) {
     try { await Share.share({ message }); } catch { /* the person closed the share sheet */ }
   }
@@ -378,7 +386,10 @@ export default function IntegrationsScreen() {
               </View>
             ))}
           </View>
-          <Text style={styles.contactBanner}>Looking for another provider? Contact us.</Text>
+          <Pressable style={styles.contactBanner} onPress={contactUs} accessibilityRole="link" accessibilityLabel="Contact us to request another integration provider">
+            <Text style={styles.contactBannerText}>Looking for another provider? <Text style={styles.contactLink}>Contact us</Text></Text>
+            <Ionicons name="mail-outline" size={16} color={colors.primary} />
+          </Pressable>
         </ScrollView>
       ) : null}
 
@@ -483,7 +494,9 @@ const styles = StyleSheet.create({
   soonTile: { width: "31%", alignItems: "center", gap: 8, paddingVertical: 14, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e2eef7", opacity: 0.85 },
   soonIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   soonName: { color: colors.textSecondary, fontSize: 11, fontWeight: "700", paddingHorizontal: 4 },
-  contactBanner: { color: colors.textMuted, fontSize: 12, textAlign: "center", marginTop: 4 },
+  contactBanner: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 4, paddingHorizontal: 12 },
+  contactBannerText: { color: colors.textMuted, fontSize: 12, textAlign: "center" },
+  contactLink: { color: colors.primary, fontWeight: "700" },
 
   overlay: { ...StyleSheet.absoluteFill, zIndex: 50, elevation: 50, backgroundColor: "#ffffff" },
   overlayHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
