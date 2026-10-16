@@ -4,15 +4,13 @@ import { router } from "expo-router";
 import type * as NotificationsType from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
-import { registerPushToken, unregisterPushToken } from "@/api/pushTokens";
+import { unregisterPushToken } from "@/api/pushTokens";
 import { saveIncomingPushNotification } from "@/api/notifications";
-import { configureNotificationHandler, registerForPushNotificationsAsync } from "./push";
+import { configureNotificationHandler } from "./push";
+import { LAST_REGISTERED_TOKEN_KEY, registerDevice } from "./pushStatus";
 import { navigateToNotification, NotificationRouteData } from "./navigateToNotification";
 import { withRetry } from "./retry";
 import { isExpoGo } from "./environment";
-
-const LAST_REGISTERED_TOKEN_KEY = "curvelead_push_token";
-const PLATFORM = Platform.OS === "ios" ? "ios" : "android";
 
 /** Must stay lazy — see push.ts: importing expo-notifications statically crashes Expo Go on Android. */
 function loadNotifications(): typeof NotificationsType {
@@ -38,15 +36,6 @@ function parseNotificationData(raw: unknown): NotificationRouteData {
 /** Routes a tapped push; pushes with no known destination open the Notifications list. */
 function handleNotificationTap(data: NotificationRouteData) {
   if (!navigateToNotification(data)) router.push("/(app)/notifications");
-}
-
-async function registerAndPersist(token: string) {
-  const lastToken = await AsyncStorage.getItem(LAST_REGISTERED_TOKEN_KEY);
-  if (lastToken === token) return; // already registered this exact token — avoid a redundant call
-  const ok = await withRetry(() => registerPushToken(token, PLATFORM));
-  if (ok) await AsyncStorage.setItem(LAST_REGISTERED_TOKEN_KEY, token);
-  // If registration failed after retries, we deliberately don't persist the token, so the
-  // next app foreground/login retries again instead of silently giving up forever.
 }
 
 /**
@@ -89,29 +78,16 @@ export function usePushNotifications(navigationReady: boolean) {
       return;
     }
 
-    let cancelled = false;
-    (async () => {
-      try {
-        const result = await registerForPushNotificationsAsync();
-        if (cancelled) return;
-        if (result.status === "granted") {
-          await registerAndPersist(result.token);
-        }
-        // "denied" and "unsupported" are expected outcomes (user declined, or running on
-        // a simulator/emulator without push support) — nothing to do for either.
-      } catch (error) {
-        console.warn("[push] registration failed", error);
-      }
-    })();
+    // The outcome (registered / denied / failed and why) is recorded for the Notification Settings screen.
+    registerDevice().catch((error) => console.warn("[push] registration failed", error));
 
     // Fires if the underlying push token rotates while the app is running (rare, but
     // documented as possible by Expo — e.g. after a Google Play Services update).
-    const tokenSub = loadNotifications().addPushTokenListener((event) => {
-      registerAndPersist(event.data).catch(() => {});
+    const tokenSub = loadNotifications().addPushTokenListener(() => {
+      registerDevice().catch(() => {});
     });
 
     return () => {
-      cancelled = true;
       tokenSub.remove();
     };
   }, [user, isLoading]);

@@ -1,6 +1,7 @@
 import type * as NotificationsType from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { isExpoGo } from "./environment";
 
@@ -52,6 +53,29 @@ export async function ensureAndroidChannel() {
   });
 }
 
+export const NOTIFICATION_PREFS_CACHE_KEY = "curvelead_notification_prefs";
+
+// Local alert types that belong to one of the Notification Settings switches. Other types (deleted,
+// message sent, test) are the person's own actions and always show.
+const TYPE_TO_GROUP: Record<string, string> = {
+  lead_created: "new_leads",
+  followup: "followups",
+  followup_due: "followups",
+};
+
+/** Honors the person's Notification Settings switches (cached on this phone by the settings screen). */
+async function isAlertEnabled(type?: string) {
+  const group = type ? TYPE_TO_GROUP[type] : undefined;
+  if (!group) return true;
+  try {
+    const raw = await AsyncStorage.getItem(NOTIFICATION_PREFS_CACHE_KEY);
+    const prefs = raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+    return prefs[group] !== false;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Shows a real system notification (banner + sound) right now, for events that happen on this
  * device — e.g. a lead was just created. Skips silently in Expo Go, on web, or if the user
@@ -63,6 +87,7 @@ export async function presentLocalNotification(title: string, body: string | und
     console.warn("[push] local alert skipped: not supported in Expo Go / web — use a development build");
     return;
   }
+  if (!(await isAlertEnabled(data.type))) return;
   try {
     const Notifications = loadNotifications();
     await ensureAndroidChannel();
@@ -80,6 +105,32 @@ export async function presentLocalNotification(title: string, body: string | und
   } catch (error) {
     // Most likely cause: the installed dev build predates the expo-notifications native module — rebuild it.
     console.warn("[push] could not show local notification (rebuild the dev client if the native module is missing):", error);
+  }
+}
+
+export type NotificationPermission = "granted" | "denied" | "undetermined" | "unsupported";
+
+/** Current OS-level notification permission. "unsupported" in Expo Go and on web. */
+export async function getNotificationPermission(): Promise<NotificationPermission> {
+  if (isExpoGo || Platform.OS === "web") return "unsupported";
+  try {
+    const { status } = await loadNotifications().getPermissionsAsync();
+    return status;
+  } catch {
+    return "unsupported";
+  }
+}
+
+/** Asks for permission (the OS only shows its prompt while undecided) and makes sure the Android channels exist. */
+export async function requestNotificationPermission(): Promise<NotificationPermission> {
+  if (isExpoGo || Platform.OS === "web") return "unsupported";
+  try {
+    const Notifications = loadNotifications();
+    await ensureAndroidChannel();
+    const { status } = await Notifications.requestPermissionsAsync();
+    return status;
+  } catch {
+    return "unsupported";
   }
 }
 

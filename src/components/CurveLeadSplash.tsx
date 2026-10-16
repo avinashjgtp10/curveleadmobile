@@ -69,7 +69,7 @@ export function CurveLeadSplash({ ready, onComplete }: Props) {
   });
 
   return (
-    <View style={styles.screen} onLayout={() => setLayoutReady(true)} testID="curvelead-splash" accessible accessibilityLabel="CURVELEAD. Create Your Leads">
+    <View style={styles.screen} onLayout={() => setLayoutReady(true)} testID="curvelead-splash" accessible accessibilityLabel="CURVELEAD. Automatic Lead Management">
       <Animated.View style={{ alignItems: "center", opacity: exitOpacity, transform: [{ translateX: reduceMotion ? 0 : exitPosition.interpolate({ inputRange: [0, 1], outputRange: [0, width * 1.1] }) }] }}>
         <View style={{ width: logoSize, height: logoSize }}>
           <Image source={LOGO} resizeMode="contain" fadeDuration={0} accessible={false} style={{ width: logoSize, height: logoSize, opacity: 0.15 }} />
@@ -88,7 +88,7 @@ export function CurveLeadSplash({ ready, onComplete }: Props) {
         }, textMotion(wordmark)]}>CURVELEAD</Animated.Text>
         <Animated.Text allowFontScaling={false} style={[styles.tagline, {
           fontSize: 13 * scale, lineHeight: 19.5 * scale, letterSpacing: 1.04 * scale, marginTop: 12 * scale,
-        }, textMotion(tagline)]}>Create Your Leads</Animated.Text>
+        }, textMotion(tagline)]}>Automatic Lead Management</Animated.Text>
       </Animated.View>
     </View>
   );

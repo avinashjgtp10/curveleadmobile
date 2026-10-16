@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Button, Card, Checkbox, Text, TextInput } from "react-native-paper";
+import { ActivityIndicator, Appbar, Button, Card, Checkbox, Text, TextInput } from "react-native-paper";
+import axios from "axios";
 import { Ionicons } from "@expo/vector-icons";
+import { BusinessSettings, fetchBusinessSettings, saveBusinessSettings } from "@/api/workspaceSettings";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
@@ -88,13 +90,92 @@ function BusinessTab() {
   const [businessHoursOnly, setBusinessHoursOnly] = useState(false);
   const [capMessagesPerDay, setCapMessagesPerDay] = useState(false);
 
-  function handleSave() {
+  // The full settings object from the server; edits are merged into it on save so unseen fields aren't lost.
+  const [serverSettings, setServerSettings] = useState<BusinessSettings>({});
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  function applySettings(s: BusinessSettings) {
+    setBusinessName(s.name || tenant?.name || "");
+    setBusinessEmail(s.email || user?.email || "");
+    setPhone(s.phone || "");
+    setWebsite(s.website || "");
+    setAddress(s.address || "");
+    setCity(s.city || "");
+    setState(s.state || "");
+    setGstin(s.gst_number || "");
+    setPan(s.pan_number || "");
+    setAccountHolder(s.bank_details?.account_holder || "");
+    setBankName(s.bank_details?.bank_name || "");
+    setAccountNumber(s.bank_details?.account_number || "");
+    setIfsc(s.bank_details?.ifsc || "");
+    setUpiId(s.bank_details?.upi || "");
+    setReplyToEmail(s.email_reply_to || "");
+    setDailyReport(!!s.daily_report_enabled);
+    setSendTime(s.daily_report_time || "08:00");
+    setBusinessHoursOnly(!!s.automation_business_hours_enabled);
+    setCapMessagesPerDay(!!s.automation_daily_cap_enabled);
+  }
+
+  async function loadSettings() {
+    setLoading(true); setLoadFailed(false);
+    try {
+      const loaded = await fetchBusinessSettings();
+      setServerSettings(loaded);
+      applySettings(loaded);
+    } catch {
+      setLoadFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadSettings(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleCancel() {
+    applySettings(serverSettings);
+    setEditing(false);
+  }
+
+  async function handleSave() {
+    if (!businessName.trim()) { Alert.alert("Business name needed", "Enter your business name before saving."); return; }
+    if (loadFailed) { Alert.alert("Can't save yet", "Your current settings didn't load. Pull them in again first."); return; }
+    const changes: BusinessSettings = {
+      name: businessName.trim(), email: businessEmail.trim(), phone: phone.trim(), website: website.trim(),
+      address: address.trim(), city: city.trim(), state: state.trim(),
+      gst_number: gstin.trim().toUpperCase(), pan_number: pan.trim().toUpperCase(),
+      bank_details: {
+        account_holder: accountHolder.trim(), bank_name: bankName.trim(), account_number: accountNumber.trim(),
+        ifsc: ifsc.trim().toUpperCase(), upi: upiId.trim(),
+      },
+      email_reply_to: replyToEmail.trim(),
+      daily_report_enabled: dailyReport, daily_report_time: sendTime.trim() || "08:00",
+      automation_business_hours_enabled: businessHoursOnly, automation_daily_cap_enabled: capMessagesPerDay,
+    };
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      try {
+        await saveBusinessSettings(serverSettings, changes);
+      } catch (saveError) {
+        // Money is already recorded in the old currency, so the server asks the owner to confirm a currency change.
+        if (!axios.isAxiosError(saveError) || saveError.response?.status !== 409 || saveError.response.data?.code !== "CURRENCY_CHANGE_CONFIRM") throw saveError;
+        const confirmed = await new Promise<boolean>((resolve) => Alert.alert(
+          "Change currency?", `${saveError.response?.data?.error}\n\nChange the currency to ${saveError.response?.data?.to}?`,
+          [{ text: "Cancel", style: "cancel", onPress: () => resolve(false) }, { text: "Change", onPress: () => resolve(true) }],
+          { cancelable: true, onDismiss: () => resolve(false) },
+        ));
+        if (!confirmed) return;
+        await saveBusinessSettings(serverSettings, changes, true);
+      }
+      setServerSettings({ ...serverSettings, ...changes });
       setEditing(false);
       Alert.alert("Saved", "Your business settings have been updated.");
-    }, 500);
+    } catch (saveError) {
+      Alert.alert("Couldn't save", axios.isAxiosError(saveError) && typeof saveError.response?.data?.error === "string"
+        ? saveError.response.data.error : "Please check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -107,15 +188,27 @@ function BusinessTab() {
               <Text style={styles.cardDescription}>These details appear on your quotations and PDFs.</Text>
             </View>
             {editing ? (
-              <Button mode="contained" compact icon="content-save-outline" onPress={handleSave} loading={saving} disabled={saving} style={styles.editButton} contentStyle={styles.editButtonContent} labelStyle={styles.editButtonLabel}>
-                Save
-              </Button>
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                <Button mode="outlined" compact onPress={handleCancel} disabled={saving} style={styles.editButton} contentStyle={styles.editButtonContent} labelStyle={styles.editButtonLabel}>
+                  Cancel
+                </Button>
+                <Button mode="contained" compact icon="content-save-outline" onPress={handleSave} loading={saving} disabled={saving} style={styles.editButton} contentStyle={styles.editButtonContent} labelStyle={styles.editButtonLabel}>
+                  Save
+                </Button>
+              </View>
             ) : (
-              <Button mode="contained" compact icon="pencil-outline" onPress={() => setEditing(true)} style={styles.editButton} contentStyle={styles.editButtonContent} labelStyle={styles.editButtonLabel}>
+              <Button mode="contained" compact icon="pencil-outline" onPress={() => setEditing(true)} disabled={loading} style={styles.editButton} contentStyle={styles.editButtonContent} labelStyle={styles.editButtonLabel}>
                 Edit
               </Button>
             )}
           </View>
+
+          {loading ? <ActivityIndicator color={colors.primary} style={{ marginVertical: 14 }} /> : null}
+          {loadFailed ? (
+            <Pressable onPress={loadSettings} style={styles.loadError}>
+              <Text style={styles.loadErrorText}>Couldn't load your saved settings. Tap to retry.</Text>
+            </Pressable>
+          ) : null}
 
           <SectionLabel>BASIC INFO</SectionLabel>
 
@@ -318,6 +411,8 @@ const styles = StyleSheet.create({
   passwordRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 22, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.borderSoft },
   editButton: { borderRadius: 8 },
   editButtonContent: { height: 32 },
+  loadError: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10, marginVertical: 10 },
+  loadErrorText: { color: colors.danger, fontSize: 12, fontWeight: "700" },
   editButtonLabel: { fontSize: 11, fontWeight: "800", marginVertical: 0, marginHorizontal: 8 },
 
   logoRow: { flexDirection: "row", alignItems: "center", gap: 12 },
