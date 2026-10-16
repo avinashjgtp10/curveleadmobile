@@ -18,7 +18,11 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.curvelead.mobile"
+      "bundleIdentifier": "com.curvelead.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "CurveLead needs access to your photo library so you can select and upload photos when using the app."
+      }
     },
     "android": {
       "package": "com.curvelead.app",
