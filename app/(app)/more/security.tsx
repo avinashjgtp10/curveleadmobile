@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { Appbar, Button, Card, Switch, Text, TextInput } from "react-native-paper";
+import axios from "axios";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
+import { changePassword } from "@/api/passwordReset";
 
 export default function SecurityScreen() {
   const insets = useSafeAreaInsets();
@@ -20,18 +22,27 @@ export default function SecurityScreen() {
 
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
 
-  function handleChangePassword() {
+  async function handleChangePassword() {
     setError("");
     if (!currentPassword.trim()) { setError("Enter your current password."); return; }
     if (newPassword.length < 8) { setError("New password must be at least 8 characters."); return; }
     if (newPassword !== confirmPassword) { setError("New password and confirmation don't match."); return; }
+    if (newPassword === currentPassword) { setError("Choose a new password that is different from your current one."); return; }
 
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      await changePassword(currentPassword, newPassword);
       setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
       Alert.alert("Password updated", "Your password has been changed.");
-    }, 600);
+    } catch (changeError) {
+      setError(axios.isAxiosError(changeError)
+        ? (typeof changeError.response?.data?.error === "string" ? changeError.response.data.error
+          : changeError.response ? "Couldn't change your password. Check your current password and try again."
+          : "Couldn't reach the server. Check your connection and try again.")
+        : "Couldn't change your password. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
