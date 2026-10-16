@@ -5,14 +5,8 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import axios from "axios";
-import { fetchStaff, StaffMember } from "@/api/staff";
+import { fetchStaff, fetchStaffPermissions, saveStaffPermissions, StaffMember, StaffPermission } from "@/api/staff";
 import { colors, radii, spacing } from "@/theme";
-
-const PERMISSIONS = [
-  "Delete leads", "Export leads to CSV", "Import leads from CSV", "Bulk update/delete leads",
-  "Create, edit and delete campaigns", "Invite, edit and remove team members",
-  "Change integration and business settings", "Build automation sequences and rules",
-];
 
 export default function TeamScreen() {
   const insets = useSafeAreaInsets();
@@ -28,7 +22,9 @@ export default function TeamScreen() {
   const [waMemberNumber, setWaMemberNumber] = useState("");
   const [waMemberToken, setWaMemberToken] = useState("");
   const [permMember, setPermMember] = useState<StaffMember | null>(null);
-  const [permissions, setPermissions] = useState<Set<string>>(new Set());
+  const [permissions, setPermissions] = useState<StaffPermission[]>([]);
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
+  const [permissionsSaving, setPermissionsSaving] = useState(false);
   const [passwordMember, setPasswordMember] = useState<StaffMember | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -73,22 +69,38 @@ export default function TeamScreen() {
     setWaMember(null);
   }
 
-  function openPermissionsModal(member: StaffMember) {
+  async function openPermissionsModal(member: StaffMember) {
     setOpenMenuFor(null);
-    setPermMember(member); setPermissions(new Set());
+    setPermMember(member); setPermissions([]); setPermissionsLoading(true);
+    try {
+      const loaded = await fetchStaffPermissions(member.id);
+      setPermissions(loaded);
+    } catch {
+      setPermMember(null);
+      Alert.alert("Couldn't load permissions", "Please check your connection and try again.");
+    } finally {
+      setPermissionsLoading(false);
+    }
   }
 
-  function togglePermission(permission: string) {
-    setPermissions((current) => {
-      const next = new Set(current);
-      next.has(permission) ? next.delete(permission) : next.add(permission);
-      return next;
-    });
+  function togglePermission(key: string) {
+    setPermissions((current) => current.map((item) => (item.key === key ? { ...item, granted: !item.granted } : item)));
   }
 
-  function savePermissions() {
-    Alert.alert("Permissions", `${permMember?.name}'s permissions will be saved when the staff endpoint is connected.`);
-    setPermMember(null);
+  async function savePermissions() {
+    if (!permMember || permissionsSaving || permissionsLoading) return;
+    setPermissionsSaving(true);
+    try {
+      await saveStaffPermissions(permMember.id, permissions);
+      const name = permMember.name;
+      setPermMember(null);
+      Alert.alert("Permissions saved", `${name}'s permissions were updated.`);
+    } catch (saveError) {
+      Alert.alert("Couldn't save permissions", axios.isAxiosError(saveError) && typeof saveError.response?.data?.error === "string"
+        ? saveError.response.data.error : "Please check your connection and try again.");
+    } finally {
+      setPermissionsSaving(false);
+    }
   }
 
   function openPasswordModal(member: StaffMember) {
@@ -237,15 +249,16 @@ export default function TeamScreen() {
             </View>
             <ScrollView style={styles.permissionsScroll}>
               <View style={styles.teamModalBody}>
-                {PERMISSIONS.map((permission) => (
-                  <Pressable key={permission} style={styles.permissionRow} onPress={() => togglePermission(permission)}>
-                    <Text style={styles.permissionText}>{permission}</Text>
-                    <Checkbox status={permissions.has(permission) ? "checked" : "unchecked"} onPress={() => togglePermission(permission)} color={colors.primary} />
+                {permissionsLoading ? <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} /> : null}
+                {permissions.map((permission) => (
+                  <Pressable key={permission.key} style={styles.permissionRow} onPress={() => togglePermission(permission.key)}>
+                    <Text style={styles.permissionText}>{permission.label}</Text>
+                    <Checkbox status={permission.granted ? "checked" : "unchecked"} onPress={() => togglePermission(permission.key)} color={colors.primary} />
                   </Pressable>
                 ))}
                 <View style={styles.modalActions}>
-                  <Button mode="outlined" style={styles.cancelButton} onPress={() => setPermMember(null)}>Cancel</Button>
-                  <Button mode="contained" style={styles.sendButton} onPress={savePermissions}>Save</Button>
+                  <Button mode="outlined" style={styles.cancelButton} onPress={() => setPermMember(null)} disabled={permissionsSaving}>Cancel</Button>
+                  <Button mode="contained" style={styles.sendButton} onPress={savePermissions} loading={permissionsSaving} disabled={permissionsSaving || permissionsLoading}>Save</Button>
                 </View>
               </View>
             </ScrollView>
