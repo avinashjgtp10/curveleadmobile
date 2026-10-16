@@ -5,7 +5,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import axios from "axios";
-import { fetchStaff, fetchStaffPermissions, saveStaffPermissions, StaffMember, StaffPermission } from "@/api/staff";
+import { fetchStaff, fetchStaffPermissions, fetchStaffWhatsApp, saveStaffPermissions, saveStaffWhatsApp, StaffMember, StaffPermission } from "@/api/staff";
 import { colors, radii, spacing } from "@/theme";
 
 export default function TeamScreen() {
@@ -21,6 +21,8 @@ export default function TeamScreen() {
   const [waMember, setWaMember] = useState<StaffMember | null>(null);
   const [waMemberNumber, setWaMemberNumber] = useState("");
   const [waMemberToken, setWaMemberToken] = useState("");
+  const [waLoading, setWaLoading] = useState(false);
+  const [waSaving, setWaSaving] = useState(false);
   const [permMember, setPermMember] = useState<StaffMember | null>(null);
   const [permissions, setPermissions] = useState<StaffPermission[]>([]);
   const [permissionsLoading, setPermissionsLoading] = useState(false);
@@ -59,14 +61,38 @@ export default function TeamScreen() {
     Alert.alert("Create team", "Team creation will be available when the team endpoint is connected.");
   }
 
-  function openWhatsappModal(member: StaffMember) {
+  async function openWhatsappModal(member: StaffMember) {
     setOpenMenuFor(null);
-    setWaMember(member); setWaMemberNumber(member.phone || ""); setWaMemberToken("");
+    setWaMember(member); setWaMemberNumber(""); setWaMemberToken(""); setWaLoading(true);
+    try {
+      // The saved Phone number ID comes from the server. (The member's own phone number is a different thing.)
+      const saved = await fetchStaffWhatsApp(member.id);
+      setWaMemberNumber(saved.whatsapp_phone_number_id);
+    } catch {
+      // The form still works for entering a new value; saving will report any problem.
+    } finally {
+      setWaLoading(false);
+    }
   }
 
-  function saveMemberWhatsapp() {
-    Alert.alert("WhatsApp number", `${waMember?.name}'s WhatsApp number will be saved when the staff endpoint is connected.`);
-    setWaMember(null);
+  async function saveMemberWhatsapp() {
+    if (!waMember || waSaving || waLoading) return;
+    if (!waMemberNumber.trim()) {
+      Alert.alert("Phone number ID needed", "Enter the WhatsApp Phone number ID for this team member.");
+      return;
+    }
+    setWaSaving(true);
+    try {
+      await saveStaffWhatsApp(waMember.id, { whatsapp_phone_number_id: waMemberNumber.trim(), whatsapp_access_token: waMemberToken.trim() });
+      const name = waMember.name;
+      setWaMember(null);
+      Alert.alert("WhatsApp number saved", `${name}'s WhatsApp number was updated.`);
+    } catch (saveError) {
+      Alert.alert("Couldn't save WhatsApp number", axios.isAxiosError(saveError) && typeof saveError.response?.data?.error === "string"
+        ? saveError.response.data.error : "Please check your connection and try again.");
+    } finally {
+      setWaSaving(false);
+    }
   }
 
   async function openPermissionsModal(member: StaffMember) {
@@ -224,16 +250,19 @@ export default function TeamScreen() {
             </View>
             <View style={styles.teamModalBody}>
               <TextInput
-                mode="outlined" dense placeholder="WhatsApp number" value={waMemberNumber} onChangeText={setWaMemberNumber}
-                keyboardType="phone-pad" style={styles.teamNameInput} outlineColor={colors.border} activeOutlineColor={colors.primary}
+                mode="outlined" dense placeholder="Phone number ID" value={waMemberNumber} onChangeText={setWaMemberNumber}
+                keyboardType="number-pad" autoCorrect={false} editable={!waLoading && !waSaving}
+                right={waLoading ? <TextInput.Icon icon="loading" /> : undefined}
+                style={styles.teamNameInput} outlineColor={colors.border} activeOutlineColor={colors.primary}
               />
               <TextInput
                 mode="outlined" dense placeholder="Access token (leave blank to keep existing)" value={waMemberToken} onChangeText={setWaMemberToken}
-                secureTextEntry style={[styles.teamNameInput, { marginTop: spacing.sm }]} outlineColor={colors.border} activeOutlineColor={colors.primary}
+                secureTextEntry autoCapitalize="none" autoCorrect={false} editable={!waSaving}
+                style={[styles.teamNameInput, { marginTop: spacing.sm }]} outlineColor={colors.border} activeOutlineColor={colors.primary}
               />
               <View style={styles.modalActions}>
-                <Button mode="outlined" style={styles.cancelButton} onPress={() => setWaMember(null)}>Cancel</Button>
-                <Button mode="contained" style={styles.sendButton} onPress={saveMemberWhatsapp}>Save</Button>
+                <Button mode="outlined" style={styles.cancelButton} onPress={() => setWaMember(null)} disabled={waSaving}>Cancel</Button>
+                <Button mode="contained" style={styles.sendButton} onPress={saveMemberWhatsapp} loading={waSaving} disabled={waSaving || waLoading}>Save</Button>
               </View>
             </View>
           </Pressable>

@@ -1,11 +1,17 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
 import {
   apiClient,
   getStoredToken,
   setStoredToken,
   clearStoredToken,
+  isNetworkError,
 } from "@/api/client";
 import { AuthUser, Tenant } from "@/types";
+
+// The last profile the server confirmed, so opening the app offline doesn't look like being signed out.
+const SESSION_CACHE_KEY = "curvelead_cached_session";
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -36,8 +42,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           );
           setUser(data.user);
           setTenant(data.tenant);
-        } catch {
-          await clearStoredToken();
+          AsyncStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: data.user, tenant: data.tenant })).catch(() => {});
+        } catch (error) {
+          if (isNetworkError(error) || (axios.isAxiosError(error) && (error.response?.status ?? 0) >= 500)) {
+            // No signal or the server is down: that doesn't mean the session ended. Stay signed in with the last known profile.
+            try {
+              const cached = await AsyncStorage.getItem(SESSION_CACHE_KEY);
+              if (cached) {
+                const session = JSON.parse(cached) as { user: AuthUser; tenant: Tenant };
+                setUser(session.user);
+                setTenant(session.tenant);
+              }
+            } catch { /* no usable cache: the login screen shows */ }
+          } else {
+            // The server answered and rejected the token (expired, revoked): a real sign-out.
+            await clearStoredToken();
+            AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => {});
+          }
         }
       }
       setIsLoading(false);
@@ -53,6 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setStoredToken(data.token);
     setUser(data.user);
     setTenant(data.tenant);
+    AsyncStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: data.user, tenant: data.tenant })).catch(() => {});
   }
 
   async function requestOtp(email: string) {
@@ -68,6 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setStoredToken(data.token);
     setUser(data.user);
     setTenant(data.tenant);
+    AsyncStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: data.user, tenant: data.tenant })).catch(() => {});
   }
 
   async function refreshProfile() {
@@ -82,6 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function logout() {
     await clearStoredToken();
+    AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => {});
     setUser(null);
     setTenant(null);
   }

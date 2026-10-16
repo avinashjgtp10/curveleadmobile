@@ -158,11 +158,9 @@ export default function FollowupsScreen() {
     setError("");
     try {
       const dateStr = ymd(date);
-      // On today's date, only bound the upper end so overdue follow-ups from
-      // earlier days (e.g. the dashboard's "critical follow-ups" count) still show up.
-      // Browsing to a specific past/future day filters to exactly that day.
-      const isToday = isSameDay(date, new Date());
-      const result = await fetchTodayFollowups(isToday ? { date_to: dateStr } : { date_from: dateStr, date_to: dateStr });
+      // Keep the selected-day list scoped to that calendar day. Overdue items
+      // from earlier days should not be counted under "Today".
+      const result = await fetchTodayFollowups({ date_from: dateStr, date_to: dateStr });
       if (id !== requestId.current) return;
       setFollowups(result);
     } catch (loadError) {
