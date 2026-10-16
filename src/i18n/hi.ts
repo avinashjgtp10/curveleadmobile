@@ -117,7 +117,7 @@ export const hi: Record<string, string> = {
   Hot: "हॉट",
   Warm: "गर्म",
   Cold: "ठंडा",
-  "Search Name/Number/Keywords…": "नाम/नंबर/कीवर्ड खोजें…",
+  "Search by name or phone…": "नाम या फ़ोन से खोजें…",
   "No leads yet": "अभी कोई लीड नहीं",
   "No matching leads": "कोई मिलता-जुलता लीड नहीं",
   "Try changing your search or filter.": "अपनी खोज या फ़िल्टर बदलकर देखें।",
