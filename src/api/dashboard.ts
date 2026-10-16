@@ -1,5 +1,5 @@
 import axios from "axios";
-import { apiClient } from "@/api/client";
+import { apiClient, isNetworkError } from "@/api/client";
 
 export type DashboardPeriod = "today" | "last_7_days" | "last_30_days";
 
@@ -74,6 +74,8 @@ export async function fetchDashboard(period: DashboardPeriod) {
     // Authentication and subscription errors need to reach the screen unchanged.
     const status = axios.isAxiosError(error) ? error.response?.status : undefined;
     if (status === 401 || status === 402 || status === 403) throw error;
+    // No connection: the fallback requests below would fail the same way, so report it straight away.
+    if (isNetworkError(error)) throw error;
 
     // Older deployments may not have /reports/summary yet. Build a useful dashboard
     // from the long-standing lead endpoints until that deployment catches up.

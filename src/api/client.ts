@@ -34,9 +34,26 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
+export const OFFLINE_MESSAGE = "No internet connection. Check your network and try again.";
+export const TIMEOUT_MESSAGE = "The server took too long to respond. Please try again.";
+
+/** True when the request never got an answer from the server (no connection, timeout, server unreachable). */
+export function isNetworkError(error: unknown) {
+  return axios.isAxiosError(error) && (error.response?.status === 0 || (!error.response && !axios.isCancel(error)));
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // A request with no answer has no `response`, so every screen fell back to its generic "Could not load…".
+    // Giving it a response with a clear `error` text lets all the existing error handling show the real reason.
+    if (axios.isAxiosError(error) && !error.response && !axios.isCancel(error)) {
+      const timedOut = error.code === "ECONNABORTED" || error.code === "ETIMEDOUT";
+      error.response = {
+        status: 0, statusText: "", headers: {}, config: error.config as never,
+        data: { error: timedOut ? TIMEOUT_MESSAGE : OFFLINE_MESSAGE, network: true },
+      };
+    }
     if (error.response?.status === 401) {
       await clearStoredToken();
       // AuthContext listens for this and redirects to /login
