@@ -1,5 +1,37 @@
 import { apiClient } from "./client";
 
+// ---- Business settings (Settings > Business) -------------------------------------------------
+
+export interface BusinessSettings {
+  name?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  gst_number?: string;
+  pan_number?: string;
+  bank_details?: { account_holder?: string; bank_name?: string; account_number?: string; ifsc?: string; upi?: string };
+  email_reply_to?: string;
+  daily_report_enabled?: boolean;
+  daily_report_time?: string;
+  automation_business_hours_enabled?: boolean;
+  automation_daily_cap_enabled?: boolean;
+  // The server holds more (currency, timezone, business hours...) than this screen edits, so the whole object is kept.
+  [key: string]: unknown;
+}
+
+export async function fetchBusinessSettings() {
+  const { data } = await apiClient.get<{ settings: BusinessSettings }>("/settings");
+  return data.settings || {};
+}
+
+// Like the web app, the whole settings object goes back with the edits merged in, so fields this screen doesn't show are kept.
+export async function saveBusinessSettings(current: BusinessSettings, changes: BusinessSettings, confirmCurrencyChange = false) {
+  await apiClient.put("/settings", { ...current, ...changes, ...(confirmCurrencyChange && { confirm_currency_change: true }) });
+}
+
 // ---- Assignment rules (Settings > Assignment) -------------------------------------------------
 
 export interface AssignmentRule {
