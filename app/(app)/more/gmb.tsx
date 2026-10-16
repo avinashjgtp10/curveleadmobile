@@ -7,6 +7,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { draftGmbReviewMessage, fetchGmbReviewRequestSettings, GmbReviewRequestSettings, updateGmbReviewRequestSettings } from "@/api/gmb";
+import { fetchSendableWhatsAppTemplates, SendableWhatsAppTemplate } from "@/api/whatsapp";
 
 type GmbTab = "review-requests" | "reviews" | "posts" | "insights";
 
@@ -47,6 +48,13 @@ function ReviewRequestsTab() {
   const [enabled, setEnabled] = useState(false);
   const [reviewLink, setReviewLink] = useState("");
   const [message, setMessage] = useState("");
+  const [templateName, setTemplateName] = useState("");
+  const [templates, setTemplates] = useState<SendableWhatsAppTemplate[] | null>(null);
+
+  // Approved templates the person can pick for leads outside the 24-hour window (same list as the web page).
+  useEffect(() => {
+    fetchSendableWhatsAppTemplates().then(setTemplates).catch(() => setTemplates([]));
+  }, []);
 
   async function load() {
     setLoading(true); setError("");
@@ -56,14 +64,16 @@ function ReviewRequestsTab() {
       setEnabled(data.enabled);
       setReviewLink(data.review_link);
       setMessage(data.message);
+      setTemplateName(data.template_name || "");
     } catch (loadError) {
       if (isRouteMissing(loadError)) {
         // Backend route isn't live yet — fall back to sensible defaults instead of an error screen.
-        const fallback: GmbReviewRequestSettings = { enabled: false, review_link: "", message: DEFAULT_REVIEW_MESSAGE };
+        const fallback: GmbReviewRequestSettings = { enabled: false, review_link: "", message: DEFAULT_REVIEW_MESSAGE, template_name: "" };
         setSettings(fallback);
         setEnabled(fallback.enabled);
         setReviewLink(fallback.review_link);
         setMessage(fallback.message);
+        setTemplateName("");
       } else {
         setError(errorMessage(loadError, "Could not load review request settings."));
       }
@@ -77,7 +87,7 @@ function ReviewRequestsTab() {
   async function toggleEnabled(value: boolean) {
     setEnabled(value);
     try {
-      await updateGmbReviewRequestSettings({ enabled: value, review_link: reviewLink, message });
+      await updateGmbReviewRequestSettings({ enabled: value, review_link: reviewLink, message, template_name: templateName });
     } catch (toggleError) {
       if (isRouteMissing(toggleError)) return;
       setEnabled(!value);
@@ -101,7 +111,7 @@ function ReviewRequestsTab() {
   async function handleSave() {
     setSaving(true);
     try {
-      const data = await updateGmbReviewRequestSettings({ enabled, review_link: reviewLink.trim(), message });
+      const data = await updateGmbReviewRequestSettings({ enabled, review_link: reviewLink.trim(), message, template_name: templateName });
       setSettings(data);
       Alert.alert("Saved", "Your review request settings have been updated.");
     } catch (saveError) {
@@ -129,7 +139,7 @@ function ReviewRequestsTab() {
         <Card.Content style={styles.toggleRow}>
           <View style={styles.toggleBody}>
             <Text style={styles.cardTitle}>Ask for a Google review when a lead is won</Text>
-            <Text style={styles.cardDescription}>The moment a lead reaches a Won stage, this message is sent to them on WhatsApp automatically — no staff involved.</Text>
+            <Text style={styles.cardDescription}>When a lead reaches a Won stage, CurveLead asks them for a review on WhatsApp. Make sure only your real customer stage is tagged Won (Settings → Pipeline).</Text>
           </View>
           <Switch value={enabled} onValueChange={toggleEnabled} color={colors.primary} />
         </Card.Content>
@@ -149,8 +159,33 @@ function ReviewRequestsTab() {
 
       <Card mode="outlined" style={styles.card}>
         <Card.Content>
+          <Text style={styles.cardTitle}>Approved template (outside the 24-hour window)</Text>
+          <Text style={styles.cardDescription}>
+            WhatsApp only allows free text within 24 hours of the customer's last message. Most won leads are outside that window, so pick an approved template — ideally a Utility one — with {"{{1}}"} for the name and {"{{2}}"} for the review link. Without one, the request is skipped and the lead's timeline says why.
+          </Text>
+          <View style={styles.templateList}>
+            <Pressable style={[styles.templateRow, !templateName && styles.templateRowActive]} onPress={() => setTemplateName("")}>
+              <Ionicons name={!templateName ? "radio-button-on" : "radio-button-off"} size={18} color={!templateName ? colors.primary : colors.textMuted} />
+              <Text style={styles.templateText}>No template — send only inside the 24-hour window</Text>
+            </Pressable>
+            {templates === null ? <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 10 }} /> : null}
+            {(templates || []).map((template) => {
+              const active = templateName === template.name;
+              return (
+                <Pressable key={`${template.name}-${template.language}`} style={[styles.templateRow, active && styles.templateRowActive]} onPress={() => setTemplateName(template.name)}>
+                  <Ionicons name={active ? "radio-button-on" : "radio-button-off"} size={18} color={active ? colors.primary : colors.textMuted} />
+                  <Text style={styles.templateText}>{template.name} · {String(template.category || "").toLowerCase()} · {template.language}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Card.Content>
+      </Card>
+
+      <Card mode="outlined" style={styles.card}>
+        <Card.Content>
           <View style={styles.messageHeaderRow}>
-            <Text style={styles.cardTitle}>Message</Text>
+            <Text style={styles.cardTitle}>Message (inside the 24-hour window)</Text>
             <Button
               mode="contained" compact icon="creation" onPress={handleDraft} loading={drafting} disabled={drafting}
               style={styles.draftButton} contentStyle={styles.draftButtonContent} labelStyle={styles.draftButtonLabel}
@@ -160,7 +195,8 @@ function ReviewRequestsTab() {
           </View>
           <Text style={styles.cardDescription}>Keep {"{{name}}"} and {"{{review_link}}"} in the message — they're swapped for the real values when it's sent.</Text>
           <TextInput
-            mode="outlined" value={message} onChangeText={setMessage} multiline numberOfLines={5}
+            mode="outlined" value={message} onChangeText={setMessage} multiline numberOfLines={7}
+            textAlignVertical="top" contentStyle={styles.messageContent}
             style={[styles.field, styles.messageField]}
           />
         </Card.Content>
@@ -226,12 +262,19 @@ const styles = StyleSheet.create({
   cardTitle: { color: colors.text, fontSize: 14, fontWeight: "800" },
   cardDescription: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 6 },
   field: { marginTop: 12 },
-  messageField: { minHeight: 100 },
+  messageField: { minHeight: 170 },
+  messageContent: { fontSize: 14, lineHeight: 21, paddingTop: 10, paddingBottom: 10 },
 
   toggleRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   toggleBody: { flex: 1 },
 
-  messageHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  templateList: { marginTop: 10, gap: 6 },
+  templateRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.surface },
+  templateRowActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  templateText: { flex: 1, color: colors.text, fontSize: 12, fontWeight: "600" },
+
+  // Title on its own line with the button under it: side by side, the long title pushed the button off the card.
+  messageHeaderRow: { flexDirection: "column", alignItems: "flex-start", gap: 10 },
   draftButton: { borderRadius: 8 },
   draftButtonContent: { height: 32 },
   draftButtonLabel: { fontSize: 11, fontWeight: "800", marginVertical: 0, marginHorizontal: 8 },
