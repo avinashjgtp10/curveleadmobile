@@ -523,7 +523,7 @@ export default function LeadsScreen() {
       <View style={styles.searchRow}>
         <Searchbar
           icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 14, minHeight: 48 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
-          placeholder={t("Search Name/Number/Keywords…")} placeholderTextColor={colors.textMuted} onClearIconPress={() => updateSearch("")}
+          placeholder={t("Search by name or phone…")} placeholderTextColor={colors.textMuted} onClearIconPress={() => updateSearch("")}
         />
         <Pressable
           style={[styles.filterButton, activeFilterCount > 0 && styles.filterButtonActive]} onPress={openFiltersSheet}
