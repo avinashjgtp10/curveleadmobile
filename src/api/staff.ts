@@ -20,6 +20,11 @@ export async function saveStaffWhatsApp(staffId: string, input: { whatsapp_phone
   await apiClient.put(`/staff/${staffId}/whatsapp-number`, input);
 }
 
+// Emails the person a link to set their own password (the same call the web Team page makes).
+export async function inviteStaffMember(input: { name: string; email: string; phone: string; role: "staff" | "admin"; team_id?: string }) {
+  await apiClient.post("/staff/invite", { ...input, team_id: input.team_id || undefined });
+}
+
 export async function fetchStaff() {
   const { data } = await apiClient.get<{ staff: StaffMember[] }>("/staff");
   return data.staff || [];
