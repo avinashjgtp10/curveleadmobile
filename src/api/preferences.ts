@@ -5,6 +5,8 @@ export interface UserPreferences {
   language?: string;
   // Languages the person asked to be told about once they are translated.
   language_requests?: string[];
+  // Per-type notification switches; a key set to false is off, anything else is on.
+  notification_prefs?: Record<string, boolean>;
   [key: string]: unknown;
 }
 

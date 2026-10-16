@@ -16,7 +16,13 @@
     "production": {
       "android": {
         "buildType": "app-bundle"
+      },
+      "ios": {
+        "distribution": "store"
       }
     }
+  },
+  "submit": {
+    "production": {}
   }
 }

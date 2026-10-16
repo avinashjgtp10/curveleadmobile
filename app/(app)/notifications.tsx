@@ -122,7 +122,10 @@ export default function NotificationsScreen() {
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction color={colors.text} onPress={() => router.back()} />
         <Appbar.Content title={t("Notifications")} titleStyle={styles.headerTitle} />
-        {unreadCount ? <Text style={styles.headerBadge}>{unreadCount > 99 ? "99+" : unreadCount}</Text> : null}
+        <Pressable style={styles.bellWrap} hitSlop={8} onPress={() => router.push("/(app)/more/notification-settings" as never)} accessibilityRole="button" accessibilityLabel={t("Notification settings")}>
+          <Ionicons name={unreadCount ? "notifications" : "notifications-outline"} size={26} color={colors.text} />
+          {unreadCount ? <Text style={styles.headerBadge}>{unreadCount > 99 ? "99+" : unreadCount}</Text> : null}
+        </Pressable>
       </Appbar.Header>
 
       <View style={styles.panel}>
@@ -183,8 +186,12 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   header: { height: 80, paddingHorizontal: 6, backgroundColor: "transparent" },
   headerTitle: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" },
+  bellWrap: { width: 44, height: 44, alignItems: "center", justifyContent: "center", marginRight: 6 },
   headerBadge: {
-    minWidth: 26,
+    position: "absolute",
+    top: 2,
+    right: 0,
+    minWidth: 20,
     height: 22,
     paddingHorizontal: 6,
     borderRadius: 11,
@@ -195,7 +202,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     textAlign: "center",
     fontFamily: "Inter_700Bold",
-    marginRight: 12,
   },
   panel: { ...glass, flex: 1, marginHorizontal: 16, marginBottom: 12, overflow: "hidden" },
   panelHeader: {

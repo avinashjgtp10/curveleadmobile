@@ -1,8 +1,8 @@
 import { IconBell, SvgUserAdd, SvgCalendar, SvgFolder } from "@/components/ReferenceIcons";
 import { glass, GradientIcon, GradientNumber } from "@/components/Glass";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ImageBackground, Keyboard, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
+  Alert, ImageBackground, Keyboard, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card } from "react-native-paper";
 import { LinearGradient } from "expo-linear-gradient";
@@ -82,11 +82,12 @@ function sourceLook(source: string): SourceLook {
 
 interface LeadSourceRow { source: string; leads: number; won: number; conversion: number }
 
-function StatTile({ label, value }: { label: string; value: string }) {
+function StatTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
   const { t } = useT();
   return (
     <View style={styles.statTile}>
       <Text style={styles.statLabel}>{t(label)}</Text>
+      {hint ? <Text style={styles.statHint}>{t(hint)}</Text> : null}
       <GradientNumber value={value} tone={label.includes("Converted") ? "violet" : label.includes("New") ? "emerald" : label.includes("Due") ? "amber" : "sky"} />
     </View>
   );
@@ -186,13 +187,13 @@ function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowu
 function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
   const { t } = useT();
   const insights = [
-    { label: "Revenue", value: data.total_revenue || data.revenue_in_period },
+    { label: "Revenue", value: data.revenue_in_period },
     { label: "Avg. deal", value: data.avg_deal_value },
     { label: "Balance due", value: data.balance_due_in_period },
   ];
   return (
     <Pressable style={styles.insightsSection} onPress={onPress} accessibilityRole="button">
-      <Text style={styles.insightsTitle}>{t("Insights")}</Text>
+      <Text style={styles.insightsTitle}>{t("Insights")} <Text style={styles.insightsPeriod}>· {t("Last 7 days")}</Text></Text>
       <View style={styles.insightsRow}>
         {insights.map((item) => (
           <View key={item.label} style={styles.insightCard}>
@@ -306,6 +307,7 @@ const MANAGE_BUSINESS: GridItem[] = [
 const OTHER_DESTINATIONS: GridItem[] = [
   { icon: "chatbox-ellipses-outline", label: "Message Templates", ...TONE.sky, href: "/(app)/more/templates" },
   { icon: "notifications-outline", label: "Notifications", ...TONE.sky, href: "/(app)/notifications" },
+  { icon: "options-outline", label: "Notification Settings", ...TONE.emerald, href: "/(app)/more/notification-settings" },
   { icon: "lock-closed-outline", label: "Security", ...TONE.violet, href: "/(app)/more/security" },
   { icon: "language-outline", label: "Language", ...TONE.amber, href: "/(app)/more/language" },
   { icon: "person-circle-outline", label: "Account", ...TONE.emerald, href: "/(app)/more/account" },
@@ -393,7 +395,7 @@ export default function DashboardScreen() {
           const key = lead.source || "manual";
           const entry = bySource.get(key) || { leads: 0, won: 0 };
           entry.leads += 1;
-          if (lead.stage?.toLowerCase() === "won") entry.won += 1;
+          if (["won", "enrolled"].includes(lead.stage?.toLowerCase() || "")) entry.won += 1;
           bySource.set(key, entry);
         }
         const rows = Array.from(bySource.entries())
@@ -405,29 +407,42 @@ export default function DashboardScreen() {
     return () => { cancelled = true; clearTimeout(task); };
   }, [dashboardReady]);
 
-  const load = useCallback(async (refresh = false) => {
-    refresh ? setRefreshing(true) : setLoading(true);
+  // `silent` re-fetches in the background (no spinner, no error alert) when returning to the screen.
+  const load = useCallback(async (refresh = false, silent = false) => {
+    if (!silent) refresh ? setRefreshing(true) : setLoading(true);
     setError("");
     try {
       const [summary, todayFollowups] = await Promise.all([
         fetchDashboard(period),
-        fetchTodayFollowups().catch(() => []),
+        fetchTodayFollowups().catch(() => null),
       ]);
       setData(summary);
-      setUpcomingFollowups(todayFollowups);
+      // A failed follow-ups request keeps the last list instead of showing "No upcoming follow-ups".
+      if (todayFollowups) setUpcomingFollowups(todayFollowups);
       // The focus effect below already fetches notifications on first open; only pull-to-refresh needs it here.
+      // On failure the badge keeps its last known count rather than guessing.
       if (refresh) {
         fetchNotifications()
           .then((latestNotifications) => setNotificationCount(latestNotifications.filter((item) => !item.read_at).length))
-          .catch(() => setNotificationCount(todayFollowups.length));
+          .catch(() => {});
       }
     } catch (loadError) {
-      setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string"
-        ? loadError.response.data.error : "Could not load your dashboard.");
+      const message = axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string"
+        ? loadError.response.data.error : "Could not load your dashboard.";
+      setError(message);
+      // With numbers already on screen the error banner is hidden, so tell the person the refresh didn't work.
+      if (refresh) Alert.alert("Couldn't refresh", message);
     } finally { setLoading(false); setRefreshing(false); }
   }, [period]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Coming back to Home (e.g. after completing follow-ups): refresh the numbers quietly so they aren't stale.
+  const focusedOnce = useRef(false);
+  useFocusEffect(useCallback(() => {
+    if (!focusedOnce.current) { focusedOnce.current = true; return; } // the first load is handled above
+    load(false, true);
+  }, [load]));
 
   useFocusEffect(useCallback(() => {
     let cancelled = false;
@@ -504,9 +519,13 @@ export default function DashboardScreen() {
         ) : data ? (
           <>
             {(() => {
+              // Integrations is an admin-only page, so staff never see its two setup steps (they could never finish them).
+              const isAdmin = user?.role === "admin" || user?.role === "super_admin";
               const steps: { label: string; hint: string; icon: IconName; done: boolean; href: string }[] = [
-                { label: "Connect WhatsApp", hint: "Message leads from the app", icon: "logo-whatsapp", done: !!integrations?.whatsapp_configured, href: "/(app)/more/integrations" },
-                { label: "Connect Facebook Ads", hint: "Pull in leads automatically", icon: "logo-facebook", done: !!integrations?.meta_configured, href: "/(app)/more/integrations" },
+                ...(isAdmin ? [
+                  { label: "Connect WhatsApp", hint: "Message leads from the app", icon: "logo-whatsapp" as IconName, done: !!integrations?.whatsapp_configured, href: "/(app)/more/integrations" },
+                  { label: "Connect Facebook Ads", hint: "Pull in leads automatically", icon: "logo-facebook" as IconName, done: !!integrations?.meta_configured, href: "/(app)/more/integrations" },
+                ] : []),
                 { label: "Add your first lead", hint: "Start building your pipeline", icon: "person-add-outline", done: (data.total_leads ?? 0) > 0, href: "/(app)/leads/new" },
                 { label: "Explore AI Tools", hint: "Let AI do the busywork", icon: "sparkles-outline", done: aiToolsVisited, href: "/(app)/more/ai-tools" },
               ];
@@ -597,8 +616,8 @@ export default function DashboardScreen() {
             </View>
 
             <View style={styles.statGrid}>
-              <StatTile label="Total Leads" value={fmt(data.leads_in_period)} />
-              <StatTile label="Total Converted" value={fmt(data.won_in_period)} />
+              <StatTile label="Total Leads" hint="Last 7 days" value={fmt(data.leads_in_period)} />
+              <StatTile label="Total Converted" hint="Last 7 days" value={fmt(data.won_in_period)} />
               <StatTile label="New Leads Today" value={fmt(data.leads_today)} />
               <StatTile label="Follow-ups Due Today" value={fmt(data.followups_today)} />
             </View>
@@ -669,7 +688,9 @@ export default function DashboardScreen() {
             </View>
 
             <LeadsByStageCard stages={data.pipeline || []} onPress={() => router.push("/(app)/leads")} />
-            <UrgentFollowupsCard count={data.critical_followups || data.overdue_followups || 0} onPress={() => router.push("/(app)/followups")} />
+            {(data.critical_followups || data.overdue_followups || 0) > 0 ? (
+              <UrgentFollowupsCard count={data.critical_followups || data.overdue_followups || 0} onPress={() => router.push("/(app)/followups")} />
+            ) : null}
             <UpcomingFollowupsCard followups={upcomingFollowups} onPress={() => router.push("/(app)/followups")} />
 
           </>
@@ -798,6 +819,7 @@ const styles = StyleSheet.create({
   statGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginHorizontal: 16, marginBottom: 16 },
   statTile: { ...glass, width: "48%", flexGrow: 1, padding: 16 },
   statLabel: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_500Medium" },
+  statHint: { color: colors.textMuted, fontSize: 10, fontFamily: "Inter_500Medium", marginTop: 1 },
 
   activityCard: { ...glass, marginHorizontal: 16, marginBottom: 16, padding: 16 },
   activityHeaderRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 },
@@ -900,6 +922,7 @@ const styles = StyleSheet.create({
   upcomingEmpty: { color: colors.textMuted, fontSize: 11, paddingHorizontal: 12, paddingBottom: 10 },
   insightsSection: { marginHorizontal: 16, marginBottom: 10 },
   insightsTitle: { color: colors.text, fontSize: 14, fontFamily: "DMSans_700Bold", marginBottom: 8 },
+  insightsPeriod: { color: colors.textMuted, fontSize: 11, fontFamily: "Inter_500Medium" },
   insightsRow: { flexDirection: "row", gap: 8 },
   insightCard: { ...glass, flex: 1, minHeight: 70, padding: 10, backgroundColor: "rgba(255,255,255,0.78)" },
   insightLabel: { color: colors.textSecondary, fontSize: 10, fontFamily: "Inter_700Bold" },

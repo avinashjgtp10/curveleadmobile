@@ -1,7 +1,7 @@
 import { GlassBackground, glass, GradientIcon } from "@/components/Glass";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Dimensions, useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
+  Alert, Dimensions, useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
@@ -13,11 +13,18 @@ import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { useStages } from "@/hooks/useStages";
 import {
   completeLeadFollowup, createLeadFollowup, fetchLeads, fetchTodayFollowups,
-  LeadListItem, TodayFollowup,
+  FollowupType, LeadListItem, TodayFollowup,
 } from "@/api/leads";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+const FOLLOWUP_TYPES: { key: FollowupType; label: string }[] = [
+  { key: "call", label: "Call" },
+  { key: "whatsapp", label: "WhatsApp" },
+  { key: "visit", label: "Visit" },
+  { key: "demo", label: "Demo" },
+];
 
 const DAY_ITEM_WIDTH = 46;
 const DAYS_BEFORE_TODAY = 60;
@@ -87,7 +94,7 @@ function FollowupRow({ item, completing, onComplete, onPress, colorFor, findStag
       ) : (
         <>
           <View ref={anchorRef} collapsable={false}>
-            <IconButton icon="dots-vertical" iconColor={colors.textSecondary} size={22} style={styles.doneButton} onPress={openMenu} accessibilityLabel="Appointment actions" />
+            <IconButton icon="dots-vertical" iconColor={colors.textSecondary} size={22} style={styles.doneButton} onPress={openMenu} accessibilityLabel="Follow-up actions" />
           </View>
           <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMenuOpen(false)}>
             <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
@@ -139,10 +146,14 @@ export default function FollowupsScreen() {
   const [selectedLead, setSelectedLead] = useState<LeadListItem | null>(null);
   const [followupAt, setFollowupAt] = useState(defaultFollowupDate());
   const [followupNotes, setFollowupNotes] = useState("");
+  const [followupType, setFollowupType] = useState<FollowupType>("call");
   const [saving, setSaving] = useState(false);
   const [addError, setAddError] = useState("");
 
+  // Only the newest request may update the screen, so a slow reply for an earlier day can't overwrite a later one.
+  const requestId = useRef(0);
   const load = useCallback(async (date: Date, refresh = false) => {
+    const id = ++requestId.current;
     refresh ? setRefreshing(true) : setLoading(true);
     setError("");
     try {
@@ -150,10 +161,14 @@ export default function FollowupsScreen() {
       // Keep the selected-day list scoped to that calendar day. Overdue items
       // from earlier days should not be counted under "Today".
       const result = await fetchTodayFollowups({ date_from: dateStr, date_to: dateStr });
+      if (id !== requestId.current) return;
       setFollowups(result);
     } catch (loadError) {
+      if (id !== requestId.current) return;
       setError(errorMessage(loadError, "Could not load follow-ups."));
-    } finally { setLoading(false); setRefreshing(false); }
+    } finally {
+      if (id === requestId.current) { setLoading(false); setRefreshing(false); }
+    }
   }, []);
 
   useEffect(() => { load(selectedDate); }, [selectedDate, load]);
@@ -205,13 +220,14 @@ export default function FollowupsScreen() {
       await completeLeadFollowup(item.id);
       setFollowups((current) => current.filter((f) => f.id !== item.id));
     } catch (completeError) {
-      setError(errorMessage(completeError, "Could not update this follow-up."));
+      // An alert, not the screen-level error, so one failed tap doesn't replace the whole list.
+      Alert.alert("Couldn't complete follow-up", errorMessage(completeError, "Could not update this follow-up."));
     } finally { setCompletingId(null); }
   }
 
   function openAdd() {
     setLeadQuery(""); setLeadResults([]); setSelectedLead(null);
-    setFollowupAt(defaultFollowupDate()); setFollowupNotes(""); setAddError("");
+    setFollowupAt(defaultFollowupDate()); setFollowupNotes(""); setAddError(""); setFollowupType("call");
     setAddOpen(true);
   }
 
@@ -224,12 +240,16 @@ export default function FollowupsScreen() {
     setSaving(true); setAddError("");
     try {
       await createLeadFollowup(selectedLead.id, {
-        followup_type: "call",
+        followup_type: followupType,
         next_followup_at: followupAt.toISOString(),
         notes: followupNotes.trim() || undefined,
       });
       setAddOpen(false);
-      load(selectedDate, true);
+      const when = followupAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+      Alert.alert("Follow-up scheduled", `${selectedLead.name} - ${when}`);
+      // Show the day it was booked for; if that's already the day on screen, just refresh it.
+      if (isSameDay(followupAt, selectedDate)) load(selectedDate, true);
+      else setSelectedDate(new Date(followupAt.getFullYear(), followupAt.getMonth(), followupAt.getDate()));
     } catch (saveError) {
       setAddError(errorMessage(saveError, "Could not schedule this follow-up."));
     } finally { setSaving(false); }
@@ -347,6 +367,18 @@ export default function FollowupsScreen() {
                 </>
               )}
 
+              <Text style={styles.sheetSectionLabel}>Follow-Up Type</Text>
+              <View style={styles.typeRow}>
+                {FOLLOWUP_TYPES.map((item) => {
+                  const active = followupType === item.key;
+                  return (
+                    <Pressable key={item.key} onPress={() => setFollowupType(item.key)} style={[styles.typeChip, active && styles.typeChipActive]}>
+                      <Text style={[styles.typeChipText, active && styles.typeChipTextActive]}>{item.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
               <Text style={styles.sheetSectionLabel}>Follow-Up Date &amp; Time</Text>
               <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
 
@@ -363,6 +395,11 @@ export default function FollowupsScreen() {
 }
 
 const styles = StyleSheet.create({
+  typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
+  typeChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#ffffff" },
+  typeChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  typeChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
+  typeChipTextActive: { color: "#ffffff" },
   screen: { flex: 1, backgroundColor: colors.background },
   header: { backgroundColor: "transparent" },
   headerTitle: { fontSize: 20, fontFamily: "DMSans_700Bold" },
