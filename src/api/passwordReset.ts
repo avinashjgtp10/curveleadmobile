@@ -9,6 +9,11 @@ export async function resetPassword(token: string, password: string) {
   await apiClient.post("/auth/reset-password", { token, password });
 }
 
+// Changes the signed-in person's own password. The server checks the current one and answers with an `error` if it's wrong.
+export async function changePassword(currentPassword: string, newPassword: string) {
+  await apiClient.post("/auth/change-password", { currentPassword, newPassword });
+}
+
 // People may paste the whole link from their email or just the code; accept both.
 export function extractResetToken(input: string) {
   const value = input.trim();
