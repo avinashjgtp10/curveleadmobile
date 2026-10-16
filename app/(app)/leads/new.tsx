@@ -335,8 +335,8 @@ export default function NewLeadScreen() {
       </ScrollView>
 
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-        <Button mode="outlined" onPress={closeForm} disabled={saving} style={styles.cancelButton} contentStyle={styles.bottomButtonContent}>Cancel</Button>
-        <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} style={styles.saveButton} contentStyle={styles.bottomButtonContent}>Create lead</Button>
+        <Button mode="outlined" onPress={closeForm} disabled={saving} textColor="#0f172a" style={styles.cancelButton} contentStyle={styles.bottomButtonContent} labelStyle={styles.bottomButtonLabel}>Cancel</Button>
+        <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} buttonColor="#0f172a" textColor="#ffffff" style={styles.saveButton} contentStyle={styles.bottomButtonContent} labelStyle={styles.bottomButtonLabel}>Create lead</Button>
       </View>
 
       <Modal visible={countryPickerOpen} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setCountryPickerOpen(false)}>
@@ -395,6 +395,6 @@ const styles = StyleSheet.create({
   dropdownItemSubtext: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   followupToggle: { marginTop: 8, paddingHorizontal: 0 }, followupToggleText: { color: colors.text, fontSize: 13, fontWeight: "700" },
   followupPicker: { marginTop: 4, marginBottom: 8 },
-  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: "rgba(255,255,255,0.82)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.65)" }, cancelButton: { width: 104 }, saveButton: { flex: 1 }, bottomButtonContent: { height: 42 },
+  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: "rgba(255,255,255,0.82)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.65)" }, cancelButton: { width: 104, borderColor: "#0f172a", borderWidth: 1.5, backgroundColor: "#e2e8f0" }, saveButton: { flex: 1 }, bottomButtonContent: { height: 42 }, bottomButtonLabel: { fontWeight: "800" },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" }, countrySheet: { maxHeight: "74%", backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 9 }, sheetHandle: { width: 38, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginBottom: 13 }, sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: colors.borderSoft }, sheetTitle: { color: colors.text, fontSize: 17, fontWeight: "800" }, countryList: { paddingHorizontal: 8 },
 });
