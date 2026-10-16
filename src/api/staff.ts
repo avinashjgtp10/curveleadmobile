@@ -10,6 +10,23 @@ export interface StaffMember {
   assigned_leads?: number;
 }
 
+export interface StaffPermission {
+  key: string;
+  label: string;
+  granted: boolean;
+}
+
+// The server defines which permissions exist and which ones this person has, so the list always comes from it.
+export async function fetchStaffPermissions(staffId: string) {
+  const { data } = await apiClient.get<{ permissions: StaffPermission[] }>(`/staff/${staffId}/permissions`);
+  return data.permissions || [];
+}
+
+export async function saveStaffPermissions(staffId: string, permissions: StaffPermission[]) {
+  const asObject = Object.fromEntries(permissions.map((item) => [item.key, item.granted]));
+  await apiClient.put(`/staff/${staffId}/permissions`, { permissions: asObject });
+}
+
 // Each team member can send from their own WhatsApp Business number. The token is write-only: the server never returns it.
 export async function fetchStaffWhatsApp(staffId: string) {
   const { data } = await apiClient.get<{ whatsapp_phone_number_id?: string | null }>(`/staff/${staffId}/whatsapp-number`);
