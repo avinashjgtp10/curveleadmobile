@@ -74,6 +74,15 @@ function FilterDropdown({ value, options, open, onToggle, onSelect }: {
   value: string; options: { value: string; label: string }[]; open: boolean; onToggle: () => void; onSelect: (value: string) => void;
 }) {
   const selected = options.find((item) => item.value === value) || options[0];
+  // The list is capped in height, so it draws its own scroll bar: the built-in one is hidden or fades out on many phones.
+  const [viewHeight, setViewHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const scrollable = viewHeight > 0 && contentHeight > viewHeight + 1;
+  const trackHeight = Math.max(0, viewHeight - 8);
+  const thumbHeight = scrollable ? Math.max(28, trackHeight * (viewHeight / contentHeight)) : 0;
+  const maxOffset = Math.max(1, contentHeight - viewHeight);
+  const thumbTop = 4 + Math.min(1, Math.max(0, offset / maxOffset)) * Math.max(0, trackHeight - thumbHeight);
   return (
     <>
       <Pressable style={[styles.filterDropdownField, open && styles.filterDropdownFieldActive]} onPress={onToggle}>
@@ -81,19 +90,32 @@ function FilterDropdown({ value, options, open, onToggle, onSelect }: {
         <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
       </Pressable>
       {open ? (
-        <ScrollView style={styles.filterDropdownPanel} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-          {options.map((item) => {
-            const isSelected = item.value === value;
-            return (
-              <Pressable
-                key={item.value || "all"} style={[styles.filterDropdownItem, isSelected && styles.filterDropdownItemSelected]}
-                onPress={() => onSelect(item.value)}
-              >
-                <Text style={[styles.filterDropdownItemText, isSelected && styles.filterDropdownItemTextSelected]}>{item.label}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+        <View style={styles.filterDropdownPanel}>
+          <ScrollView
+            style={styles.filterDropdownScroll} contentContainerStyle={styles.filterDropdownContent} nestedScrollEnabled
+            showsVerticalScrollIndicator={false} scrollEventThrottle={16}
+            onLayout={(event) => setViewHeight(event.nativeEvent.layout.height)}
+            onContentSizeChange={(_width, height) => setContentHeight(height)}
+            onScroll={(event) => setOffset(event.nativeEvent.contentOffset.y)}
+          >
+            {options.map((item) => {
+              const isSelected = item.value === value;
+              return (
+                <Pressable
+                  key={item.value || "all"} style={[styles.filterDropdownItem, isSelected && styles.filterDropdownItemSelected]}
+                  onPress={() => onSelect(item.value)}
+                >
+                  <Text style={[styles.filterDropdownItemText, isSelected && styles.filterDropdownItemTextSelected]}>{item.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          {scrollable ? (
+            <View pointerEvents="none" style={styles.filterDropdownTrack}>
+              <View style={[styles.filterDropdownThumb, { height: thumbHeight, top: thumbTop }]} />
+            </View>
+          ) : null}
+        </View>
       ) : null}
     </>
   );
@@ -805,9 +827,12 @@ const styles = StyleSheet.create({
   filterDropdownFieldActive: { borderColor: colors.primary, borderWidth: 2 },
   filterDropdownFieldText: { color: colors.text, fontSize: 14, fontWeight: "600" },
   filterDropdownPanel: {
-    marginTop: 6, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft,
-    paddingVertical: 4, maxHeight: 220,
+    marginTop: 6, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft, overflow: "hidden",
   },
+  filterDropdownScroll: { maxHeight: 220 },
+  filterDropdownContent: { paddingVertical: 4 },
+  filterDropdownTrack: { position: "absolute", top: 0, bottom: 0, right: 3, width: 5 },
+  filterDropdownThumb: { position: "absolute", right: 0, width: 5, borderRadius: 3, backgroundColor: "#94a3b8" },
   filterDropdownItem: { paddingHorizontal: 16, paddingVertical: 12 },
   filterDropdownItemSelected: { backgroundColor: colors.primarySoft },
   filterDropdownItemText: { color: colors.primary, fontSize: 14, fontWeight: "500" },
