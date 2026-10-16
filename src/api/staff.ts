@@ -10,6 +10,16 @@ export interface StaffMember {
   assigned_leads?: number;
 }
 
+// Each team member can send from their own WhatsApp Business number. The token is write-only: the server never returns it.
+export async function fetchStaffWhatsApp(staffId: string) {
+  const { data } = await apiClient.get<{ whatsapp_phone_number_id?: string | null }>(`/staff/${staffId}/whatsapp-number`);
+  return { whatsapp_phone_number_id: data.whatsapp_phone_number_id || "" };
+}
+
+export async function saveStaffWhatsApp(staffId: string, input: { whatsapp_phone_number_id: string; whatsapp_access_token: string }) {
+  await apiClient.put(`/staff/${staffId}/whatsapp-number`, input);
+}
+
 export async function fetchStaff() {
   const { data } = await apiClient.get<{ staff: StaffMember[] }>("/staff");
   return data.staff || [];
