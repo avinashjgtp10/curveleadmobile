@@ -14,6 +14,12 @@ import { colors } from "@/theme";
 
 type LoginMode = "password" | "otp";
 
+// The server answers "Route not found" (404) when it doesn't have the email-OTP routes, which isn't something the person did wrong.
+const OTP_UNAVAILABLE = "Email OTP isn't available right now. Please log in with your password instead.";
+function otpUnavailable(error: unknown) {
+  return axios.isAxiosError(error) && error.response?.status === 404;
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   if (axios.isAxiosError(error) && typeof error.response?.data?.error === "string") {
     return error.response.data.error;
@@ -101,7 +107,7 @@ export default function LoginScreen() {
       setOtpSent(true);
       setNotice("OTP sent to your email.");
     } catch (requestError) {
-      setError(getErrorMessage(requestError, "Could not send OTP."));
+      setError(otpUnavailable(requestError) ? OTP_UNAVAILABLE : getErrorMessage(requestError, "Could not send OTP."));
     } finally {
       setLoading(false);
     }
@@ -132,7 +138,7 @@ export default function LoginScreen() {
       else await verifyOtp(email.trim(), otp);
       router.replace("/(app)");
     } catch (loginError) {
-      setError(getErrorMessage(loginError, mode === "password" ? "Login failed." : "Invalid or expired OTP."));
+      setError(mode === "otp" && otpUnavailable(loginError) ? OTP_UNAVAILABLE : getErrorMessage(loginError, mode === "password" ? "Login failed." : "Invalid or expired OTP."));
     } finally {
       setLoading(false);
     }
