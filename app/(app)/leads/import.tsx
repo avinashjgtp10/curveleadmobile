@@ -10,11 +10,20 @@ import { colors } from "@/theme";
 import { ImportLeadsResult, importLeadsFile } from "@/api/leads";
 import { notifyLeadsAdded } from "@/api/notifications";
 
+// Android phones label .csv files in different ways (and some file managers report no type at all),
+// so CSV is accepted under every common label instead of greying the file out.
 const FILE_TYPES = [
   "text/csv",
+  "text/comma-separated-values",
+  "application/csv",
+  "application/x-csv",
+  "text/x-csv",
+  "application/octet-stream",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
+
+const ALLOWED_EXTENSIONS = [".csv", ".xls", ".xlsx"];
 
 function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
@@ -32,6 +41,11 @@ export default function ImportLeadsScreen() {
     const picked = await DocumentPicker.getDocumentAsync({ type: FILE_TYPES, copyToCacheDirectory: true });
     if (picked.canceled || !picked.assets?.length) return;
     const file = picked.assets[0];
+    // "octet-stream" lets odd CSV labels through, so the file name decides whether it's really a spreadsheet.
+    if (!ALLOWED_EXTENSIONS.some((extension) => file.name.toLowerCase().endsWith(extension))) {
+      setError("Please choose a CSV, XLS or XLSX file.");
+      return;
+    }
     setFileName(file.name);
     setUploading(true);
     try {
@@ -60,11 +74,11 @@ export default function ImportLeadsScreen() {
               <View style={styles.resultStat}><Text style={[styles.resultStatValue, result.skipped > 0 && styles.resultStatWarn]}>{result.skipped}</Text><Text style={styles.resultStatLabel}>Skipped</Text></View>
             </View>
 
-            {result.skip_reasons.length ? (
+            {(result.skip_reasons || []).length ? (
               <Card mode="outlined" style={styles.reasonsCard}>
                 <Card.Content>
                   <Text style={styles.reasonsTitle}>Skipped rows</Text>
-                  {result.skip_reasons.map((item, index) => (
+                  {(result.skip_reasons || []).map((item, index) => (
                     <View key={index} style={styles.reasonRow}>
                       <Text style={styles.reasonRowText}>Row {item.row}{item.name ? ` · ${item.name}` : ""}</Text>
                       <Text style={styles.reasonRowReason}>{item.reason}</Text>

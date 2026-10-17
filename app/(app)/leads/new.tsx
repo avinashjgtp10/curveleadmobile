@@ -120,10 +120,19 @@ export default function NewLeadScreen() {
     setError("");
   }
 
+  // The number typed, without a leading 0 and without the country code if it was pasted along with it
+  // (e.g. 919876543210 for India), so the code isn't added twice. A real national number that merely
+  // starts with the same digits (e.g. 9123456789) is kept: the code is only dropped when 10+ digits remain.
+  function localNumber() {
+    const digits = form.phone.replace(/\D/g, "").replace(/^0+/, "");
+    const dial = country.dial.replace(/\D/g, "");
+    return digits.startsWith(dial) && digits.length - dial.length >= 10 ? digits.slice(dial.length) : digits;
+  }
+
   function errorFor(field: "name" | "phone" | "email"): string | undefined {
     if (field === "name") return !form.name.trim() ? "Enter the lead's name" : undefined;
     if (field === "phone") {
-      const localDigits = form.phone.replace(/\D/g, "").replace(/^0+/, "");
+      const localDigits = localNumber();
       const internationalDigits = `${country.dial}${localDigits}`.replace(/\D/g, "");
       if (!localDigits) return "Enter a phone number";
       if (internationalDigits.length < 7) return "Enter a valid phone number";
@@ -152,7 +161,7 @@ export default function NewLeadScreen() {
     try {
       const lead = await createLead({
         name: form.name.trim(),
-        phone: `${country.dial}${form.phone.replace(/\D/g, "").replace(/^0+/, "")}`,
+        phone: `${country.dial}${localNumber()}`,
         source: form.source,
         ...(form.email.trim() && { email: form.email.trim() }),
         ...(form.location.trim() && { location: form.location.trim() }),
@@ -161,17 +170,22 @@ export default function NewLeadScreen() {
         ...(form.notes.trim() && { notes: form.notes.trim() }),
         ...(assignedTo && { assigned_to: assignedTo.id }),
       });
+      let followupFailed = false;
       if (scheduleFollowup) {
         try {
           await createLeadFollowup(lead.id, { followup_type: "call", next_followup_at: followupAt.toISOString() });
-        } catch { /* lead is already created; a missed follow-up isn't worth blocking navigation */ }
+        } catch { followupFailed = true; /* the lead exists, so navigation isn't blocked; the person is told below */ }
       }
       notifyLeadCreated({
         id: lead.id,
         name: form.name.trim(),
-        phone: `${country.dial}${form.phone.replace(/\D/g, "").replace(/^0+/, "")}`,
+        phone: `${country.dial}${localNumber()}`,
         source: form.source,
       }).catch(() => {});
+      if (followupFailed) {
+        // Say so instead of letting the person believe the follow-up exists; they can add it from the lead's page.
+        Alert.alert("Lead created, follow-up not saved", "The lead was added, but the follow-up couldn't be scheduled. Open the lead and add it again.");
+      }
       router.replace(`/(app)/leads/${lead.id}`);
     } catch (saveError) {
       if (axios.isAxiosError(saveError)) {

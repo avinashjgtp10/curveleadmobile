@@ -257,7 +257,7 @@ export default function LoginScreen() {
 
         <Text style={styles.terms}>
           By signing in you agree to our{" "}
-          <Text style={styles.termsLink} onPress={() => router.push("/(auth)/terms")} accessibilityRole="link">Terms &amp; Conditions</Text>
+          <Text style={styles.termsLink} onPress={() => Linking.openURL("https://curvelead.com/terms-of-service").catch(() => {})} accessibilityRole="link">Terms &amp; Conditions</Text>
         </Text>
         <Pressable onPress={() => Linking.openURL("mailto:support@curvelead.com").catch(() => {})} hitSlop={10} accessibilityRole="link">
           <Text style={styles.footerText}>Need help? <Text style={styles.footerLink}>Chat with us</Text></Text>
