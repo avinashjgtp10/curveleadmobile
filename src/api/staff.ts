@@ -10,6 +10,11 @@ export interface StaffMember {
   assigned_leads?: number;
 }
 
+// An admin sets a team member's password directly (the same call the web Team page makes).
+export async function setStaffPassword(staffId: string, password: string) {
+  await apiClient.put(`/staff/${staffId}/password`, { password });
+}
+
 export interface StaffPermission {
   key: string;
   label: string;

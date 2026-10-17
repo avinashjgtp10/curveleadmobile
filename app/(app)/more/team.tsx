@@ -5,7 +5,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import axios from "axios";
-import { fetchStaff, fetchStaffPermissions, fetchStaffWhatsApp, saveStaffPermissions, saveStaffWhatsApp, StaffMember, StaffPermission } from "@/api/staff";
+import { fetchStaff, fetchStaffPermissions, fetchStaffWhatsApp, saveStaffPermissions, saveStaffWhatsApp, setStaffPassword, StaffMember, StaffPermission } from "@/api/staff";
 import { colors, radii, spacing } from "@/theme";
 
 export default function TeamScreen() {
@@ -30,6 +30,7 @@ export default function TeamScreen() {
   const [passwordMember, setPasswordMember] = useState<StaffMember | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   async function load(showSpinner = true) {
     if (showSpinner) setLoading(true);
@@ -134,7 +135,8 @@ export default function TeamScreen() {
     setPasswordMember(member); setNewPassword(""); setConfirmPassword("");
   }
 
-  function saveMemberPassword() {
+  async function saveMemberPassword() {
+    if (!passwordMember || passwordSaving) return;
     if (!newPassword || newPassword.length < 6) {
       Alert.alert("Password too short", "Enter a password with at least 6 characters.");
       return;
@@ -143,8 +145,18 @@ export default function TeamScreen() {
       Alert.alert("Passwords don't match", "Make sure both password fields match.");
       return;
     }
-    Alert.alert("Password", `${passwordMember?.name}'s password will be changed when the staff endpoint is connected.`);
-    setPasswordMember(null);
+    setPasswordSaving(true);
+    try {
+      await setStaffPassword(passwordMember.id, newPassword);
+      const name = passwordMember.name;
+      setPasswordMember(null);
+      Alert.alert("Password updated", `${name}'s password has been changed.`);
+    } catch (passwordError) {
+      Alert.alert("Couldn't change password", axios.isAxiosError(passwordError) && typeof passwordError.response?.data?.error === "string"
+        ? passwordError.response.data.error : "Please check your connection and try again.");
+    } finally {
+      setPasswordSaving(false);
+    }
   }
 
   function removeMember(member: StaffMember) {
@@ -312,8 +324,8 @@ export default function TeamScreen() {
                 secureTextEntry style={[styles.teamNameInput, { marginTop: spacing.sm }]} outlineColor={colors.border} activeOutlineColor={colors.primary}
               />
               <View style={styles.modalActions}>
-                <Button mode="outlined" style={styles.cancelButton} onPress={() => setPasswordMember(null)}>Cancel</Button>
-                <Button mode="contained" style={styles.sendButton} onPress={saveMemberPassword}>Save</Button>
+                <Button mode="outlined" style={styles.cancelButton} onPress={() => setPasswordMember(null)} disabled={passwordSaving}>Cancel</Button>
+                <Button mode="contained" style={styles.sendButton} onPress={saveMemberPassword} loading={passwordSaving} disabled={passwordSaving}>Save</Button>
               </View>
             </View>
           </Pressable>
