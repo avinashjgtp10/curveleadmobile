@@ -11,6 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { DateTimeField } from "@/components/DateTimeField";
+import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import {
   CampaignSource, CampaignStatus, createCampaign, fetchCampaign, SaveCampaignInput, updateCampaign,
 } from "@/api/campaigns";
@@ -59,6 +60,7 @@ export default function NewCampaignScreen() {
     return () => parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) });
   }, [navigation, insets.bottom]);
 
+  const keyboardHeight = useKeyboardHeight();
   const [name, setName] = useState("");
   const [source, setSource] = useState<CampaignSource>("meta_ads");
   const [budget, setBudget] = useState("");
@@ -113,7 +115,7 @@ export default function NewCampaignScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={[styles.screen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={close} />
         <Appbar.Content title={isEditing ? "Edit Campaign" : "New Campaign"} titleStyle={styles.headerTitle} />
@@ -217,7 +219,7 @@ export default function NewCampaignScreen() {
         </ScrollView>
       )}
 
-      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+      <View style={[styles.bottomBar, { paddingBottom: keyboardHeight ? 12 : Math.max(insets.bottom, 12) }]}>
         <Pressable onPress={close} disabled={saving} style={styles.cancelButton}>
           <Text style={styles.cancelText}>Cancel</Text>
         </Pressable>
