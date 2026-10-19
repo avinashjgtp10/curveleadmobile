@@ -5,6 +5,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { isExpoGo } from "./environment";
 
+// iOS asks for each kind separately. Asking for alert, badge and sound explicitly means a TestFlight tester who accepts
+// the prompt gets banners and sound, not a half-granted permission.
+const IOS_PERMISSIONS = { ios: { allowAlert: true, allowBadge: true, allowSound: true } };
+
 export const ANDROID_CHANNEL_ID = "default";
 export const ALERT_CHANNEL_ID = "lead-alerts";
 
@@ -92,7 +96,7 @@ export async function presentLocalNotification(title: string, body: string | und
     const Notifications = loadNotifications();
     await ensureAndroidChannel();
     let { status } = await Notifications.getPermissionsAsync();
-    if (status !== "granted") status = (await Notifications.requestPermissionsAsync()).status;
+    if (status !== "granted") status = (await Notifications.requestPermissionsAsync(IOS_PERMISSIONS)).status;
     if (status !== "granted") {
       console.warn("[push] local alert skipped: notification permission is", status, "— enable it in Android Settings > Apps > CurveLead > Notifications");
       return;
@@ -127,7 +131,7 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   try {
     const Notifications = loadNotifications();
     await ensureAndroidChannel();
-    const { status } = await Notifications.requestPermissionsAsync();
+    const { status } = await Notifications.requestPermissionsAsync(IOS_PERMISSIONS);
     return status;
   } catch {
     return "unsupported";
@@ -156,7 +160,7 @@ export async function registerForPushNotificationsAsync(): Promise<PushPermissio
   const existing = await Notifications.getPermissionsAsync();
   let finalStatus = existing.status;
   if (finalStatus !== "granted") {
-    const requested = await Notifications.requestPermissionsAsync();
+    const requested = await Notifications.requestPermissionsAsync(IOS_PERMISSIONS);
     finalStatus = requested.status;
   }
   if (finalStatus !== "granted") {
