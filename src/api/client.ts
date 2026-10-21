@@ -42,6 +42,11 @@ function blockedForMs(headers: Record<string, unknown> | undefined) {
   return Math.min(Math.max(wait, 5_000), 5 * 60_000);
 }
 
+/** How long background reads are being held back after the server said "Too many requests" (0 when not blocked). */
+export function rateLimitRemainingMs() {
+  return Math.max(0, blockedUntil - Date.now());
+}
+
 apiClient.interceptors.request.use(async (config) => {
   if (Date.now() < blockedUntil && (config.method || "get").toLowerCase() === "get") {
     throw new axios.AxiosError(RATE_LIMIT_MESSAGE, "ERR_BAD_REQUEST", config, undefined, {

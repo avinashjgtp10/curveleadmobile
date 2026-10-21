@@ -16,6 +16,7 @@ import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboa
 import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads, fetchIntegrationSettings, IntegrationSettings } from "@/api/integrations";
 import { fetchNotifications, notifyLeadsAdded } from "@/api/notifications";
+import { rateLimitRemainingMs } from "@/api/client";
 import { homeOrigin } from "@/navigation/homeOrigin";
 import { useAuth } from "@/contexts/AuthContext";
 import { useT } from "@/i18n/LanguageContext";
@@ -371,12 +372,16 @@ export default function DashboardScreen() {
   const [setupExpanded, setSetupExpanded] = useState(false);
   const [integrations, setIntegrations] = useState<IntegrationSettings | null>(null);
   const [aiToolsVisited, setAiToolsVisited] = useState(false);
+  // The dashboard is the request that matters; the extras below wait for it so opening Home doesn't fire a burst
+  // of calls at once (the server answers a burst with "Too many requests").
+  const dashboardLoaded = !!data;
   // Refetch on focus so steps tick off as soon as the user comes back from connecting something.
   useFocusEffect(useCallback(() => {
+    if (!dashboardLoaded) return;
     // Non-admins may not have access to this endpoint — hide the setup banner rather than error out.
     fetchIntegrationSettings().then(setIntegrations).catch(() => setIntegrations(null));
     AsyncStorage.getItem(AI_TOOLS_VISITED_KEY).then((value) => setAiToolsVisited(value === "1")).catch(() => {});
-  }, []));
+  }, [dashboardLoaded]));
 
   const [leadSources, setLeadSources] = useState<LeadSourceRow[] | null>(null);
   const dashboardReady = !!data;
@@ -445,6 +450,7 @@ export default function DashboardScreen() {
   }, [load]));
 
   useFocusEffect(useCallback(() => {
+    if (!dashboardLoaded) return;
     let cancelled = false;
     fetchNotifications()
       .then((latestNotifications) => {
@@ -452,12 +458,13 @@ export default function DashboardScreen() {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, []));
+  }, [dashboardLoaded]));
 
   // Auto-pull Facebook leads whenever the dashboard is focused, so leads show up without
   // a manual tap on Sync — mirrors web. Throttled so switching tabs back and forth
   // doesn't hammer the Graph API — at most once every 2 minutes.
   useFocusEffect(useCallback(() => {
+    if (!dashboardLoaded) return;
     let cancelled = false;
     (async () => {
       const stored = Number((await AsyncStorage.getItem(LAST_SYNC_KEY)) || 0);
@@ -472,7 +479,16 @@ export default function DashboardScreen() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []));
+  }, [dashboardLoaded]));
+
+  // If the dashboard couldn't load because the server is rate limiting, try again by itself once the wait is over.
+  useEffect(() => {
+    if (!error || data) return;
+    const wait = rateLimitRemainingMs();
+    if (!wait) return;
+    const timer = setTimeout(() => load(), wait + 500);
+    return () => clearTimeout(timer);
+  }, [error, data, load]);
 
   return (
     <View style={styles.screen}>
