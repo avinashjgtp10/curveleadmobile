@@ -89,7 +89,7 @@ export async function fetchLeadDetails(id: string) {
 export type UpdateLeadInput = Partial<Pick<LeadDetails,
   "name" | "phone" | "email" | "business_name" | "location" | "address" |
   "notes" | "source" | "stage" | "deal_value" | "expected_close_date"
->>;
+>> & { assigned_to?: string | null };
 
 export async function updateLeadDetails(id: string, input: UpdateLeadInput) {
   const { data } = await apiClient.put<{ lead: LeadDetails }>(`/leads/${id}`, input);
