@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
   loadingState: { flex: 1, alignItems: "center", justifyContent: "center" },
   disabled: { opacity: 0.6 },
-  savingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,0.7)", alignItems: "center", justifyContent: "center", zIndex: 10 },
+  savingOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.7)", alignItems: "center", justifyContent: "center", zIndex: 10 },
   savingCard: { alignItems: "center", gap: 12, paddingHorizontal: 28, paddingVertical: 22, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e2eef7", elevation: 6, shadowColor: "#0f172a", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
   savingText: { color: colors.text, fontSize: 14, fontWeight: "700" },
   errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12, marginTop: 8 },
