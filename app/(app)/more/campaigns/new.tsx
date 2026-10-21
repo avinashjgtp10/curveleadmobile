@@ -230,6 +230,15 @@ export default function NewCampaignScreen() {
           </LinearGradient>
         </Pressable>
       </View>
+
+      {saving ? (
+        <View style={styles.savingOverlay} pointerEvents="auto">
+          <View style={styles.savingCard}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.savingText}>{isEditing ? "Saving changes..." : "Creating campaign..."}</Text>
+          </View>
+        </View>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -241,6 +250,9 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
   loadingState: { flex: 1, alignItems: "center", justifyContent: "center" },
   disabled: { opacity: 0.6 },
+  savingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,0.7)", alignItems: "center", justifyContent: "center", zIndex: 10 },
+  savingCard: { alignItems: "center", gap: 12, paddingHorizontal: 28, paddingVertical: 22, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e2eef7", elevation: 6, shadowColor: "#0f172a", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
+  savingText: { color: colors.text, fontSize: 14, fontWeight: "700" },
   errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12, marginTop: 8 },
   errorBannerText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600" },
 
