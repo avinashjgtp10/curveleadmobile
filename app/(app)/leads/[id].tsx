@@ -15,6 +15,7 @@ import { colors } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { LeadNotes } from "@/components/LeadNotes";
 import { useStages } from "@/hooks/useStages";
+import { StaffMember, fetchStaff } from "@/api/staff";
 import { telUrl } from "@/api/phone";
 import {
   ActivityLogType, ContactActivityType, FollowupType, LeadActivity, LeadDetails, LeadFollowup,
@@ -254,6 +255,12 @@ export default function LeadDetailScreen() {
   const [lostReason, setLostReason] = useState("");
   const [customLostReason, setCustomLostReason] = useState("");
 
+  const [assignSheetOpen, setAssignSheetOpen] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [staffError, setStaffError] = useState("");
+
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
@@ -344,6 +351,29 @@ export default function LeadDetailScreen() {
     const payload = (field === "deal_value" ? { deal_value: value ? Number(value.replace(/[^\d.]/g, "")) : 0 } : { [field]: value }) as UpdateLeadInput;
     const updated = await updateLeadDetails(lead.id, payload);
     setLead((current) => current ? { ...current, ...updated } : updated);
+  }
+
+  async function openAssignSheet() {
+    setAssignSheetOpen(true);
+    if (staff.length || staffLoading) return;
+    setStaffLoading(true); setStaffError("");
+    try { setStaff((await fetchStaff()).filter((member) => member.is_active !== false)); }
+    catch (staffErr) { setStaffError(errorMessage(staffErr, "Could not load your team.")); }
+    finally { setStaffLoading(false); }
+  }
+
+  async function assignTo(member: StaffMember | null) {
+    if (!lead || assigning) return;
+    if ((member?.id || null) === (lead.assigned_to || null)) { setAssignSheetOpen(false); return; }
+    setAssigning(true);
+    try {
+      await updateLeadDetails(lead.id, { assigned_to: member ? member.id : null });
+      setLead((current) => current ? { ...current, assigned_to: member?.id, assigned_to_name: member?.name } : current);
+      setAssignSheetOpen(false);
+      load(true);
+    } catch (assignError) {
+      Alert.alert("Couldn't assign lead", errorMessage(assignError, "You may not have permission to do this."));
+    } finally { setAssigning(false); }
   }
 
   function openStageSheet() {
@@ -528,6 +558,10 @@ export default function LeadDetailScreen() {
               <ActionBox icon="pricetag-outline" chip={{ bg: stageColors.bg, text: stageColors.text, label: currentStage?.name || pretty(stage) }} onPress={openStageSheet} />
             </FieldGroup>
 
+            <FieldGroup label="Assigned To">
+              <ActionBox icon="person-outline" value={lead.assigned_to_name || undefined} placeholder="Unassigned" onPress={openAssignSheet} />
+            </FieldGroup>
+
             <FieldGroup label="Status">
               <ActionBox icon="flag-outline" value={lead.lead_status || undefined} placeholder="Not set" onPress={() => setStatusSheetOpen(true)} />
             </FieldGroup>
@@ -633,6 +667,42 @@ export default function LeadDetailScreen() {
                 <Button mode="outlined" onPress={closeStageSheet} disabled={updatingStage} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
               </>
             )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={assignSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !assigning && setAssignSheetOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => !assigning && setAssignSheetOpen(false)}>
+          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Assign lead</Text>
+            {staffLoading ? (
+              <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 20 }} />
+            ) : staffError ? (
+              <Text style={styles.sheetHint}>{staffError}</Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+                <View style={styles.stageList}>
+                  {staff.map((member) => {
+                    const active = member.id === lead.assigned_to;
+                    return (
+                      <List.Item
+                        key={member.id} title={member.name} titleStyle={styles.stageListText}
+                        description={`${pretty(member.role)}${typeof member.assigned_leads === "number" ? ` · ${member.assigned_leads} leads` : ""}`}
+                        onPress={() => assignTo(member)} disabled={assigning}
+                        right={active ? () => <List.Icon icon="check" color={colors.primary} /> : undefined}
+                      />
+                    );
+                  })}
+                  <List.Item
+                    title="Unassigned" titleStyle={styles.stageListText} onPress={() => assignTo(null)} disabled={assigning}
+                    right={!lead.assigned_to ? () => <List.Icon icon="check" color={colors.primary} /> : undefined}
+                  />
+                </View>
+              </ScrollView>
+            )}
+            {assigning ? <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 8 }} /> : null}
+            <Button mode="outlined" onPress={() => setAssignSheetOpen(false)} disabled={assigning} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
           </Pressable>
         </Pressable>
       </Modal>
