@@ -27,13 +27,22 @@ export function configureNotificationHandler() {
   if (isExpoGo) return;
   const Notifications = loadNotifications();
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
+    handleNotification: async (notification) => {
+      const content = notification.request.content;
+      const data = (content.data ?? {}) as Record<string, unknown>;
+      // iOS only rings for a push whose payload carries a sound; one sent without it shows a silent banner while the
+      // app is open. Swallow that banner and show the same alert again as a local notification that does ring.
+      const silentRemotePush =
+        Platform.OS === "ios" && (notification.request.trigger as { type?: string } | null)?.type === "push" && !content.sound && data.local !== "1";
+      if (silentRemotePush) {
+        Notifications.scheduleNotificationAsync({
+          content: { title: content.title ?? undefined, body: content.body ?? undefined, sound: "default", data: { ...data, local: "1" } },
+          trigger: null,
+        }).catch(() => {});
+        return { shouldShowAlert: false, shouldPlaySound: false, shouldSetBadge: false, shouldShowBanner: false, shouldShowList: false };
+      }
+      return { shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false, shouldShowBanner: true, shouldShowList: true };
+    },
   });
 }
 
