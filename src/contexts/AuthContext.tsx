@@ -13,11 +13,21 @@ import { AuthUser, Tenant } from "@/types";
 // The last profile the server confirmed, so opening the app offline doesn't look like being signed out.
 const SESSION_CACHE_KEY = "curvelead_cached_session";
 
+export interface SignupInput {
+  businessType: string;
+  businessName: string;
+  name: string;
+  email: string;
+  phone?: string;
+  password: string;
+}
+
 interface AuthContextValue {
   user: AuthUser | null;
   tenant: Tenant | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  signup: (input: SignupInput) => Promise<void>;
   requestOtp: (email: string) => Promise<void>;
   verifyOtp: (email: string, otp: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -77,6 +87,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: data.user, tenant: data.tenant })).catch(() => {});
   }
 
+  async function signup(input: SignupInput) {
+    const { data } = await apiClient.post<{
+      token: string;
+      user: AuthUser;
+      tenant: Tenant;
+    }>("/auth/signup", input);
+    await setStoredToken(data.token);
+    setUser(data.user);
+    setTenant(data.tenant);
+    AsyncStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: data.user, tenant: data.tenant })).catch(() => {});
+  }
+
   async function requestOtp(email: string) {
     await apiClient.post("/auth/request-otp", { email });
   }
@@ -111,7 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, tenant, isLoading, login, requestOtp, verifyOtp, logout, refreshProfile }}>
+    <AuthContext.Provider value={{ user, tenant, isLoading, login, signup, requestOtp, verifyOtp, logout, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
