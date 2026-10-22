@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AppState, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { Alert, AppState, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Appbar, Searchbar, Text } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
@@ -122,12 +122,27 @@ export default function WhatsAppScreen() {
   const [inboxFailed, setInboxFailed] = useState(false);
   const chatScrollRef = useRef<ScrollView>(null);
 
-  // Android doesn't resize the in-page chat overlay for the keyboard, so lift the composer by hand.
+  // Android doesn't reliably resize the in-page chat overlay for the keyboard, so lift the composer by hand.
+  // The lift is how far the overlay's bottom edge reaches below the top of the keyboard (measured, not the keyboard's
+  // own height), so it stays right whether or not Android already shrank the window or draws under the nav bar.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const chatOverlayRef = useRef<View>(null);
+  const topInset = useRef(insets.top);
+  topInset.current = insets.top;
   useEffect(() => {
     if (Platform.OS !== "android") return undefined;
     const show = Keyboard.addListener("keyboardDidShow", (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
+      const keyboardTop = event.endCoordinates.screenY;
+      const overlay = chatOverlayRef.current;
+      if (overlay && keyboardTop) {
+        // The keyboard's top is in screen coordinates (status bar included). When the app sits below the status bar
+        // (no top inset) the overlay's position is in window coordinates that start under it, so add its height back.
+        // When the app draws behind the status bar (top inset > 0) both already agree, so add nothing.
+        const statusBar = topInset.current > 0 ? 0 : (StatusBar.currentHeight ?? 0);
+        overlay.measureInWindow((_x, y, _width, height) => setKeyboardHeight(Math.max(0, Math.round(y + height + statusBar - keyboardTop))));
+      } else {
+        setKeyboardHeight(event.endCoordinates.height);
+      }
       requestAnimationFrame(() => chatScrollRef.current?.scrollToEnd({ animated: false }));
     });
     const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
@@ -637,7 +652,7 @@ export default function WhatsAppScreen() {
         </ScrollView>
       )}
 
-      <View style={selected ? styles.chatOverlay : styles.chatHidden}>
+      <View ref={chatOverlayRef} collapsable={false} style={selected ? styles.chatOverlay : styles.chatHidden}>
         {selected ? (
           <KeyboardAvoidingView style={[styles.chatScreen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
             <View style={[styles.chatHeader, { paddingTop: insets.top + 8 }]}>
