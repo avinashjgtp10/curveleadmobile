@@ -68,6 +68,8 @@ export default function NewCampaignScreen() {
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [status, setStatus] = useState<CampaignStatus>("active");
   const [isPriority, setIsPriority] = useState(false);
+  // A campaign synced from Meta gets its budget, dates and status from Meta, so those can't be changed here.
+  const [metaManaged, setMetaManaged] = useState(false);
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -80,6 +82,7 @@ export default function NewCampaignScreen() {
       setStartDate(campaign.start_date ? fromDateInput(campaign.start_date) : new Date());
       setEndDate(campaign.end_date ? fromDateInput(campaign.end_date) : null);
       setStatus(campaign.status); setIsPriority(!!campaign.is_priority);
+      setMetaManaged(!!campaign.meta_campaign_id);
     }).catch((loadError) => {
       setError(errorMessage(loadError, "Could not load this campaign."));
     }).finally(() => setLoading(false));
@@ -96,12 +99,17 @@ export default function NewCampaignScreen() {
     setFieldErrors(next);
     if (Object.keys(next).length) return;
 
-    const input: SaveCampaignInput = {
-      name: name.trim(), source, budget: budget.trim() || undefined,
-      start_date: toDateInput(startDate),
-      end_date: endDate ? toDateInput(endDate) : undefined,
-      status, is_priority: isPriority,
-    };
+    // On an existing campaign an emptied budget or a removed end date must be sent as a clear value - leaving the
+    // field out would keep the old one. A Meta-managed campaign only sends what the server lets this app change.
+    const input: SaveCampaignInput = metaManaged
+      ? { name: name.trim(), source, is_priority: isPriority }
+      : {
+        name: name.trim(), source,
+        budget: budget.trim() || (isEditing ? "0" : undefined),
+        start_date: toDateInput(startDate),
+        end_date: endDate ? toDateInput(endDate) : (isEditing ? null : undefined),
+        status, is_priority: isPriority,
+      };
     setSaving(true); setError("");
     try {
       if (isEditing && id) await updateCampaign(id, input);
@@ -159,6 +167,14 @@ export default function NewCampaignScreen() {
             })}
           </View>
 
+          {metaManaged ? (
+            <View style={styles.metaNote}>
+              <Ionicons name="lock-closed-outline" size={15} color={colors.textSecondary} />
+              <Text style={styles.metaNoteText}>This campaign is synced from Meta. Its budget, dates and status are managed in Meta Ads Manager.</Text>
+            </View>
+          ) : null}
+
+          <View pointerEvents={metaManaged ? "none" : "auto"} style={metaManaged ? styles.lockedSection : undefined}>
           <Text style={styles.label}>Budget</Text>
           <View style={styles.inputBox}>
             <View style={styles.budgetRow}>
@@ -208,6 +224,8 @@ export default function NewCampaignScreen() {
             })}
           </View>
 
+          </View>
+
           <View style={styles.priorityCard}>
             <View style={styles.priorityIcon}><Ionicons name="star" size={18} color="#7c3aed" /></View>
             <View style={{ flex: 1 }}>
@@ -250,6 +268,9 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
   loadingState: { flex: 1, alignItems: "center", justifyContent: "center" },
   disabled: { opacity: 0.6 },
+  lockedSection: { opacity: 0.5 },
+  metaNote: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f1f5f9", borderRadius: 12, padding: 12, marginTop: 16 },
+  metaNoteText: { flex: 1, color: colors.textSecondary, fontSize: 12, lineHeight: 17 },
   savingOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.7)", alignItems: "center", justifyContent: "center", zIndex: 10 },
   savingCard: { alignItems: "center", gap: 12, paddingHorizontal: 28, paddingVertical: 22, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e2eef7", elevation: 6, shadowColor: "#0f172a", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
   savingText: { color: colors.text, fontSize: 14, fontWeight: "700" },
