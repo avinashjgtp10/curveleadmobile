@@ -17,6 +17,7 @@ import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads, fetchIntegrationSettings, IntegrationSettings } from "@/api/integrations";
 import { fetchNotifications, notifyLeadsAdded } from "@/api/notifications";
 import { rateLimitRemainingMs } from "@/api/client";
+import { setAppBadge } from "@/notifications/push";
 import { homeOrigin } from "@/navigation/homeOrigin";
 import { useAuth } from "@/contexts/AuthContext";
 import { useT } from "@/i18n/LanguageContext";
@@ -354,6 +355,8 @@ export default function DashboardScreen() {
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [upcomingFollowups, setUpcomingFollowups] = useState<TodayFollowup[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
+  // Keep the number on the app icon equal to the unread count the bell shows.
+  useEffect(() => { setAppBadge(notificationCount); }, [notificationCount]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
