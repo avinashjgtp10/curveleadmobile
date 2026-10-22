@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
-  KeyboardAvoidingView, Platform, Pressable,
+  Alert, KeyboardAvoidingView, Platform, Pressable,
   ScrollView, StyleSheet, TextInput as RNTextInput, View,
 } from "react-native";
 import { ActivityIndicator, Appbar, Switch, Text } from "react-native-paper";
@@ -113,7 +113,14 @@ export default function NewCampaignScreen() {
     setSaving(true); setError("");
     try {
       if (isEditing && id) await updateCampaign(id, input);
-      else await createCampaign(input);
+      else {
+        const created = await createCampaign(input);
+        // The server starts every new campaign as Active whatever was chosen, so set the chosen status right after.
+        if (status !== "active" && created?.id) {
+          try { await updateCampaign(created.id, input); }
+          catch { Alert.alert("Campaign created", `It was created, but could not be set to ${status}. Open it and change the status.`); }
+        }
+      }
       router.back();
     } catch (saveError) {
       setError(errorMessage(saveError, "Could not save this campaign."));
