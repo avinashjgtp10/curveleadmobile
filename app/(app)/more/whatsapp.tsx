@@ -116,12 +116,21 @@ export default function WhatsAppScreen() {
   const [inboxFailed, setInboxFailed] = useState(false);
   const chatScrollRef = useRef<ScrollView>(null);
 
-  // Android doesn't resize the in-page chat overlay for the keyboard, so lift the composer by hand.
+  // Android doesn't reliably resize the in-page chat overlay for the keyboard, so lift the composer by hand.
+  // The lift is how far the overlay's bottom edge reaches below the top of the keyboard (measured, not the keyboard's
+  // own height), so it stays right whether or not Android already shrank the window or draws under the nav bar.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const chatOverlayRef = useRef<View>(null);
   useEffect(() => {
     if (Platform.OS !== "android") return undefined;
     const show = Keyboard.addListener("keyboardDidShow", (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
+      const keyboardTop = event.endCoordinates.screenY;
+      const overlay = chatOverlayRef.current;
+      if (overlay && keyboardTop) {
+        overlay.measureInWindow((_x, y, _width, height) => setKeyboardHeight(Math.max(0, Math.round(y + height - keyboardTop))));
+      } else {
+        setKeyboardHeight(event.endCoordinates.height);
+      }
       requestAnimationFrame(() => chatScrollRef.current?.scrollToEnd({ animated: false }));
     });
     const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
@@ -559,7 +568,7 @@ export default function WhatsAppScreen() {
         </ScrollView>
       )}
 
-      <View style={selected ? styles.chatOverlay : styles.chatHidden}>
+      <View ref={chatOverlayRef} collapsable={false} style={selected ? styles.chatOverlay : styles.chatHidden}>
         {selected ? (
           <KeyboardAvoidingView style={[styles.chatScreen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
             <View style={[styles.chatHeader, { paddingTop: insets.top + 8 }]}>
