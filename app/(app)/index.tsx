@@ -357,6 +357,8 @@ export default function DashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  // Counts failed loads, so the auto-retry below runs again even when a retry fails with the same message.
+  const [failedLoads, setFailedLoads] = useState(0);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -435,6 +437,7 @@ export default function DashboardScreen() {
       const message = axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string"
         ? loadError.response.data.error : "Could not load your dashboard.";
       setError(message);
+      setFailedLoads((count) => count + 1);
       // With numbers already on screen the error banner is hidden, so tell the person the refresh didn't work.
       if (refresh) Alert.alert("Couldn't refresh", message);
     } finally { setLoading(false); setRefreshing(false); }
@@ -488,7 +491,7 @@ export default function DashboardScreen() {
     if (!wait) return;
     const timer = setTimeout(() => load(), wait + 500);
     return () => clearTimeout(timer);
-  }, [error, data, load]);
+  }, [error, failedLoads, data, load]);
 
   return (
     <View style={styles.screen}>
