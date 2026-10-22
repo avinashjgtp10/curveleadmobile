@@ -53,6 +53,15 @@ export async function sendWhatsAppTemplate(leadId: string, input: {
   return data;
 }
 
+/** Sends a file already uploaded to the lead (see uploadLeadAttachment) as a WhatsApp image, video or document. */
+export async function sendWhatsAppAttachment(leadId: string, attachmentId: string) {
+  const { data } = await apiClient.post<{ message: WhatsAppMessage; delivery?: { success?: boolean; error?: string } }>("/whatsapp/send-attachment", {
+    lead_id: leadId,
+    attachment_id: attachmentId,
+  });
+  return data;
+}
+
 export async function fetchSendableWhatsAppTemplates() {
   const { data } = await apiClient.get<{ templates: SendableWhatsAppTemplate[] }>("/whatsapp/templates/sendable");
   return data.templates || [];

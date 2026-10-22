@@ -2,6 +2,7 @@
 import { Alert, AppState, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Appbar, Searchbar, Text } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
@@ -11,9 +12,10 @@ import { GlassBackground, glass } from "@/components/Glass";
 import { fetchLeadDetails, fetchLeads, LeadListItem } from "@/api/leads";
 import { fetchTemplates, MessageTemplate } from "@/api/templates";
 import { notifyMessageSent } from "@/api/notifications";
+import { MAX_ATTACHMENT_BYTES, uploadLeadAttachment } from "@/api/attachments";
 import {
   deleteConversation, fetchConversation, fetchInbox, fetchSendableWhatsAppTemplates, InboxConversation, markConversationsRead, replyWindowLeftMs,
-  SendableWhatsAppTemplate, sendWhatsAppMessage, sendWhatsAppTemplate, setConversationAiPaused, WhatsAppMessage,
+  SendableWhatsAppTemplate, sendWhatsAppAttachment, sendWhatsAppMessage, sendWhatsAppTemplate, setConversationAiPaused, WhatsAppMessage,
 } from "@/api/whatsapp";
 
 type Tab = "chats" | "saved";
@@ -110,6 +112,7 @@ export default function WhatsAppScreen() {
   const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [sending, setSending] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
   const [templateLeadId, setTemplateLeadId] = useState("");
   const [sendingTemplateId, setSendingTemplateId] = useState("");
@@ -420,6 +423,55 @@ export default function WhatsAppScreen() {
     setMessage(template.message);
   }
 
+  // Pick a photo, video or file, upload it to the lead and send it on WhatsApp (same flow as the web inbox).
+  async function sendMedia(kind: "image" | "video" | "document") {
+    setAttachOpen(false);
+    if (!selected || sending) return;
+    if (!canReply) {
+      Alert.alert("Send a template first", "The 24-hour reply window is closed. Send an approved template and reply after they respond.");
+      return;
+    }
+    let picked: DocumentPicker.DocumentPickerAsset | undefined;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: kind === "image" ? "image/*" : kind === "video" ? "video/*" : "*/*",
+        copyToCacheDirectory: true, multiple: false,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      picked = result.assets[0];
+    } catch {
+      Alert.alert("Couldn't open files", "Please try again.");
+      return;
+    }
+    if (picked.size && picked.size > MAX_ATTACHMENT_BYTES) {
+      Alert.alert("File too large", "Files can be up to 5 MB.");
+      return;
+    }
+    const leadId = selected.id;
+    const pendingId = `pending-${Date.now()}`;
+    const pending: WhatsAppMessage = {
+      id: pendingId, direction: "outbound", message: picked.name, sent_at: new Date().toISOString(), status: "sending",
+      message_type: kind, media_url: picked.uri,
+    };
+    setMessages((current) => [...current, pending]);
+    setSending(true);
+    try {
+      const uploaded = await uploadLeadAttachment(leadId, { uri: picked.uri, name: picked.name, mimeType: picked.mimeType });
+      const result = await sendWhatsAppAttachment(leadId, uploaded.id);
+      setMessages((current) => current.map((item) => (item.id === pendingId ? result.message : item)));
+      refreshInbox();
+      loadConversation(leadId);
+      if (result.delivery?.success === false) Alert.alert("File not delivered", result.delivery.error || "WhatsApp rejected this file.");
+      else notifyMessageSent(selected).catch(() => {});
+    } catch (sendError) {
+      setMessages((current) => current.filter((item) => item.id !== pendingId));
+      const detail = (sendError as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      Alert.alert("File not sent", detail || "Could not send this file. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function sendMessage() {
     if (!selected || sending) return;
     if (!canReply) {
@@ -697,7 +749,24 @@ export default function WhatsAppScreen() {
                   ))}
                 </ScrollView>
               ) : null}
+              {attachOpen && composerEnabled ? (
+                <View style={styles.attachMenu}>
+                  {([
+                    { kind: "image", label: "Photo", icon: "image-outline", bg: "#e0f2fe", color: "#0369a1" },
+                    { kind: "video", label: "Video", icon: "videocam-outline", bg: "#fef3c7", color: "#b45309" },
+                    { kind: "document", label: "Document", icon: "document-text-outline", bg: "#fee2e2", color: "#b91c1c" },
+                  ] as const).map((option) => (
+                    <Pressable key={option.kind} style={styles.attachOption} onPress={() => sendMedia(option.kind)}>
+                      <View style={[styles.attachIcon, { backgroundColor: option.bg }]}><Ionicons name={option.icon} size={22} color={option.color} /></View>
+                      <Text style={styles.attachLabel}>{option.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
               <View style={styles.composerRow}>
+                <Pressable onPress={() => setAttachOpen((open) => !open)} disabled={!composerEnabled || sending} style={[styles.attachButton, (!composerEnabled || sending) && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel="Attach photo, video or document">
+                  <Ionicons name={attachOpen ? "close" : "add"} size={26} color={colors.primary} />
+                </Pressable>
                 <View style={[styles.inputPill, !composerEnabled && styles.inputPillDisabled]}>
                   <RNTextInput
                     value={message}
@@ -805,6 +874,11 @@ const styles = StyleSheet.create({
   quickChipText: { color: colors.primary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
   composerRow: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
   inputPill: { flex: 1, minHeight: 48, maxHeight: 120, justifyContent: "center", backgroundColor: "#f4f9fc", borderRadius: 24, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16 },
+  attachButton: { width: 44, height: 48, alignItems: "center", justifyContent: "center" },
+  attachMenu: { flexDirection: "row", gap: 22, paddingHorizontal: 8, paddingVertical: 6 },
+  attachOption: { alignItems: "center", gap: 6 },
+  attachIcon: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
+  attachLabel: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
   inputPillDisabled: { backgroundColor: "#f1f5f9" },
   inputText: { color: colors.text, fontSize: 14, paddingVertical: 10 },
   sendButton: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
