@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { LeadNotes } from "@/components/LeadNotes";
+import { LeadDocuments } from "@/components/LeadDocuments";
 import { useStages } from "@/hooks/useStages";
 import { StaffMember, fetchStaff } from "@/api/staff";
 import { telUrl } from "@/api/phone";
@@ -528,9 +529,10 @@ export default function LeadDetailScreen() {
         {error ? <Pressable style={styles.warning} onPress={() => notFound ? router.back() : load()}><Text style={styles.warningText}>{notFound ? "This lead no longer exists — it may have been deleted. Tap to go back." : "Some details couldn't be refreshed. Tap to retry."}</Text></Pressable> : null}
 
         <View style={styles.actionsRow}>
-          <Button mode="contained" icon="phone" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")}>Call</Button>
-          <Button mode="outlined" icon="whatsapp" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("whatsapp", `https://wa.me/${lead.phone.replace(/\D/g, "")}`, "WhatsApp could not be opened.")}>WhatsApp</Button>
-          <Button mode="outlined" icon="email-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={openEmailAction}>Email</Button>
+          <Button compact mode="contained" icon="phone" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")}>Call</Button>
+          <Button compact mode="outlined" icon="whatsapp" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("whatsapp", `https://wa.me/${lead.phone.replace(/\D/g, "")}`, "WhatsApp could not be opened.")}>WhatsApp</Button>
+          <Button compact mode="outlined" icon="email-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={openEmailAction}>Email</Button>
+          <Button compact mode="outlined" icon="chat-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => router.push({ pathname: "/(app)/more/whatsapp", params: { leadId: lead.id, openAt: String(Date.now()) } })}>Chat</Button>
         </View>
 
         <SegmentedButtons
@@ -579,6 +581,8 @@ export default function LeadDetailScreen() {
             />
 
             <LeadNotes leadId={lead.id} onAdded={() => load(true)} onFormOpen={revealInScroll} />
+
+            <LeadDocuments leadId={lead.id} onChanged={() => load(true)} />
           </View>
         ) : tab === "details" ? (
           <View style={styles.body}>
@@ -874,10 +878,10 @@ const styles = StyleSheet.create({
   warning: { marginHorizontal: 18, marginBottom: 12, backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10 },
   warningText: { color: colors.danger, textAlign: "center", fontSize: 12, fontWeight: "600" },
 
-  actionsRow: { flexDirection: "row", paddingHorizontal: 18, gap: 8 },
-  actionButton: { flex: 1 },
-  actionButtonContent: { height: 42 },
-  actionButtonLabel: { fontSize: 12 },
+  actionsRow: { flexDirection: "row", paddingHorizontal: 14, gap: 6 },
+  actionButton: { flex: 1, minWidth: 0 },
+  actionButtonContent: { height: 42, paddingHorizontal: 0 },
+  actionButtonLabel: { fontSize: 11, marginHorizontal: 4 },
 
   tabs: { marginTop: 22, marginHorizontal: 18 },
 
