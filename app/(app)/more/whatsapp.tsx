@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AppState, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { Alert, AppState, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Appbar, Searchbar, Text } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
@@ -121,13 +121,19 @@ export default function WhatsAppScreen() {
   // own height), so it stays right whether or not Android already shrank the window or draws under the nav bar.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const chatOverlayRef = useRef<View>(null);
+  const topInset = useRef(insets.top);
+  topInset.current = insets.top;
   useEffect(() => {
     if (Platform.OS !== "android") return undefined;
     const show = Keyboard.addListener("keyboardDidShow", (event) => {
       const keyboardTop = event.endCoordinates.screenY;
       const overlay = chatOverlayRef.current;
       if (overlay && keyboardTop) {
-        overlay.measureInWindow((_x, y, _width, height) => setKeyboardHeight(Math.max(0, Math.round(y + height - keyboardTop))));
+        // The keyboard's top is in screen coordinates (status bar included). When the app sits below the status bar
+        // (no top inset) the overlay's position is in window coordinates that start under it, so add its height back.
+        // When the app draws behind the status bar (top inset > 0) both already agree, so add nothing.
+        const statusBar = topInset.current > 0 ? 0 : (StatusBar.currentHeight ?? 0);
+        overlay.measureInWindow((_x, y, _width, height) => setKeyboardHeight(Math.max(0, Math.round(y + height + statusBar - keyboardTop))));
       } else {
         setKeyboardHeight(event.endCoordinates.height);
       }
