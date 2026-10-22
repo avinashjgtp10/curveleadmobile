@@ -51,6 +51,8 @@ function formatDate(value?: string) {
 
 const INBOX_CACHE_KEY = "whatsapp_inbox_cache_v1";
 const MAX_RENDERED_MESSAGES = 100;
+// Last messages seen per chat, so reopening a chat shows them at once while the fresh copy loads.
+const conversationCache = new Map<string, WhatsAppMessage[]>();
 
 function indexInbox(conversations: InboxConversation[]) {
   return Object.fromEntries(conversations.map((item) => [item.lead_id, item]));
@@ -229,6 +231,7 @@ export default function WhatsAppScreen() {
 
   const inboxBusy = useRef(false);
   const chatBusy = useRef(false);
+  const activeChatId = useRef("");
 
   async function refreshInbox() {
     if (inboxBusy.current) return;
@@ -247,7 +250,10 @@ export default function WhatsAppScreen() {
     if (chatBusy.current) return;
     chatBusy.current = true;
     try {
-      const list = await fetchConversation(leadId);
+      const list = await fetchConversation(leadId, MAX_RENDERED_MESSAGES);
+      conversationCache.set(leadId, list);
+      // The person may have opened another chat while this one was loading - don't paint it over the new one.
+      if (activeChatId.current !== leadId) return;
       // Keep messages still being sent so a poll doesn't make them vanish.
       setMessages((current) => {
         const pending = current.filter((item) => item.id.startsWith("pending-"));
@@ -258,15 +264,17 @@ export default function WhatsAppScreen() {
       // Keep the current messages on a failed poll.
     } finally {
       chatBusy.current = false;
-      setMessagesLoaded(true);
+      if (activeChatId.current === leadId) setMessagesLoaded(true);
     }
   }
 
   // The open chat refreshes every 8s so customer replies show up without a manual refresh.
   // Polling stops while the app is in the background so it doesn't burn battery and data.
   useEffect(() => {
-    setMessages([]);
-    setMessagesLoaded(false);
+    activeChatId.current = selectedId;
+    const cached = selectedId ? conversationCache.get(selectedId) : undefined;
+    setMessages(cached ?? []);
+    setMessagesLoaded(!!cached);
     chatBusy.current = false;
     if (!selectedId) return undefined;
     loadConversation(selectedId);

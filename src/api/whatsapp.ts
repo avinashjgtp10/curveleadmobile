@@ -72,8 +72,9 @@ export async function fetchInbox() {
   return data.conversations || [];
 }
 
-export async function fetchConversation(leadId: string) {
-  const { data } = await apiClient.get<{ messages: WhatsAppMessage[] }>(`/whatsapp/conversation/${leadId}`);
+/** `limit` asks the server for only the newest N messages, so opening a long chat stays quick. */
+export async function fetchConversation(leadId: string, limit?: number) {
+  const { data } = await apiClient.get<{ messages: WhatsAppMessage[] }>(`/whatsapp/conversation/${leadId}`, { params: limit ? { limit } : undefined });
   return data.messages || [];
 }
 
