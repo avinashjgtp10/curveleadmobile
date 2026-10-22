@@ -4,11 +4,11 @@ import { ActivityIndicator, Appbar, Searchbar, Text } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useNavigation } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { GlassBackground, glass } from "@/components/Glass";
-import { fetchLeads, LeadListItem } from "@/api/leads";
+import { fetchLeadDetails, fetchLeads, LeadListItem } from "@/api/leads";
 import { fetchTemplates, MessageTemplate } from "@/api/templates";
 import { notifyMessageSent } from "@/api/notifications";
 import {
@@ -95,6 +95,9 @@ function windowText(ms: number) {
 export default function WhatsAppScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  // Set when opened from a lead's details screen: go straight into that lead's conversation.
+  const { leadId: openLeadId, openAt } = useLocalSearchParams<{ leadId?: string; openAt?: string }>();
+  const [pinnedLead, setPinnedLead] = useState<LeadListItem | null>(null);
   const [tab, setTab] = useState<Tab>("chats");
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
@@ -168,6 +171,23 @@ export default function WhatsAppScreen() {
   }
 
   useEffect(() => { load(); }, []);
+
+  // Open the requested lead's chat right away - without waiting for the inbox list - every time Chat is tapped.
+  // `openAt` changes on each tap, so opening the same lead again works too.
+  useEffect(() => {
+    if (!openLeadId) return;
+    let cancelled = false;
+    setTab("chats");
+    setSelectedId(openLeadId);
+    fetchLeadDetails(openLeadId)
+      .then(({ lead }) => { if (!cancelled) setPinnedLead(lead); })
+      .catch(() => {
+        if (cancelled) return;
+        setSelectedId("");
+        Alert.alert("Couldn't open chat", "Could not load this lead's conversation.");
+      });
+    return () => { cancelled = true; };
+  }, [openLeadId, openAt]);
   useEffect(() => { setContactInfoOpen(false); }, [selectedId]);
 
   // The open chat is an in-page overlay (a Modal stops short of the bottom edge on some phones), so hide the tab bar and own the back button.
@@ -179,9 +199,15 @@ export default function WhatsAppScreen() {
 
   useEffect(() => {
     if (!selectedId) return undefined;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => { setSelectedId(""); return true; });
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { closeChat(); return true; });
     return () => sub.remove();
-  }, [selectedId]);
+  }, [selectedId, openLeadId]);
+
+  // A chat opened from a lead's details goes back to that lead; one opened from the inbox goes back to the list.
+  function closeChat() {
+    if (openLeadId && selectedId === openLeadId && router.canGoBack()) router.back();
+    else setSelectedId("");
+  }
 
   const inboxBusy = useRef(false);
   const chatBusy = useRef(false);
@@ -257,7 +283,7 @@ export default function WhatsAppScreen() {
       .sort((a, b) => new Date(inbox[b.id]?.sent_at || 0).getTime() - new Date(inbox[a.id]?.sent_at || 0).getTime());
   }, [filter, inbox, leads, search, starredIds]);
 
-  const selected = selectedId ? leads.find((lead) => lead.id === selectedId) : undefined;
+  const selected = selectedId ? leads.find((lead) => lead.id === selectedId) ?? (pinnedLead?.id === selectedId ? pinnedLead : undefined) : undefined;
   const selectedConversation = selectedId ? inbox[selectedId] : undefined;
   const templateLead = templateLeadId ? leads.find((lead) => lead.id === templateLeadId) : undefined;
   const totalUnread = Object.values(inbox).filter((item) => item.unread_count > 0).length;
@@ -563,7 +589,7 @@ export default function WhatsAppScreen() {
         {selected ? (
           <KeyboardAvoidingView style={[styles.chatScreen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
             <View style={[styles.chatHeader, { paddingTop: insets.top + 8 }]}>
-              <Pressable onPress={() => setSelectedId("")} hitSlop={10} style={styles.chatBack}>
+              <Pressable onPress={closeChat} hitSlop={10} style={styles.chatBack}>
                 <Ionicons name="arrow-back" size={24} color={colors.text} />
               </Pressable>
               <View style={styles.chatAvatar}>
