@@ -46,6 +46,16 @@ export function configureNotificationHandler() {
   });
 }
 
+/** Shows how many notifications are unread as the number on the app icon (iPhone and most Android launchers). */
+export async function setAppBadge(count: number) {
+  if (isExpoGo || Platform.OS === "web") return;
+  try {
+    await loadNotifications().setBadgeCountAsync(Math.max(0, Math.round(count)));
+  } catch {
+    // The phone may not allow badges (or the permission was refused) - the number is only a nicety.
+  }
+}
+
 export async function ensureAndroidChannel() {
   if (isExpoGo || Platform.OS !== "android") return;
   const Notifications = loadNotifications();
