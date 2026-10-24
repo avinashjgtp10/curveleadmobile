@@ -22,7 +22,10 @@ const VALID_UNTIL_OPTIONS = [
 const DISCOUNT_PRESETS = ["0", "5", "10", "15", "20"];
 const TAX_PRESETS = ["0", "5", "12", "18", "28"];
 
-function emptyItem(): QuotationItem { return { name: "", quantity: 1, price: 0 }; }
+// priceText keeps what the user typed (e.g. "10.") so a trailing dot isn't lost; it is dropped before saving.
+type DraftItem = QuotationItem & { priceText?: string };
+
+function emptyItem(): DraftItem { return { name: "", quantity: 1, price: 0 }; }
 
 function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
@@ -64,7 +67,7 @@ export default function NewQuotationScreen() {
   const [searching, setSearching] = useState(false);
   const [selectedLead, setSelectedLead] = useState<LeadListItem | null>(null);
   const [title, setTitle] = useState("");
-  const [items, setItems] = useState<QuotationItem[]>([emptyItem()]);
+  const [items, setItems] = useState<DraftItem[]>([emptyItem()]);
   const [discountPercent, setDiscountPercent] = useState("0");
   const [taxPercent, setTaxPercent] = useState("18");
   const [validUntilDays, setValidUntilDays] = useState<number | null>(30);
@@ -80,14 +83,19 @@ export default function NewQuotationScreen() {
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (!leadQuery.trim()) { setLeadResults([]); setSearching(false); return; }
     setSearching(true);
+    let cancelled = false;
     searchTimer.current = setTimeout(async () => {
-      try { setLeadResults((await fetchLeads({ search: leadQuery.trim(), limit: 6 })).leads); } catch { /* best-effort */ }
-      setSearching(false);
+      try {
+        const { leads } = await fetchLeads({ search: leadQuery.trim(), limit: 6 });
+        // Ignore a slower response for an older query.
+        if (!cancelled) setLeadResults(leads);
+      } catch { /* best-effort */ }
+      if (!cancelled) setSearching(false);
     }, 300);
-    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+    return () => { cancelled = true; if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [leadQuery]);
 
-  function updateItem(index: number, patch: Partial<QuotationItem>) {
+  function updateItem(index: number, patch: Partial<DraftItem>) {
     setItems((current) => current.map((item, i) => i === index ? { ...item, ...patch } : item));
   }
 
@@ -107,11 +115,14 @@ export default function NewQuotationScreen() {
     if (!validItems.length) { setError("Add at least one item with a name."); return null; }
     if (validItems.some((item) => !(Number(item.quantity) > 0))) { setError("Quantity must be greater than 0."); return null; }
     if (validItems.some((item) => !(Number(item.price) > 0))) { setError("Enter a price for every item."); return null; }
-    const validUntil = validUntilDays ? new Date(Date.now() + validUntilDays * 86400000).toISOString().slice(0, 10) : undefined;
+    // Build the date in local time; toISOString() is UTC and can land a day early.
+    const expiry = new Date(); expiry.setDate(expiry.getDate() + (validUntilDays || 0));
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const validUntil = validUntilDays ? `${expiry.getFullYear()}-${pad(expiry.getMonth() + 1)}-${pad(expiry.getDate())}` : undefined;
     return {
       lead_id: selectedLead.id,
       title: title.trim() || undefined,
-      items: validItems,
+      items: validItems.map(({ priceText: _priceText, ...item }) => item),
       discount_percent: Number(discountPercent) || 0,
       tax_percent: Number(taxPercent) || 0,
       valid_until: validUntil,
@@ -146,7 +157,12 @@ export default function NewQuotationScreen() {
     }
     try {
       const { whatsapp_url } = await sendQuotation(quotation.id);
-      if (whatsapp_url) await Linking.openURL(whatsapp_url);
+      if (whatsapp_url) {
+        // The server has already marked it sent, so a link that won't open is a different problem from a failed send.
+        await Linking.openURL(whatsapp_url).catch(() => {
+          Alert.alert("Quotation sent", "It was marked as sent, but WhatsApp could not be opened. Open the quotation to share it again.");
+        });
+      }
     } catch (sendError) {
       Alert.alert("Created, but couldn't send", errorMessage(sendError, "The quotation was saved as a draft — you can send it from its detail page."));
     } finally {
@@ -245,8 +261,12 @@ export default function NewQuotationScreen() {
                 <TextInput
                   mode="outlined"
                   dense
-                  value={item.price ? String(item.price) : ""}
-                  onChangeText={(value) => updateItem(index, { price: Number(value.replace(/[^\d.]/g, "")) || 0 })}
+                  value={item.priceText ?? (item.price ? String(item.price) : "")}
+                  onChangeText={(value) => {
+                    const [whole, ...decimals] = value.replace(/[^\d.]/g, "").split(".");
+                    const priceText = decimals.length ? `${whole}.${decimals.join("")}` : whole;
+                    updateItem(index, { priceText, price: Number(priceText) || 0 });
+                  }}
                   placeholder="Price"
                   keyboardType="decimal-pad"
                   left={<TextInput.Affix text="₹" />}

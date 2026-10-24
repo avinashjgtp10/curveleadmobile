@@ -177,15 +177,17 @@ export default function FollowupsScreen() {
     if (!addOpen) return;
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (!leadQuery.trim()) { setLeadResults([]); return; }
+    let cancelled = false;
     searchTimer.current = setTimeout(async () => {
       setSearchingLeads(true);
       try {
         const result = await fetchLeads({ search: leadQuery.trim(), limit: 6 });
-        setLeadResults(result.leads);
+        // Ignore a slower response for an older query.
+        if (!cancelled) setLeadResults(result.leads);
       } catch { /* best-effort suggestions */ }
-      finally { setSearchingLeads(false); }
+      finally { if (!cancelled) setSearchingLeads(false); }
     }, 300);
-    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+    return () => { cancelled = true; if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [leadQuery, addOpen]);
 
   const days = useMemo(() => {
@@ -211,7 +213,10 @@ export default function FollowupsScreen() {
   function jumpDays(delta: number) {
     const next = new Date(selectedDate);
     next.setDate(next.getDate() + delta);
-    setSelectedDate(next);
+    // Stay inside the days the strip can show, so a day is always highlighted.
+    const first = days[0];
+    const last = days[days.length - 1];
+    setSelectedDate(next < first ? first : next > last ? last : next);
   }
 
   async function handleComplete(item: TodayFollowup) {
@@ -237,6 +242,7 @@ export default function FollowupsScreen() {
 
   async function saveFollowup() {
     if (!selectedLead) { setAddError("Search and select a lead first."); return; }
+    if (followupAt.getTime() < Date.now() - 60000) { setAddError("Choose a date and time in the future."); return; }
     setSaving(true); setAddError("");
     try {
       await createLeadFollowup(selectedLead.id, {
