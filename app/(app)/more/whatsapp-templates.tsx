@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card, Chip, SegmentedButtons, Text, TextInput } from "react-native-paper";
 import axios from "axios";
@@ -36,10 +36,22 @@ function errorMessage(error: unknown, fallback: string) {
   return `${fallback} ${error.message}`;
 }
 
+const KNOWN_STATUSES = ["APPROVED", "PENDING", "REJECTED"];
+
 function countVars(text?: string) {
   if (!text) return 0;
   const matches = [...text.matchAll(/\{\{(\d+)\}\}/g)].map((match) => parseInt(match[1], 10));
   return matches.length ? Math.max(...matches) : 0;
+}
+
+// Meta needs variables numbered 1..n with none missing, and a body that doesn't start or end with a variable.
+function variableProblem(text: string) {
+  const used = new Set([...text.matchAll(/\{\{(\d+)\}\}/g)].map((match) => parseInt(match[1], 10)));
+  for (let n = 1; n <= used.size; n++) {
+    if (!used.has(n)) return `Variables must be numbered in order - {{${n}}} is missing.`;
+  }
+  if (/^\{\{\d+\}\}/.test(text) || /\{\{\d+\}\}$/.test(text)) return "The body can't start or end with a variable - add some text around it.";
+  return "";
 }
 
 export default function WhatsAppTemplatesScreen() {
@@ -56,7 +68,14 @@ export default function WhatsAppTemplatesScreen() {
   const [bodyText, setBodyText] = useState("");
   const [examples, setExamples] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState("");
+  const [formError, setFormErrorState] = useState("");
+  const formScroll = useRef<ScrollView>(null);
+
+  // The error banner sits at the top of a long form while Submit is at the bottom, so bring it into view.
+  function setFormError(message: string) {
+    setFormErrorState(message);
+    if (message) formScroll.current?.scrollTo({ y: 0, animated: true });
+  }
 
   async function load() {
     setLoading(true);
@@ -77,9 +96,13 @@ export default function WhatsAppTemplatesScreen() {
     APPROVED: templates.filter((item) => item.status === "APPROVED").length,
     PENDING: templates.filter((item) => item.status === "PENDING").length,
     REJECTED: templates.filter((item) => item.status === "REJECTED").length,
+    // Meta also returns PAUSED, DISABLED, IN_APPEAL and similar; keep them reachable from a filter.
+    OTHER: templates.filter((item) => !KNOWN_STATUSES.includes(item.status)).length,
   }), [templates]);
 
-  const visibleTemplates = statusFilter === "ALL" ? templates : templates.filter((item) => item.status === statusFilter);
+  const visibleTemplates = statusFilter === "ALL" ? templates
+    : statusFilter === "OTHER" ? templates.filter((item) => !KNOWN_STATUSES.includes(item.status))
+    : templates.filter((item) => item.status === statusFilter);
 
   const varCount = countVars(bodyText);
   useEffect(() => {
@@ -96,7 +119,10 @@ export default function WhatsAppTemplatesScreen() {
       setFormError("Name must be lowercase letters, numbers, and underscores only (e.g. order_update).");
       return;
     }
-    if (!bodyText.trim()) { setFormError("Body text is required."); return; }
+    const body = bodyText.trim();
+    if (!body) { setFormError("Body text is required."); return; }
+    const problem = variableProblem(body);
+    if (problem) { setFormError(problem); return; }
     if (varCount > 0 && examples.some((example) => !example.trim())) {
       setFormError("Provide an example value for every {{n}} variable — Meta requires this for review.");
       return;
@@ -104,7 +130,7 @@ export default function WhatsAppTemplatesScreen() {
     setSubmitting(true);
     setFormError("");
     try {
-      const result = await createWhatsAppTemplate({ name, category, language, body_text: bodyText, examples });
+      const result = await createWhatsAppTemplate({ name, category, language, body_text: body, examples });
       Alert.alert("Submitted", `Template submitted — status: ${result.status}. Meta usually reviews within a few hours.`);
       setCreating(false);
       load();
@@ -122,7 +148,7 @@ export default function WhatsAppTemplatesScreen() {
           <Appbar.BackAction onPress={() => setCreating(false)} />
           <Appbar.Content title="Create template" titleStyle={styles.headerTitle} />
         </Appbar.Header>
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}>
+        <ScrollView ref={formScroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}>
           {formError ? <Text style={styles.formError}>{formError}</Text> : null}
           <TextInput
             mode="outlined" label="Template Name" value={name}
@@ -190,6 +216,7 @@ export default function WhatsAppTemplatesScreen() {
             { value: "APPROVED", label: `Approved ${counts.APPROVED}` },
             { value: "PENDING", label: `Pending ${counts.PENDING}` },
             { value: "REJECTED", label: `Rejected ${counts.REJECTED}` },
+            ...(counts.OTHER ? [{ value: "OTHER", label: `Other ${counts.OTHER}` }] : []),
           ]}
         />
       </View>
@@ -204,7 +231,7 @@ export default function WhatsAppTemplatesScreen() {
       ) : (
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
           {visibleTemplates.length ? visibleTemplates.map((template) => {
-            const statusStyle = STATUS_COLOR[template.status] || STATUS_COLOR.PENDING;
+            const statusStyle = STATUS_COLOR[template.status] || { bg: colors.surfaceMuted, text: colors.textSecondary };
             const body = templateComponent(template, "BODY")?.text;
             return (
               <Card key={`${template.name}-${template.language}`} mode="outlined" style={styles.card}>
