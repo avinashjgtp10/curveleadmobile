@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Alert, Linking, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View, useWindowDimensions,
+  Alert, Linking, Pressable, ScrollView, Share, StyleSheet, TextInput as RNTextInput, View, useWindowDimensions,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card, Chip, HelperText, IconButton, List, Searchbar, Text } from "react-native-paper";
 import axios from "axios";
@@ -80,8 +80,10 @@ export default function TemplatesScreen() {
   const [leadResults, setLeadResults] = useState<LeadListItem[]>([]);
   const [sending, setSending] = useState(false);
 
-  async function load() {
-    setLoading(true); setError("");
+  // `silent` refreshes the list in place (after save/delete/send) so the list keeps its scroll position.
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
+    setError("");
     try { setTemplates(await fetchTemplates()); }
     catch (loadError) { setError(errorMessage(loadError, "Could not load templates.")); }
     finally { setLoading(false); }
@@ -100,10 +102,15 @@ export default function TemplatesScreen() {
     if (!sendOpen) return;
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (!leadQuery.trim()) { setLeadResults([]); return; }
+    let cancelled = false;
     searchTimer.current = setTimeout(async () => {
-      try { setLeadResults((await fetchLeads({ search: leadQuery.trim(), limit: 6 })).leads); } catch { /* best-effort */ }
+      try {
+        const { leads } = await fetchLeads({ search: leadQuery.trim(), limit: 6 });
+        // A slower response for an older query must not replace the results of the current one.
+        if (!cancelled) setLeadResults(leads);
+      } catch { /* best-effort */ }
     }, 300);
-    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+    return () => { cancelled = true; if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [leadQuery, sendOpen]);
 
   function openCreate() {
@@ -139,7 +146,7 @@ export default function TemplatesScreen() {
       if (editing) await updateTemplate(editing.id, input);
       else await createTemplate(input);
       setEditOpen(false);
-      load();
+      load(true);
     } catch (saveError) {
       setFormError(errorMessage(saveError, "Could not save this template."));
     } finally { setSaving(false); }
@@ -149,7 +156,7 @@ export default function TemplatesScreen() {
     Alert.alert("Delete template?", `"${template.name}" will be removed for your whole team.`, [
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: async () => {
-        try { await deleteTemplate(template.id); load(); }
+        try { await deleteTemplate(template.id); load(true); }
         catch (deleteError) { Alert.alert("Couldn't delete", errorMessage(deleteError, "Please try again.")); }
       } },
     ]);
@@ -165,9 +172,20 @@ export default function TemplatesScreen() {
     try {
       const result = await sendTemplate(sendTarget.id, lead.id);
       setSendOpen(false);
-      if (result.whatsappUrl) Linking.openURL(result.whatsappUrl);
-      else Alert.alert("Message ready", result.message);
-      load();
+      if (result.whatsappUrl) {
+        Linking.openURL(result.whatsappUrl).catch(() => {
+          Alert.alert("Couldn't open WhatsApp", "Make sure WhatsApp is installed. You can share the message instead.", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Share", onPress: () => { Share.share({ message: result.message }); } },
+          ]);
+        });
+      } else {
+        Alert.alert("Message ready", result.message, [
+          { text: "Close", style: "cancel" },
+          { text: "Share", onPress: () => { Share.share({ message: result.message }); } },
+        ]);
+      }
+      load(true);
     } catch (sendError) {
       Alert.alert("Couldn't prepare this message", errorMessage(sendError, "Please try again."));
     } finally { setSending(false); }
@@ -186,7 +204,7 @@ export default function TemplatesScreen() {
       ) : error ? (
         <View style={styles.state}>
           <Text style={styles.errorText}>{error}</Text>
-          <Button mode="contained" onPress={load} style={styles.retry}>Try again</Button>
+          <Button mode="contained" onPress={() => load()} style={styles.retry}>Try again</Button>
         </View>
       ) : (
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
