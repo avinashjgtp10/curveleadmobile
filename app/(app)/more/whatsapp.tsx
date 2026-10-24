@@ -39,7 +39,8 @@ function relativeTime(value?: string) {
   if (minutes < 60) return `${minutes || 1} min ago`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} hr ago`;
-  return `${Math.floor(hours / 24)} day ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
 function formatDate(value?: string) {
@@ -256,7 +257,10 @@ export default function WhatsAppScreen() {
       if (activeChatId.current !== leadId) return;
       // Keep messages still being sent so a poll doesn't make them vanish.
       setMessages((current) => {
-        const pending = current.filter((item) => item.id.startsWith("pending-"));
+        // Drop a pending copy once the server's list already contains that message, so it never shows twice.
+        const pending = current.filter((item) => item.id.startsWith("pending-") && !list.some((saved) => (
+          saved.direction === "outbound" && saved.message === item.message && new Date(saved.sent_at).getTime() >= new Date(item.sent_at).getTime() - 10000
+        )));
         if (!pending.length && sameMessages(current, list)) return current;
         return [...list, ...pending];
       });
@@ -275,6 +279,9 @@ export default function WhatsAppScreen() {
     const cached = selectedId ? conversationCache.get(selectedId) : undefined;
     setMessages(cached ?? []);
     setMessagesLoaded(!!cached);
+    // A half-typed message or open attach menu belongs to the previous chat and must not carry over to this one.
+    setMessage("");
+    setAttachOpen(false);
     chatBusy.current = false;
     if (!selectedId) return undefined;
     loadConversation(selectedId);
@@ -315,7 +322,8 @@ export default function WhatsAppScreen() {
   const totalUnread = Object.values(inbox).filter((item) => item.unread_count > 0).length;
   const windowLeft = replyWindowLeftMs(messages);
   // Until the messages load, fall back to the lead's own flags so the composer doesn't flash locked.
-  const canReply = messagesLoaded ? windowLeft > 0 : !!(selected?.last_incoming_message || selected?.is_24h_window_active);
+  const canReply = messagesLoaded ? windowLeft > 0
+    : selected?.is_24h_window_active !== undefined ? !!selected.is_24h_window_active : !!selected?.last_incoming_message;
   const manualMode = !!selectedConversation?.ai_paused;
   const composerEnabled = !!selected && canReply;
 
@@ -337,6 +345,7 @@ export default function WhatsAppScreen() {
         onPress: async () => {
           try {
             await deleteConversation(lead.id);
+            conversationCache.delete(lead.id);
             setInbox((current) => {
               const { [lead.id]: _removed, ...rest } = current;
               return rest;
@@ -363,9 +372,14 @@ export default function WhatsAppScreen() {
   }
 
   function templateTextFor(template: MessageTemplate, lead: LeadListItem) {
-    return template.message
-      .replace(/\{name\}/gi, lead.name)
-      .replace(/\{phone\}/gi, lead.phone);
+    // Accept both {{name}} (what the Templates screen documents) and {name}.
+    const fill = (text: string, key: string, value?: string) => (
+      value ? text.replace(new RegExp(String.raw`\{\{\s*${key}\s*\}\}|\{\s*${key}\s*\}`, "gi"), () => value) : text
+    );
+    let text = fill(template.message, "name", lead.name);
+    text = fill(text, "phone", lead.phone);
+    text = fill(text, "email", lead.email);
+    return fill(text, "source", lead.source);
   }
 
   function addSentMessage(leadId: string, sent: WhatsAppMessage) {
@@ -395,6 +409,11 @@ export default function WhatsAppScreen() {
   async function useSendableTemplate(template: SendableWhatsAppTemplate) {
     const templateLead = templateLeadId ? leads.find((lead) => lead.id === templateLeadId) : undefined;
     if (!templateLead || template.unsupported) return;
+    // Only the first variable (the lead's name) can be filled automatically; Meta rejects a blank value.
+    if (template.variable_count > 1) {
+      Alert.alert("Can't send this template here", `It has ${template.variable_count} variables and only the first can be filled in automatically. Send it from the web app instead.`);
+      return;
+    }
     setSendingTemplateId(`${template.name}:${template.language}`);
     try {
       const result = await sendWhatsAppTemplate(templateLead.id, {
@@ -691,9 +710,9 @@ export default function WhatsAppScreen() {
               <View style={[styles.headerInfoPopover, { top: insets.top + 64 }]}>
                 <View style={styles.infoRow}><Text style={styles.infoLabel}>Name</Text><Text style={styles.infoValue}>{selected.name}</Text></View>
                 <View style={styles.infoRow}><Text style={styles.infoLabel}>Phone number</Text><Text style={styles.infoValue}>{selected.phone}</Text></View>
-                <View style={styles.infoRow}><Text style={styles.infoLabel}>First message</Text><Text style={styles.infoValue}>{messages.length ? formatDate(messages[0].sent_at) : "-"}</Text></View>
+                <View style={styles.infoRow}><Text style={styles.infoLabel}>First message</Text><Text style={styles.infoValue}>{messages.length && messages.length < MAX_RENDERED_MESSAGES ? formatDate(messages[0].sent_at) : "-"}</Text></View>
                 <View style={styles.infoRow}><Text style={styles.infoLabel}>Last message</Text><Text style={styles.infoValue}>{selectedConversation?.sent_at ? relativeTime(selectedConversation.sent_at) : "-"}</Text></View>
-                <View style={styles.infoRow}><Text style={styles.infoLabel}>Total messages</Text><Text style={styles.infoValue}>{messages.length}</Text></View>
+                <View style={styles.infoRow}><Text style={styles.infoLabel}>Total messages</Text><Text style={styles.infoValue}>{Math.max(messages.length, selected.total_messages || 0)}</Text></View>
                 <View style={styles.infoRow}><Text style={styles.infoLabel}>Reply window</Text><Text style={styles.infoValue}>{windowLeft > 0 ? `Open - ${windowText(windowLeft)} left` : "Closed - template only"}</Text></View>
                 <View style={styles.infoRow}><Text style={styles.infoLabel}>AI replies</Text><Text style={styles.infoStatus}>{manualMode ? "Paused" : "Active"}</Text></View>
               </View>
