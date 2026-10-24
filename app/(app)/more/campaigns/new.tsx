@@ -73,6 +73,8 @@ export default function NewCampaignScreen() {
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // If the saved campaign could not be loaded the form only holds defaults, so saving must stay disabled.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; end_date?: string }>({});
 
   useEffect(() => {
@@ -84,6 +86,7 @@ export default function NewCampaignScreen() {
       setStatus(campaign.status); setIsPriority(!!campaign.is_priority);
       setMetaManaged(!!campaign.meta_campaign_id);
     }).catch((loadError) => {
+      setLoadFailed(true);
       setError(errorMessage(loadError, "Could not load this campaign."));
     }).finally(() => setLoading(false));
   }, [id]);
@@ -95,7 +98,7 @@ export default function NewCampaignScreen() {
   async function save() {
     const next: typeof fieldErrors = {};
     if (!name.trim()) next.name = "Campaign name is required";
-    if (endDate && endDate.getTime() < startDate.getTime()) next.end_date = "End date must be after the start date";
+    if (!metaManaged && endDate && endDate.getTime() < startDate.getTime()) next.end_date = "End date must be after the start date";
     setFieldErrors(next);
     if (Object.keys(next).length) return;
 
@@ -188,7 +191,10 @@ export default function NewCampaignScreen() {
               <Text style={styles.currency}>₹</Text>
               <RNTextInput
                 style={[styles.inputText, { flex: 1 }]} value={budget}
-                onChangeText={(value) => setBudget(value.replace(/[^\d.]/g, ""))}
+                onChangeText={(value) => {
+                  const [whole, ...decimals] = value.replace(/[^\d.]/g, "").split(".");
+                  setBudget(decimals.length ? `${whole}.${decimals.join("")}` : whole);
+                }}
                 placeholder="0" placeholderTextColor={colors.textMuted} keyboardType="numeric"
               />
             </View>
@@ -248,7 +254,7 @@ export default function NewCampaignScreen() {
         <Pressable onPress={close} disabled={saving} style={styles.cancelButton}>
           <Text style={styles.cancelText}>Cancel</Text>
         </Pressable>
-        <Pressable onPress={save} disabled={saving || loading} style={[styles.saveWrap, (saving || loading) && styles.disabled]}>
+        <Pressable onPress={save} disabled={saving || loading || loadFailed} style={[styles.saveWrap, (saving || loading || loadFailed) && styles.disabled]}>
           <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.saveButton}>
             {saving ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="checkmark" size={20} color="#fff" />}
             <Text style={styles.saveText}>{isEditing ? "Save changes" : "Create campaign"}</Text>

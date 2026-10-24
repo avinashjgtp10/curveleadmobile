@@ -61,6 +61,10 @@ export default function CampaignDetailScreen() {
   const [ads, setAds] = useState<CampaignAd[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [listError, setListError] = useState("");
+  const [adsError, setAdsError] = useState(false);
+  const latestRequest = React.useRef(0);
+  const hasLoaded = React.useRef(false);
 
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState("");
@@ -70,19 +74,25 @@ export default function CampaignDetailScreen() {
 
   const load = useCallback(async () => {
     if (!id) return;
-    setError("");
+    const requestId = ++latestRequest.current;
+    setError(""); setListError("");
     try {
       const params: { stage?: string; lead_score?: string; search?: string } = {};
       if (stageFilter) params.stage = stageFilter;
       if (scoreFilter) params.lead_score = scoreFilter;
       if (search.trim()) params.search = search.trim();
       const { campaign: data, recentLeads } = await fetchCampaign(id, params);
+      if (requestId !== latestRequest.current) return;
+      hasLoaded.current = true;
       setCampaign(data);
       setLeads(recentLeads || []);
     } catch (loadError) {
-      setError(errorMessage(loadError, "Could not load this campaign."));
+      if (requestId !== latestRequest.current) return;
+      const message = errorMessage(loadError, "Could not load this campaign.");
+      // Once the campaign is on screen a failed search/filter must not replace the page and hide the filters.
+      if (hasLoaded.current) setListError(message); else setError(message);
     } finally {
-      setLoading(false);
+      if (requestId === latestRequest.current) setLoading(false);
     }
   }, [id, stageFilter, scoreFilter, search]);
 
@@ -92,7 +102,8 @@ export default function CampaignDetailScreen() {
 
   useEffect(() => {
     if (!id) return;
-    fetchCampaignAds(id).then(setAds).catch(() => {});
+    setAdsError(false);
+    fetchCampaignAds(id).then(setAds).catch(() => setAdsError(true));
   }, [id]);
 
   const isFirstSearch = React.useRef(true);
@@ -156,6 +167,8 @@ export default function CampaignDetailScreen() {
             ))}
           </View>
 
+          {adsError ? <Text style={styles.errorText}>Could not load the ads for this campaign.</Text> : null}
+
           {ads.length ? (
             <View style={styles.card}>
               <View style={styles.cardTitleRow}>
@@ -170,7 +183,7 @@ export default function CampaignDetailScreen() {
                     <Text style={styles.adStat}>{Number(ad.impressions || 0).toLocaleString("en-IN")} impr.</Text>
                     <Text style={styles.adStat}>{Number(ad.clicks || 0).toLocaleString("en-IN")} clicks</Text>
                     <Text style={[styles.adStat, styles.adLeads]}>{ad.total_leads || 0} leads</Text>
-                    <Text style={[styles.adStat, styles.adCpl]}>₹{ad.cpl || 0} CPL</Text>
+                    <Text style={[styles.adStat, styles.adCpl]}>₹{Math.round(ad.cpl || 0)} CPL</Text>
                   </View>
                 </View>
               ))}
@@ -220,6 +233,8 @@ export default function CampaignDetailScreen() {
                 ) : null}
               </View>
             ) : null}
+
+            {listError ? <Text style={styles.errorText}>{listError}</Text> : null}
 
             {leads.length ? leads.map((lead) => {
               const scoreColors = lead.lead_score ? SCORE_COLORS[lead.lead_score] : null;
