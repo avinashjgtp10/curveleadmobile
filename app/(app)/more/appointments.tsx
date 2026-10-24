@@ -65,13 +65,15 @@ function formatDate(value: string) {
 }
 
 function initials(name?: string) {
-  const words = (name || "?").trim().split(/\s+/);
+  const words = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "?";
   return words.length > 1 ? `${words[0][0]}${words[1][0]}`.toUpperCase() : words[0][0].toUpperCase();
 }
 
-function AppointmentRow({ item, completing, onView, onComplete, onReschedule, onCancel }: {
+function AppointmentRow({ item, completing, done, onView, onComplete, onReschedule, onCancel }: {
   item: TodayFollowup;
   completing: boolean;
+  done?: boolean;
   onView: () => void;
   onComplete: () => void;
   onReschedule: () => void;
@@ -82,7 +84,7 @@ function AppointmentRow({ item, completing, onView, onComplete, onReschedule, on
   const anchorRef = useRef<View>(null);
   const meta = typeMeta(item.followup_type);
   const date = formatDate(item.next_followup_at);
-  const status = statusFor(item);
+  const status = done ? "completed" : statusFor(item);
 
   function openMenu() {
     anchorRef.current?.measureInWindow((x, y, width, height) => {
@@ -110,9 +112,9 @@ function AppointmentRow({ item, completing, onView, onComplete, onReschedule, on
       <View style={styles.rowSide}>
         <Text style={styles.rowDate}>{date.date}</Text>
         <Text style={styles.rowTime}>{date.time}</Text>
-        <Text style={[styles.statusPill, status === "overdue" ? styles.statusOverdue : status === "today" ? styles.statusToday : styles.statusUpcoming]}>{status === "overdue" ? "Overdue" : status === "today" ? "Today" : "Upcoming"}</Text>
+        <Text style={[styles.statusPill, status === "overdue" ? styles.statusOverdue : status === "today" ? styles.statusToday : styles.statusUpcoming]}>{status === "overdue" ? "Overdue" : status === "today" ? "Today" : status === "completed" ? "Completed" : "Upcoming"}</Text>
       </View>
-      {completing ? (
+      {done ? null : completing ? (
         <ActivityIndicator size="small" color={colors.primary} style={styles.actionButton} />
       ) : (
         <View ref={anchorRef} collapsable={false}>
@@ -165,6 +167,9 @@ function AppointmentsContent() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<FollowupType | "">("");
   const [completingId, setCompletingId] = useState<string | null>(null);
+  // The server only returns open appointments, so the Completed tab lists the ones finished in this session.
+  const [completedItems, setCompletedItems] = useState<TodayFollowup[]>([]);
+  const hasData = useRef(false);
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [leadQuery, setLeadQuery] = useState("");
@@ -187,12 +192,14 @@ function AppointmentsContent() {
     refresh ? setRefreshing(true) : setLoading(true);
     setError("");
     try {
-      const today = new Date();
-      const future = new Date(); future.setDate(future.getDate() + 180);
+      const future = new Date(); future.setDate(future.getDate() + 730);
       const rows = await fetchTodayFollowups({ date_from: "1970-01-01", date_to: ymd(future) });
       setAppointments(rows);
+      hasData.current = true;
     } catch {
-      setError("Could not load appointments.");
+      // A failed refresh must not hide a list that is already on screen.
+      if (refresh && hasData.current) Alert.alert("Couldn't refresh", "Showing the last loaded appointments.");
+      else setError("Could not load appointments.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -204,14 +211,17 @@ function AppointmentsContent() {
   useEffect(() => {
     if (!sheetOpen || selectedLead) return;
     if (searchTimer.current) clearTimeout(searchTimer.current);
+    let cancelled = false;
     searchTimer.current = setTimeout(async () => {
       try {
         const searchText = leadQuery.trim();
-        setLeadResults((await fetchLeads({ search: searchText || undefined, limit: 8 })).leads);
+        const { leads } = await fetchLeads({ search: searchText || undefined, limit: 8 });
+        // Ignore a slower response for an older query.
+        if (!cancelled) setLeadResults(leads);
       }
-      catch { setLeadResults([]); }
+      catch { if (!cancelled) setLeadResults([]); }
     }, 300);
-    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+    return () => { cancelled = true; if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [leadQuery, selectedLead, sheetOpen]);
 
   const counts = useMemo(() => {
@@ -223,15 +233,13 @@ function AppointmentsContent() {
 
   const visibleAppointments = useMemo(() => {
     const text = query.trim().toLowerCase();
-    return appointments.filter((item) => {
-      const status = statusFor(item);
-      if (activeTab !== "all" && activeTab !== "completed" && status !== activeTab) return false;
-      if (activeTab === "completed") return false;
-      if (typeFilter && item.followup_type !== typeFilter) return false;
+    return (activeTab === "completed" ? completedItems : appointments).filter((item) => {
+      if (activeTab !== "all" && activeTab !== "completed" && statusFor(item) !== activeTab) return false;
+      if (typeFilter && followupTypeOrDefault(item.followup_type) !== typeFilter) return false;
       if (!text) return true;
       return [item.lead_name, item.lead_phone, item.followup_type, item.notes].some((value) => String(value || "").toLowerCase().includes(text));
     });
-  }, [activeTab, appointments, query, typeFilter]);
+  }, [activeTab, appointments, completedItems, query, typeFilter]);
 
   function openCreate() {
     setLeadQuery(""); setLeadResults([]); setSelectedLead(null);
@@ -249,6 +257,7 @@ function AppointmentsContent() {
 
   async function schedule() {
     if (!selectedLead) { setFormError("Select a lead first."); return; }
+    if (appointmentAt.getTime() < Date.now() - 60000) { setFormError("Choose a date and time in the future."); return; }
     setSaving(true); setFormError("");
     try {
       const created = await createLeadFollowup(selectedLead.id, {
@@ -267,7 +276,10 @@ function AppointmentsContent() {
         notes: created.notes || notes.trim() || undefined,
       };
       if (reschedulingAppointment) {
-        await completeLeadFollowup(reschedulingAppointment.id, "Rescheduled");
+        // The new appointment already exists, so a failure here must not look like the whole reschedule failed
+        // (retrying would create a duplicate).
+        try { await completeLeadFollowup(reschedulingAppointment.id, "Rescheduled"); }
+        catch { Alert.alert("Rescheduled", "The new time was saved, but the old appointment could not be closed. Mark it completed manually."); }
       }
       setAppointments((current) => [
         newAppointment,
@@ -296,6 +308,7 @@ function AppointmentsContent() {
     try {
       await completeLeadFollowup(item.id);
       setAppointments((current) => current.filter((appointment) => appointment.id !== item.id));
+      setCompletedItems((current) => [item, ...current]);
     } catch {
       Alert.alert("Couldn't update appointment", "Please try again.");
     } finally {
@@ -415,6 +428,7 @@ function AppointmentsContent() {
               key={item.id}
               item={item}
               completing={completingId === item.id}
+              done={activeTab === "completed"}
               onView={() => viewAppointment(item)}
               onComplete={() => markCompleted(item)}
               onReschedule={() => openReschedule(item)}
@@ -424,7 +438,7 @@ function AppointmentsContent() {
             <View style={styles.empty}>
               <Ionicons name="calendar-clear-outline" size={34} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>No appointments found</Text>
-              <Text style={styles.emptyText}>Create a new appointment or change the filters.</Text>
+              <Text style={styles.emptyText}>{activeTab === "completed" ? "Appointments you mark completed will show up here." : "Create a new appointment or change the filters."}</Text>
             </View>
           )}
         </View>
