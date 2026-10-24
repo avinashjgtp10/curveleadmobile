@@ -53,6 +53,15 @@ export async function sendWhatsAppTemplate(leadId: string, input: {
   return data;
 }
 
+/** Sends a file already uploaded to the lead (see uploadLeadAttachment) as a WhatsApp image, video or document. */
+export async function sendWhatsAppAttachment(leadId: string, attachmentId: string) {
+  const { data } = await apiClient.post<{ message: WhatsAppMessage; delivery?: { success?: boolean; error?: string } }>("/whatsapp/send-attachment", {
+    lead_id: leadId,
+    attachment_id: attachmentId,
+  });
+  return data;
+}
+
 export async function fetchSendableWhatsAppTemplates() {
   const { data } = await apiClient.get<{ templates: SendableWhatsAppTemplate[] }>("/whatsapp/templates/sendable");
   return data.templates || [];
@@ -63,8 +72,9 @@ export async function fetchInbox() {
   return data.conversations || [];
 }
 
-export async function fetchConversation(leadId: string) {
-  const { data } = await apiClient.get<{ messages: WhatsAppMessage[] }>(`/whatsapp/conversation/${leadId}`);
+/** `limit` asks the server for only the newest N messages, so opening a long chat stays quick. */
+export async function fetchConversation(leadId: string, limit?: number) {
+  const { data } = await apiClient.get<{ messages: WhatsAppMessage[] }>(`/whatsapp/conversation/${leadId}`, { params: limit ? { limit } : undefined });
   return data.messages || [];
 }
 
@@ -74,7 +84,7 @@ export async function setConversationAiPaused(leadId: string, paused: boolean) {
 }
 
 export async function deleteConversation(leadId: string) {
-  await apiClient.delete(`/whatsapp/conversation/${leadId}`);
+  await apiClient.delete("/whatsapp/conversations", { data: { lead_ids: [leadId] } });
 }
 
 export async function markConversationsRead(leadIds: string[]) {

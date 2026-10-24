@@ -29,13 +29,12 @@ jobs:
   eas-build:
     name: EAS Android build
     needs: checks
-    # Runs after the type check passes, only on dev: automatically on a push (a merged PR),
-    # or when started by hand with build_profile set to preview or production.
+    # Only when started by hand (Actions > CI > Run workflow) with build_profile set to preview or production.
+    # It used to also run on every push to dev, which spent the Expo Free plan's monthly Android builds on
+    # routine merges and then failed the job once they were used up. The type check above still runs automatically.
     if: >-
-      github.ref == 'refs/heads/dev' && (
-        github.event_name == 'push' ||
-        (github.event_name == 'workflow_dispatch' && inputs.build_profile != 'none')
-      )
+      github.ref == 'refs/heads/dev' &&
+      github.event_name == 'workflow_dispatch' && inputs.build_profile != 'none'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,5 +50,5 @@ jobs:
       - run: npm ci
       - run: eas build --platform android --profile "$PROFILE" --non-interactive --no-wait
         env:
-          # Push to dev = preview APK. Manual run = the profile that was picked.
-          PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.build_profile || 'preview' }}
+          # The profile picked when the workflow was started by hand.
+          PROFILE: ${{ inputs.build_profile }}

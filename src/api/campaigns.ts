@@ -98,10 +98,11 @@ export async function fetchCampaignAds(id: string) {
 export interface SaveCampaignInput {
   name: string;
   source: CampaignSource;
-  budget?: string;
+  // null clears the value on an existing campaign; leaving a field out keeps what is saved.
+  budget?: string | null;
   start_date?: string;
-  end_date?: string;
-  status: CampaignStatus;
+  end_date?: string | null;
+  status?: CampaignStatus;
   is_priority: boolean;
 }
 

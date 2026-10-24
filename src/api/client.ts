@@ -26,13 +26,52 @@ export async function clearStoredToken() {
   await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
 
+export const RATE_LIMIT_MESSAGE = "Too many requests. Please wait a minute and try again.";
+
+// The server allows a fixed number of requests per window and then answers 429. While we know we're blocked,
+// background reads (polling, refreshes) are held back instead of sent: every refused request only prolongs the wait.
+// Taps that save something (POST/PUT/DELETE) still go through so the person can act as soon as the window reopens.
+let blockedUntil = 0;
+
+function blockedForMs(headers: Record<string, unknown> | undefined) {
+  const retryAfter = Number(headers?.["retry-after"]);
+  const resetAt = Number(headers?.["x-ratelimit-reset"]);
+  let wait = 60_000;
+  if (Number.isFinite(retryAfter) && retryAfter > 0) wait = retryAfter * 1000;
+  else if (Number.isFinite(resetAt) && resetAt > 0) wait = resetAt * 1000 - Date.now();
+  return Math.min(Math.max(wait, 5_000), 5 * 60_000);
+}
+
+/** How long background reads are being held back after the server said "Too many requests" (0 when not blocked). */
+export function rateLimitRemainingMs() {
+  return Math.max(0, blockedUntil - Date.now());
+}
+
 apiClient.interceptors.request.use(async (config) => {
+  if (Date.now() < blockedUntil && (config.method || "get").toLowerCase() === "get") {
+    throw new axios.AxiosError(RATE_LIMIT_MESSAGE, "ERR_BAD_REQUEST", config, undefined, {
+      status: 429, statusText: "Too Many Requests", headers: {}, config,
+      data: { error: RATE_LIMIT_MESSAGE, rate_limited: true },
+    } as never);
+  }
   const token = await getStoredToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// Two screens asking for the same thing at the same moment (e.g. notifications, leads) share one request.
+const inFlight = new Map<string, Promise<unknown>>();
+const rawGet = apiClient.get.bind(apiClient) as (url: string, config?: object) => Promise<unknown>;
+(apiClient as unknown as { get: typeof rawGet }).get = (url, config) => {
+  const key = `${url}|${JSON.stringify((config as { params?: unknown } | undefined)?.params ?? {})}`;
+  const existing = inFlight.get(key);
+  if (existing) return existing;
+  const request = rawGet(url, config).finally(() => inFlight.delete(key));
+  inFlight.set(key, request);
+  return request;
+};
 
 export const OFFLINE_MESSAGE = "No internet connection. Check your network and try again.";
 export const TIMEOUT_MESSAGE = "The server took too long to respond. Please try again.";
@@ -53,6 +92,9 @@ apiClient.interceptors.response.use(
         status: 0, statusText: "", headers: {}, config: error.config as never,
         data: { error: timedOut ? TIMEOUT_MESSAGE : OFFLINE_MESSAGE, network: true },
       };
+    }
+    if (error.response?.status === 429 && !error.response.data?.rate_limited) {
+      blockedUntil = Date.now() + blockedForMs(error.response.headers);
     }
     if (error.response?.status === 401) {
       await clearStoredToken();
