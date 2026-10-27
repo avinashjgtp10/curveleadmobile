@@ -101,7 +101,7 @@ export default function WhatsAppScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   // Set when opened from a lead's details screen: go straight into that lead's conversation.
-  const { leadId: openLeadId, openAt } = useLocalSearchParams<{ leadId?: string; openAt?: string }>();
+  const { leadId: openLeadId, openAt, name: openLeadName, phone: openLeadPhone } = useLocalSearchParams<{ leadId?: string; openAt?: string; name?: string; phone?: string }>();
   const [pinnedLead, setPinnedLead] = useState<LeadListItem | null>(null);
   const [tab, setTab] = useState<Tab>("chats");
   const [filter, setFilter] = useState<Filter>("all");
@@ -200,6 +200,11 @@ export default function WhatsAppScreen() {
     let cancelled = false;
     setTab("chats");
     setSelectedId(openLeadId);
+    // The caller already knows the lead's name and phone, so show the chat at once instead of letting the inbox list
+    // flash while the full details load. The fetch below replaces this with the complete lead.
+    if (openLeadName && openLeadPhone) {
+      setPinnedLead((current) => current?.id === openLeadId ? current : { id: openLeadId, name: openLeadName, phone: openLeadPhone, created_at: new Date().toISOString() });
+    }
     fetchLeadDetails(openLeadId)
       .then(({ lead }) => { if (!cancelled) setPinnedLead(lead); })
       .catch(() => {
@@ -326,6 +331,8 @@ export default function WhatsAppScreen() {
     : selected?.is_24h_window_active !== undefined ? !!selected.is_24h_window_active : !!selected?.last_incoming_message;
   const manualMode = !!selectedConversation?.ai_paused;
   const composerEnabled = !!selected && canReply;
+  // Until the messages (or the lead's own window flags) are known, don't claim the chat is locked.
+  const windowKnown = messagesLoaded || selected?.is_24h_window_active !== undefined || selected?.last_incoming_message !== undefined;
 
   function toggleStar(id: string) {
     setStarredIds((current) => {
@@ -769,7 +776,7 @@ export default function WhatsAppScreen() {
             </ScrollView>
 
             <View style={[styles.composer, { paddingBottom: keyboardHeight ? 10 : Math.max(insets.bottom, 10) }]}>
-              {!canReply ? (
+              {!canReply && windowKnown ? (
                 <View style={styles.templatePrompt}>
                   <View style={styles.templatePromptIcon}><Ionicons name="lock-closed" size={16} color="#ea580c" /></View>
                   <View style={{ flex: 1 }}>
@@ -813,7 +820,7 @@ export default function WhatsAppScreen() {
                   <RNTextInput
                     value={message}
                     onChangeText={setMessage}
-                    placeholder={canReply ? "Type a message..." : "Waiting for customer message"}
+                    placeholder={canReply || !windowKnown ? "Type a message..." : "Waiting for customer message"}
                     placeholderTextColor={colors.textMuted}
                     style={styles.inputText}
                     editable={composerEnabled}
