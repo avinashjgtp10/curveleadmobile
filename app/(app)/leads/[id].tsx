@@ -532,7 +532,7 @@ export default function LeadDetailScreen() {
           <Button compact mode="contained" icon="phone" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")}>Call</Button>
           <Button compact mode="outlined" icon="whatsapp" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("whatsapp", `https://wa.me/${lead.phone.replace(/\D/g, "")}`, "WhatsApp could not be opened.")}>WhatsApp</Button>
           <Button compact mode="outlined" icon="email-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={openEmailAction}>Email</Button>
-          <Button compact mode="outlined" icon="chat-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => router.push({ pathname: "/(app)/more/whatsapp", params: { leadId: lead.id, openAt: String(Date.now()) } })}>Chat</Button>
+          <Button compact mode="outlined" icon="chat-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => router.push({ pathname: "/(app)/more/whatsapp", params: { leadId: lead.id, name: lead.name, phone: lead.phone, openAt: String(Date.now()) } })}>Chat</Button>
         </View>
 
         <SegmentedButtons
