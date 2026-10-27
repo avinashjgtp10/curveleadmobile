@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, View, Text } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View, Text } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassBackground, glass, GradientIcon } from "@/components/Glass";
@@ -28,6 +29,9 @@ export default function ContentScreen() {
   }, []));
   return <View style={{ flex: 1 }}><GlassBackground />
     <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Go back" hitSlop={8} onPress={() => router.canGoBack() ? router.back() : router.replace("/(app)/more")} style={styles.back}>
+        <Ionicons name="arrow-back" size={24} color={colors.text} />
+      </Pressable>
       <Text style={styles.title}>Content Library</Text>
       <Text style={styles.subtitle}>Everything you share with leads, in one place.</Text>
       {SECTIONS.map(({ title, description, Icon, tone, href }) => <GlassPressable key={title} style={styles.card} onPress={() => router.push(href)}>
@@ -43,6 +47,7 @@ export default function ContentScreen() {
 }
 
 const styles = StyleSheet.create({
+  back: { alignSelf: "flex-start", marginBottom: 12 },
   title: { fontSize: 20, fontFamily: "DMSans_700Bold", color: colors.text },
   subtitle: { fontSize: 14, fontFamily: "Inter_400Regular", color: colors.textMuted, marginTop: 4, marginBottom: 16 },
   card: { flexDirection: "row", alignItems: "center", gap: 16, padding: 16, marginBottom: 12 },
