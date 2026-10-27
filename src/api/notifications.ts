@@ -49,7 +49,8 @@ function normalizeNotification(raw: Partial<AppNotification> & Record<string, un
   const asText = (value: unknown) => (typeof value === "string" ? value : typeof value === "number" ? String(value) : undefined);
   const leadId = asText(item.lead_id ?? item.leadId);
   return {
-    id: String(item.id || item.notification_id || `${item.type || "notification"}-${item.created_at || Date.now()}`),
+    // The fallback must be stable between fetches, otherwise an item without an id loses its read state every time.
+    id: String(item.id || item.notification_id || `${item.type || "notification"}-${item.created_at || ""}-${item.title || item.message || ""}`),
     title: String(item.title || item.message || "Notification"),
     message: typeof item.message === "string" ? item.message : undefined,
     created_at: typeof item.created_at === "string" ? item.created_at : undefined,
@@ -88,12 +89,23 @@ async function getLocalNotifications() {
   }
 }
 
-async function saveLocalNotification(input: LocalNotificationInput) {
-  const current = await getLocalNotifications();
-  const now = new Date().toISOString();
-  const next: AppNotification[] = [
-    {
-      id: `local-${input.type || "notification"}-${Date.now()}`,
+// Every read-modify-write of the local list runs one at a time, so two saves close together can't overwrite each other.
+let storageQueue: Promise<unknown> = Promise.resolve();
+function serialized<T>(task: () => Promise<T>): Promise<T> {
+  const run = storageQueue.then(task, task);
+  storageQueue = run.catch(() => {});
+  return run;
+}
+
+let localIdCounter = 0;
+
+function saveLocalNotifications(inputs: LocalNotificationInput[]) {
+  return serialized(async () => {
+    const current = await getLocalNotifications();
+    const now = new Date().toISOString();
+    const created: AppNotification[] = inputs.map((input) => ({
+      // The counter keeps ids unique even when several are created in the same millisecond.
+      id: `local-${input.type || "notification"}-${Date.now()}-${localIdCounter++}`,
       title: input.title,
       message: input.message,
       created_at: now,
@@ -103,10 +115,21 @@ async function saveLocalNotification(input: LocalNotificationInput) {
       lead_name: input.lead_name,
       lead_phone: input.lead_phone,
       lead_stage: input.lead_stage,
-    },
-    ...current,
-  ].slice(0, 100);
-  await AsyncStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(next));
+    }));
+    await AsyncStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify([...created, ...current].slice(0, 100)));
+  });
+}
+
+function saveLocalNotification(input: LocalNotificationInput) {
+  return saveLocalNotifications([input]);
+}
+
+function newestFirst(list: AppNotification[]) {
+  const time = (item: AppNotification) => {
+    const value = new Date(item.created_at || "").getTime();
+    return Number.isNaN(value) ? 0 : value;
+  };
+  return [...list].sort((a, b) => time(b) - time(a));
 }
 
 /**
@@ -152,30 +175,34 @@ export async function fetchNotifications() {
       const local = localByKey.get(key(item));
       return local ? { ...item, lead_id: item.lead_id || local.lead_id, lead_name: item.lead_name || local.lead_name, lead_phone: item.lead_phone || local.lead_phone, lead_stage: item.lead_stage || local.lead_stage } : item;
     });
-    return withReadState([...localNotifications.filter((item) => !serverKeys.has(key(item))), ...merged]);
+    return withReadState(newestFirst([...localNotifications.filter((item) => !serverKeys.has(key(item))), ...merged]));
   } catch {
     // Never let a failing follow-ups call hide the locally saved notifications (e.g. "New lead created").
     const followups = await fetchTodayFollowups().catch(() => []);
-    return withReadState([...localNotifications, ...followups.map(followupToNotification)]);
+    return withReadState(newestFirst([...localNotifications, ...followups.map(followupToNotification)]));
   }
 }
 
 /** Pass the ids currently on screen so they stay read here even if the server ignores the request. */
 export async function markAllNotificationsRead(ids: string[] = []) {
-  const localNotifications = await getLocalNotifications();
   const readAt = new Date().toISOString();
-  await rememberRead([...ids, ...localNotifications.map((item) => item.id)]);
-  await AsyncStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(localNotifications.map((item) => ({ ...item, read_at: item.read_at || readAt }))));
+  await serialized(async () => {
+    const localNotifications = await getLocalNotifications();
+    await rememberRead([...ids, ...localNotifications.map((item) => item.id)]);
+    await AsyncStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(localNotifications.map((item) => ({ ...item, read_at: item.read_at || readAt }))));
+  });
   await apiClient.put("/notifications/read-all").catch(() => {});
 }
 
 export async function markNotificationRead(id: string) {
-  await rememberRead([id]);
-  const localNotifications = await getLocalNotifications();
-  if (localNotifications.some((item) => item.id === id)) {
-    const readAt = new Date().toISOString();
-    await AsyncStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(localNotifications.map((item) => item.id === id ? { ...item, read_at: item.read_at || readAt } : item)));
-  }
+  await serialized(async () => {
+    await rememberRead([id]);
+    const localNotifications = await getLocalNotifications();
+    if (localNotifications.some((item) => item.id === id)) {
+      const readAt = new Date().toISOString();
+      await AsyncStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(localNotifications.map((item) => item.id === id ? { ...item, read_at: item.read_at || readAt } : item)));
+    }
+  });
   await apiClient.put(`/notifications/${id}/read`).catch(() => {});
 }
 
@@ -226,16 +253,11 @@ export async function notifyMessageSent(lead: { id: string; name: string; phone?
 }
 
 export async function notifyLeadsDeleted(leads: { id: string; name: string }[]) {
-  for (const lead of leads) {
-    await saveLocalNotification({
-      title: `Lead deleted - ${lead.name}`,
-      message: "This lead was deleted.",
-      type: "lead_deleted",
-      lead_name: lead.name,
-    });
-  }
-  // One alert for the whole batch, so deleting many leads doesn't ring many times.
   if (!leads.length) return;
+  // One entry and one alert for the whole batch: separate entries would flood the 100-item list and push out older ones.
+  await saveLocalNotification(leads.length === 1
+    ? { title: `Lead deleted - ${leads[0].name}`, message: "This lead was deleted.", type: "lead_deleted", lead_name: leads[0].name }
+    : { title: `${leads.length} leads deleted`, message: "The selected leads were deleted.", type: "lead_deleted" });
   await presentLocalNotification(
     leads.length === 1 ? `Lead deleted - ${leads[0].name}` : `${leads.length} leads deleted`,
     leads.length === 1 ? "This lead was deleted." : "The selected leads were deleted.",
