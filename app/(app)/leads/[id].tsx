@@ -14,7 +14,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { LeadNotes } from "@/components/LeadNotes";
+import { LeadDocuments } from "@/components/LeadDocuments";
 import { useStages } from "@/hooks/useStages";
+import { StaffMember, fetchStaff } from "@/api/staff";
 import { telUrl } from "@/api/phone";
 import {
   ActivityLogType, ContactActivityType, FollowupType, LeadActivity, LeadDetails, LeadFollowup,
@@ -254,6 +256,12 @@ export default function LeadDetailScreen() {
   const [lostReason, setLostReason] = useState("");
   const [customLostReason, setCustomLostReason] = useState("");
 
+  const [assignSheetOpen, setAssignSheetOpen] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [staffError, setStaffError] = useState("");
+
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
@@ -344,6 +352,29 @@ export default function LeadDetailScreen() {
     const payload = (field === "deal_value" ? { deal_value: value ? Number(value.replace(/[^\d.]/g, "")) : 0 } : { [field]: value }) as UpdateLeadInput;
     const updated = await updateLeadDetails(lead.id, payload);
     setLead((current) => current ? { ...current, ...updated } : updated);
+  }
+
+  async function openAssignSheet() {
+    setAssignSheetOpen(true);
+    if (staff.length || staffLoading) return;
+    setStaffLoading(true); setStaffError("");
+    try { setStaff((await fetchStaff()).filter((member) => member.is_active !== false)); }
+    catch (staffErr) { setStaffError(errorMessage(staffErr, "Could not load your team.")); }
+    finally { setStaffLoading(false); }
+  }
+
+  async function assignTo(member: StaffMember | null) {
+    if (!lead || assigning) return;
+    if ((member?.id || null) === (lead.assigned_to || null)) { setAssignSheetOpen(false); return; }
+    setAssigning(true);
+    try {
+      await updateLeadDetails(lead.id, { assigned_to: member ? member.id : null });
+      setLead((current) => current ? { ...current, assigned_to: member?.id, assigned_to_name: member?.name } : current);
+      setAssignSheetOpen(false);
+      load(true);
+    } catch (assignError) {
+      Alert.alert("Couldn't assign lead", errorMessage(assignError, "You may not have permission to do this."));
+    } finally { setAssigning(false); }
   }
 
   function openStageSheet() {
@@ -498,9 +529,10 @@ export default function LeadDetailScreen() {
         {error ? <Pressable style={styles.warning} onPress={() => notFound ? router.back() : load()}><Text style={styles.warningText}>{notFound ? "This lead no longer exists — it may have been deleted. Tap to go back." : "Some details couldn't be refreshed. Tap to retry."}</Text></Pressable> : null}
 
         <View style={styles.actionsRow}>
-          <Button mode="contained" icon="phone" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")}>Call</Button>
-          <Button mode="outlined" icon="whatsapp" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("whatsapp", `https://wa.me/${lead.phone.replace(/\D/g, "")}`, "WhatsApp could not be opened.")}>WhatsApp</Button>
-          <Button mode="outlined" icon="email-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={openEmailAction}>Email</Button>
+          <Button compact mode="contained" icon="phone" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")}>Call</Button>
+          <Button compact mode="outlined" icon="whatsapp" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("whatsapp", `https://wa.me/${lead.phone.replace(/\D/g, "")}`, "WhatsApp could not be opened.")}>WhatsApp</Button>
+          <Button compact mode="outlined" icon="email-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={openEmailAction}>Email</Button>
+          <Button compact mode="outlined" icon="chat-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => router.push({ pathname: "/(app)/more/whatsapp", params: { leadId: lead.id, name: lead.name, phone: lead.phone, openAt: String(Date.now()) } })}>Chat</Button>
         </View>
 
         <SegmentedButtons
@@ -528,6 +560,10 @@ export default function LeadDetailScreen() {
               <ActionBox icon="pricetag-outline" chip={{ bg: stageColors.bg, text: stageColors.text, label: currentStage?.name || pretty(stage) }} onPress={openStageSheet} />
             </FieldGroup>
 
+            <FieldGroup label="Assigned To">
+              <ActionBox icon="person-outline" value={lead.assigned_to_name || undefined} placeholder="Unassigned" onPress={openAssignSheet} />
+            </FieldGroup>
+
             <FieldGroup label="Status">
               <ActionBox icon="flag-outline" value={lead.lead_status || undefined} placeholder="Not set" onPress={() => setStatusSheetOpen(true)} />
             </FieldGroup>
@@ -545,6 +581,8 @@ export default function LeadDetailScreen() {
             />
 
             <LeadNotes leadId={lead.id} onAdded={() => load(true)} onFormOpen={revealInScroll} />
+
+            <LeadDocuments leadId={lead.id} onChanged={() => load(true)} />
           </View>
         ) : tab === "details" ? (
           <View style={styles.body}>
@@ -633,6 +671,42 @@ export default function LeadDetailScreen() {
                 <Button mode="outlined" onPress={closeStageSheet} disabled={updatingStage} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
               </>
             )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={assignSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !assigning && setAssignSheetOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => !assigning && setAssignSheetOpen(false)}>
+          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Assign lead</Text>
+            {staffLoading ? (
+              <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 20 }} />
+            ) : staffError ? (
+              <Text style={styles.sheetHint}>{staffError}</Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+                <View style={styles.stageList}>
+                  {staff.map((member) => {
+                    const active = member.id === lead.assigned_to;
+                    return (
+                      <List.Item
+                        key={member.id} title={member.name} titleStyle={styles.stageListText}
+                        description={`${pretty(member.role)}${typeof member.assigned_leads === "number" ? ` · ${member.assigned_leads} leads` : ""}`}
+                        onPress={() => assignTo(member)} disabled={assigning}
+                        right={active ? () => <List.Icon icon="check" color={colors.primary} /> : undefined}
+                      />
+                    );
+                  })}
+                  <List.Item
+                    title="Unassigned" titleStyle={styles.stageListText} onPress={() => assignTo(null)} disabled={assigning}
+                    right={!lead.assigned_to ? () => <List.Icon icon="check" color={colors.primary} /> : undefined}
+                  />
+                </View>
+              </ScrollView>
+            )}
+            {assigning ? <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 8 }} /> : null}
+            <Button mode="outlined" onPress={() => setAssignSheetOpen(false)} disabled={assigning} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
           </Pressable>
         </Pressable>
       </Modal>
@@ -804,10 +878,10 @@ const styles = StyleSheet.create({
   warning: { marginHorizontal: 18, marginBottom: 12, backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10 },
   warningText: { color: colors.danger, textAlign: "center", fontSize: 12, fontWeight: "600" },
 
-  actionsRow: { flexDirection: "row", paddingHorizontal: 18, gap: 8 },
-  actionButton: { flex: 1 },
-  actionButtonContent: { height: 42 },
-  actionButtonLabel: { fontSize: 12 },
+  actionsRow: { flexDirection: "row", paddingHorizontal: 14, gap: 6 },
+  actionButton: { flex: 1, minWidth: 0 },
+  actionButtonContent: { height: 42, paddingHorizontal: 0 },
+  actionButtonLabel: { fontSize: 11, marginHorizontal: 4 },
 
   tabs: { marginTop: 22, marginHorizontal: 18 },
 

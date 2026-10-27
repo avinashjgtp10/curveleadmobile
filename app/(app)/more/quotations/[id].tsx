@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { Alert, Linking, ScrollView, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card, Text } from "react-native-paper";
 import axios from "axios";
@@ -40,12 +40,18 @@ export default function QuotationDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const hasLoaded = useRef(false);
 
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true); setError("");
-    try { setQuotation(await fetchQuotation(id)); }
-    catch (loadError) { setError(errorMessage(loadError, "Could not load this quotation.")); }
+    try { setQuotation(await fetchQuotation(id)); hasLoaded.current = true; }
+    catch (loadError) {
+      const message = errorMessage(loadError, "Could not load this quotation.");
+      // If the quotation is already on screen, keep it and say the refresh failed instead of staying silent.
+      if (hasLoaded.current) Alert.alert("Couldn't refresh", message);
+      else setError(message);
+    }
     finally { setLoading(false); }
   }, [id]);
 
@@ -56,8 +62,13 @@ export default function QuotationDetailScreen() {
     setBusy(true);
     try {
       const result = await sendQuotation(quotation.id);
-      Linking.openURL(result.whatsapp_url);
       load();
+      // The server has already marked it sent; only the WhatsApp hand-off can fail here.
+      if (result.whatsapp_url) {
+        Linking.openURL(result.whatsapp_url).catch(() => {
+          Alert.alert("Marked as sent", "WhatsApp could not be opened. Share the quotation from the PDF instead.");
+        });
+      }
     } catch (sendError) {
       Alert.alert("Couldn't send", errorMessage(sendError, "Please try again."));
     } finally { setBusy(false); }

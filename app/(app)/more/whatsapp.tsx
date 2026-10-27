@@ -1,19 +1,21 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AppState, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { Alert, AppState, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Appbar, Searchbar, Text } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useNavigation } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { GlassBackground, glass } from "@/components/Glass";
-import { fetchLeads, LeadListItem } from "@/api/leads";
+import { fetchLeadDetails, fetchLeads, LeadListItem } from "@/api/leads";
 import { fetchTemplates, MessageTemplate } from "@/api/templates";
 import { notifyMessageSent } from "@/api/notifications";
+import { MAX_ATTACHMENT_BYTES, uploadLeadAttachment } from "@/api/attachments";
 import {
   deleteConversation, fetchConversation, fetchInbox, fetchSendableWhatsAppTemplates, InboxConversation, markConversationsRead, replyWindowLeftMs,
-  SendableWhatsAppTemplate, sendWhatsAppMessage, sendWhatsAppTemplate, setConversationAiPaused, WhatsAppMessage,
+  SendableWhatsAppTemplate, sendWhatsAppAttachment, sendWhatsAppMessage, sendWhatsAppTemplate, setConversationAiPaused, WhatsAppMessage,
 } from "@/api/whatsapp";
 
 type Tab = "chats" | "saved";
@@ -37,7 +39,8 @@ function relativeTime(value?: string) {
   if (minutes < 60) return `${minutes || 1} min ago`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} hr ago`;
-  return `${Math.floor(hours / 24)} day ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
 function formatDate(value?: string) {
@@ -49,6 +52,8 @@ function formatDate(value?: string) {
 
 const INBOX_CACHE_KEY = "whatsapp_inbox_cache_v1";
 const MAX_RENDERED_MESSAGES = 100;
+// Last messages seen per chat, so reopening a chat shows them at once while the fresh copy loads.
+const conversationCache = new Map<string, WhatsAppMessage[]>();
 
 function indexInbox(conversations: InboxConversation[]) {
   return Object.fromEntries(conversations.map((item) => [item.lead_id, item]));
@@ -95,6 +100,9 @@ function windowText(ms: number) {
 export default function WhatsAppScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  // Set when opened from a lead's details screen: go straight into that lead's conversation.
+  const { leadId: openLeadId, openAt, name: openLeadName, phone: openLeadPhone } = useLocalSearchParams<{ leadId?: string; openAt?: string; name?: string; phone?: string }>();
+  const [pinnedLead, setPinnedLead] = useState<LeadListItem | null>(null);
   const [tab, setTab] = useState<Tab>("chats");
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
@@ -107,6 +115,7 @@ export default function WhatsAppScreen() {
   const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [sending, setSending] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
   const [templateLeadId, setTemplateLeadId] = useState("");
   const [sendingTemplateId, setSendingTemplateId] = useState("");
@@ -116,12 +125,27 @@ export default function WhatsAppScreen() {
   const [inboxFailed, setInboxFailed] = useState(false);
   const chatScrollRef = useRef<ScrollView>(null);
 
-  // Android doesn't resize the in-page chat overlay for the keyboard, so lift the composer by hand.
+  // Android doesn't reliably resize the in-page chat overlay for the keyboard, so lift the composer by hand.
+  // The lift is how far the overlay's bottom edge reaches below the top of the keyboard (measured, not the keyboard's
+  // own height), so it stays right whether or not Android already shrank the window or draws under the nav bar.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const chatOverlayRef = useRef<View>(null);
+  const topInset = useRef(insets.top);
+  topInset.current = insets.top;
   useEffect(() => {
     if (Platform.OS !== "android") return undefined;
     const show = Keyboard.addListener("keyboardDidShow", (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
+      const keyboardTop = event.endCoordinates.screenY;
+      const overlay = chatOverlayRef.current;
+      if (overlay && keyboardTop) {
+        // The keyboard's top is in screen coordinates (status bar included). When the app sits below the status bar
+        // (no top inset) the overlay's position is in window coordinates that start under it, so add its height back.
+        // When the app draws behind the status bar (top inset > 0) both already agree, so add nothing.
+        const statusBar = topInset.current > 0 ? 0 : (StatusBar.currentHeight ?? 0);
+        overlay.measureInWindow((_x, y, _width, height) => setKeyboardHeight(Math.max(0, Math.round(y + height + statusBar - keyboardTop))));
+      } else {
+        setKeyboardHeight(event.endCoordinates.height);
+      }
       requestAnimationFrame(() => chatScrollRef.current?.scrollToEnd({ animated: false }));
     });
     const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
@@ -168,6 +192,28 @@ export default function WhatsAppScreen() {
   }
 
   useEffect(() => { load(); }, []);
+
+  // Open the requested lead's chat right away - without waiting for the inbox list - every time Chat is tapped.
+  // `openAt` changes on each tap, so opening the same lead again works too.
+  useEffect(() => {
+    if (!openLeadId) return;
+    let cancelled = false;
+    setTab("chats");
+    setSelectedId(openLeadId);
+    // The caller already knows the lead's name and phone, so show the chat at once instead of letting the inbox list
+    // flash while the full details load. The fetch below replaces this with the complete lead.
+    if (openLeadName && openLeadPhone) {
+      setPinnedLead((current) => current?.id === openLeadId ? current : { id: openLeadId, name: openLeadName, phone: openLeadPhone, created_at: new Date().toISOString() });
+    }
+    fetchLeadDetails(openLeadId)
+      .then(({ lead }) => { if (!cancelled) setPinnedLead(lead); })
+      .catch(() => {
+        if (cancelled) return;
+        setSelectedId("");
+        Alert.alert("Couldn't open chat", "Could not load this lead's conversation.");
+      });
+    return () => { cancelled = true; };
+  }, [openLeadId, openAt]);
   useEffect(() => { setContactInfoOpen(false); }, [selectedId]);
 
   // The open chat is an in-page overlay (a Modal stops short of the bottom edge on some phones), so hide the tab bar and own the back button.
@@ -179,12 +225,19 @@ export default function WhatsAppScreen() {
 
   useEffect(() => {
     if (!selectedId) return undefined;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => { setSelectedId(""); return true; });
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { closeChat(); return true; });
     return () => sub.remove();
-  }, [selectedId]);
+  }, [selectedId, openLeadId]);
+
+  // A chat opened from a lead's details goes back to that lead; one opened from the inbox goes back to the list.
+  function closeChat() {
+    if (openLeadId && selectedId === openLeadId && router.canGoBack()) router.back();
+    else setSelectedId("");
+  }
 
   const inboxBusy = useRef(false);
   const chatBusy = useRef(false);
+  const activeChatId = useRef("");
 
   async function refreshInbox() {
     if (inboxBusy.current) return;
@@ -203,10 +256,16 @@ export default function WhatsAppScreen() {
     if (chatBusy.current) return;
     chatBusy.current = true;
     try {
-      const list = await fetchConversation(leadId);
+      const list = await fetchConversation(leadId, MAX_RENDERED_MESSAGES);
+      conversationCache.set(leadId, list);
+      // The person may have opened another chat while this one was loading - don't paint it over the new one.
+      if (activeChatId.current !== leadId) return;
       // Keep messages still being sent so a poll doesn't make them vanish.
       setMessages((current) => {
-        const pending = current.filter((item) => item.id.startsWith("pending-"));
+        // Drop a pending copy once the server's list already contains that message, so it never shows twice.
+        const pending = current.filter((item) => item.id.startsWith("pending-") && !list.some((saved) => (
+          saved.direction === "outbound" && saved.message === item.message && new Date(saved.sent_at).getTime() >= new Date(item.sent_at).getTime() - 10000
+        )));
         if (!pending.length && sameMessages(current, list)) return current;
         return [...list, ...pending];
       });
@@ -214,15 +273,20 @@ export default function WhatsAppScreen() {
       // Keep the current messages on a failed poll.
     } finally {
       chatBusy.current = false;
-      setMessagesLoaded(true);
+      if (activeChatId.current === leadId) setMessagesLoaded(true);
     }
   }
 
   // The open chat refreshes every 8s so customer replies show up without a manual refresh.
   // Polling stops while the app is in the background so it doesn't burn battery and data.
   useEffect(() => {
-    setMessages([]);
-    setMessagesLoaded(false);
+    activeChatId.current = selectedId;
+    const cached = selectedId ? conversationCache.get(selectedId) : undefined;
+    setMessages(cached ?? []);
+    setMessagesLoaded(!!cached);
+    // A half-typed message or open attach menu belongs to the previous chat and must not carry over to this one.
+    setMessage("");
+    setAttachOpen(false);
     chatBusy.current = false;
     if (!selectedId) return undefined;
     loadConversation(selectedId);
@@ -257,15 +321,18 @@ export default function WhatsAppScreen() {
       .sort((a, b) => new Date(inbox[b.id]?.sent_at || 0).getTime() - new Date(inbox[a.id]?.sent_at || 0).getTime());
   }, [filter, inbox, leads, search, starredIds]);
 
-  const selected = selectedId ? leads.find((lead) => lead.id === selectedId) : undefined;
+  const selected = selectedId ? leads.find((lead) => lead.id === selectedId) ?? (pinnedLead?.id === selectedId ? pinnedLead : undefined) : undefined;
   const selectedConversation = selectedId ? inbox[selectedId] : undefined;
   const templateLead = templateLeadId ? leads.find((lead) => lead.id === templateLeadId) : undefined;
   const totalUnread = Object.values(inbox).filter((item) => item.unread_count > 0).length;
   const windowLeft = replyWindowLeftMs(messages);
   // Until the messages load, fall back to the lead's own flags so the composer doesn't flash locked.
-  const canReply = messagesLoaded ? windowLeft > 0 : !!(selected?.last_incoming_message || selected?.is_24h_window_active);
+  const canReply = messagesLoaded ? windowLeft > 0
+    : selected?.is_24h_window_active !== undefined ? !!selected.is_24h_window_active : !!selected?.last_incoming_message;
   const manualMode = !!selectedConversation?.ai_paused;
   const composerEnabled = !!selected && canReply;
+  // Until the messages (or the lead's own window flags) are known, don't claim the chat is locked.
+  const windowKnown = messagesLoaded || selected?.is_24h_window_active !== undefined || selected?.last_incoming_message !== undefined;
 
   function toggleStar(id: string) {
     setStarredIds((current) => {
@@ -285,6 +352,7 @@ export default function WhatsAppScreen() {
         onPress: async () => {
           try {
             await deleteConversation(lead.id);
+            conversationCache.delete(lead.id);
             setInbox((current) => {
               const { [lead.id]: _removed, ...rest } = current;
               return rest;
@@ -311,9 +379,14 @@ export default function WhatsAppScreen() {
   }
 
   function templateTextFor(template: MessageTemplate, lead: LeadListItem) {
-    return template.message
-      .replace(/\{name\}/gi, lead.name)
-      .replace(/\{phone\}/gi, lead.phone);
+    // Accept both {{name}} (what the Templates screen documents) and {name}.
+    const fill = (text: string, key: string, value?: string) => (
+      value ? text.replace(new RegExp(String.raw`\{\{\s*${key}\s*\}\}|\{\s*${key}\s*\}`, "gi"), () => value) : text
+    );
+    let text = fill(template.message, "name", lead.name);
+    text = fill(text, "phone", lead.phone);
+    text = fill(text, "email", lead.email);
+    return fill(text, "source", lead.source);
   }
 
   function addSentMessage(leadId: string, sent: WhatsAppMessage) {
@@ -343,6 +416,11 @@ export default function WhatsAppScreen() {
   async function useSendableTemplate(template: SendableWhatsAppTemplate) {
     const templateLead = templateLeadId ? leads.find((lead) => lead.id === templateLeadId) : undefined;
     if (!templateLead || template.unsupported) return;
+    // Only the first variable (the lead's name) can be filled automatically; Meta rejects a blank value.
+    if (template.variable_count > 1) {
+      Alert.alert("Can't send this template here", `It has ${template.variable_count} variables and only the first can be filled in automatically. Send it from the web app instead.`);
+      return;
+    }
     setSendingTemplateId(`${template.name}:${template.language}`);
     try {
       const result = await sendWhatsAppTemplate(templateLead.id, {
@@ -392,6 +470,55 @@ export default function WhatsAppScreen() {
     }
     setTab("chats");
     setMessage(template.message);
+  }
+
+  // Pick a photo, video or file, upload it to the lead and send it on WhatsApp (same flow as the web inbox).
+  async function sendMedia(kind: "image" | "video" | "document") {
+    setAttachOpen(false);
+    if (!selected || sending) return;
+    if (!canReply) {
+      Alert.alert("Send a template first", "The 24-hour reply window is closed. Send an approved template and reply after they respond.");
+      return;
+    }
+    let picked: DocumentPicker.DocumentPickerAsset | undefined;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: kind === "image" ? "image/*" : kind === "video" ? "video/*" : "*/*",
+        copyToCacheDirectory: true, multiple: false,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      picked = result.assets[0];
+    } catch {
+      Alert.alert("Couldn't open files", "Please try again.");
+      return;
+    }
+    if (picked.size && picked.size > MAX_ATTACHMENT_BYTES) {
+      Alert.alert("File too large", "Files can be up to 5 MB.");
+      return;
+    }
+    const leadId = selected.id;
+    const pendingId = `pending-${Date.now()}`;
+    const pending: WhatsAppMessage = {
+      id: pendingId, direction: "outbound", message: picked.name, sent_at: new Date().toISOString(), status: "sending",
+      message_type: kind, media_url: picked.uri,
+    };
+    setMessages((current) => [...current, pending]);
+    setSending(true);
+    try {
+      const uploaded = await uploadLeadAttachment(leadId, { uri: picked.uri, name: picked.name, mimeType: picked.mimeType });
+      const result = await sendWhatsAppAttachment(leadId, uploaded.id);
+      setMessages((current) => current.map((item) => (item.id === pendingId ? result.message : item)));
+      refreshInbox();
+      loadConversation(leadId);
+      if (result.delivery?.success === false) Alert.alert("File not delivered", result.delivery.error || "WhatsApp rejected this file.");
+      else notifyMessageSent(selected).catch(() => {});
+    } catch (sendError) {
+      setMessages((current) => current.filter((item) => item.id !== pendingId));
+      const detail = (sendError as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      Alert.alert("File not sent", detail || "Could not send this file. Please try again.");
+    } finally {
+      setSending(false);
+    }
   }
 
   async function sendMessage() {
@@ -559,11 +686,11 @@ export default function WhatsAppScreen() {
         </ScrollView>
       )}
 
-      <View style={selected ? styles.chatOverlay : styles.chatHidden}>
+      <View ref={chatOverlayRef} collapsable={false} style={selected ? styles.chatOverlay : styles.chatHidden}>
         {selected ? (
           <KeyboardAvoidingView style={[styles.chatScreen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
             <View style={[styles.chatHeader, { paddingTop: insets.top + 8 }]}>
-              <Pressable onPress={() => setSelectedId("")} hitSlop={10} style={styles.chatBack}>
+              <Pressable onPress={closeChat} hitSlop={10} style={styles.chatBack}>
                 <Ionicons name="arrow-back" size={24} color={colors.text} />
               </Pressable>
               <View style={styles.chatAvatar}>
@@ -590,9 +717,9 @@ export default function WhatsAppScreen() {
               <View style={[styles.headerInfoPopover, { top: insets.top + 64 }]}>
                 <View style={styles.infoRow}><Text style={styles.infoLabel}>Name</Text><Text style={styles.infoValue}>{selected.name}</Text></View>
                 <View style={styles.infoRow}><Text style={styles.infoLabel}>Phone number</Text><Text style={styles.infoValue}>{selected.phone}</Text></View>
-                <View style={styles.infoRow}><Text style={styles.infoLabel}>First message</Text><Text style={styles.infoValue}>{messages.length ? formatDate(messages[0].sent_at) : "-"}</Text></View>
+                <View style={styles.infoRow}><Text style={styles.infoLabel}>First message</Text><Text style={styles.infoValue}>{messages.length && messages.length < MAX_RENDERED_MESSAGES ? formatDate(messages[0].sent_at) : "-"}</Text></View>
                 <View style={styles.infoRow}><Text style={styles.infoLabel}>Last message</Text><Text style={styles.infoValue}>{selectedConversation?.sent_at ? relativeTime(selectedConversation.sent_at) : "-"}</Text></View>
-                <View style={styles.infoRow}><Text style={styles.infoLabel}>Total messages</Text><Text style={styles.infoValue}>{messages.length}</Text></View>
+                <View style={styles.infoRow}><Text style={styles.infoLabel}>Total messages</Text><Text style={styles.infoValue}>{Math.max(messages.length, selected.total_messages || 0)}</Text></View>
                 <View style={styles.infoRow}><Text style={styles.infoLabel}>Reply window</Text><Text style={styles.infoValue}>{windowLeft > 0 ? `Open - ${windowText(windowLeft)} left` : "Closed - template only"}</Text></View>
                 <View style={styles.infoRow}><Text style={styles.infoLabel}>AI replies</Text><Text style={styles.infoStatus}>{manualMode ? "Paused" : "Active"}</Text></View>
               </View>
@@ -649,7 +776,7 @@ export default function WhatsAppScreen() {
             </ScrollView>
 
             <View style={[styles.composer, { paddingBottom: keyboardHeight ? 10 : Math.max(insets.bottom, 10) }]}>
-              {!canReply ? (
+              {!canReply && windowKnown ? (
                 <View style={styles.templatePrompt}>
                   <View style={styles.templatePromptIcon}><Ionicons name="lock-closed" size={16} color="#ea580c" /></View>
                   <View style={{ flex: 1 }}>
@@ -671,12 +798,29 @@ export default function WhatsAppScreen() {
                   ))}
                 </ScrollView>
               ) : null}
+              {attachOpen && composerEnabled ? (
+                <View style={styles.attachMenu}>
+                  {([
+                    { kind: "image", label: "Photo", icon: "image-outline", bg: "#e0f2fe", color: "#0369a1" },
+                    { kind: "video", label: "Video", icon: "videocam-outline", bg: "#fef3c7", color: "#b45309" },
+                    { kind: "document", label: "Document", icon: "document-text-outline", bg: "#fee2e2", color: "#b91c1c" },
+                  ] as const).map((option) => (
+                    <Pressable key={option.kind} style={styles.attachOption} onPress={() => sendMedia(option.kind)}>
+                      <View style={[styles.attachIcon, { backgroundColor: option.bg }]}><Ionicons name={option.icon} size={22} color={option.color} /></View>
+                      <Text style={styles.attachLabel}>{option.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
               <View style={styles.composerRow}>
+                <Pressable onPress={() => setAttachOpen((open) => !open)} disabled={!composerEnabled || sending} style={[styles.attachButton, (!composerEnabled || sending) && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel="Attach photo, video or document">
+                  <Ionicons name={attachOpen ? "close" : "add"} size={26} color={colors.primary} />
+                </Pressable>
                 <View style={[styles.inputPill, !composerEnabled && styles.inputPillDisabled]}>
                   <RNTextInput
                     value={message}
                     onChangeText={setMessage}
-                    placeholder={canReply ? "Type a message..." : "Waiting for customer message"}
+                    placeholder={canReply || !windowKnown ? "Type a message..." : "Waiting for customer message"}
                     placeholderTextColor={colors.textMuted}
                     style={styles.inputText}
                     editable={composerEnabled}
@@ -779,6 +923,11 @@ const styles = StyleSheet.create({
   quickChipText: { color: colors.primary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
   composerRow: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
   inputPill: { flex: 1, minHeight: 48, maxHeight: 120, justifyContent: "center", backgroundColor: "#f4f9fc", borderRadius: 24, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16 },
+  attachButton: { width: 44, height: 48, alignItems: "center", justifyContent: "center" },
+  attachMenu: { flexDirection: "row", gap: 22, paddingHorizontal: 8, paddingVertical: 6 },
+  attachOption: { alignItems: "center", gap: 6 },
+  attachIcon: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
+  attachLabel: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
   inputPillDisabled: { backgroundColor: "#f1f5f9" },
   inputText: { color: colors.text, fontSize: 14, paddingVertical: 10 },
   sendButton: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
-  KeyboardAvoidingView, Platform, Pressable,
+  Alert, KeyboardAvoidingView, Platform, Pressable,
   ScrollView, StyleSheet, TextInput as RNTextInput, View,
 } from "react-native";
 import { ActivityIndicator, Appbar, Switch, Text } from "react-native-paper";
@@ -11,6 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { DateTimeField } from "@/components/DateTimeField";
+import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import {
   CampaignSource, CampaignStatus, createCampaign, fetchCampaign, SaveCampaignInput, updateCampaign,
 } from "@/api/campaigns";
@@ -59,6 +60,7 @@ export default function NewCampaignScreen() {
     return () => parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) });
   }, [navigation, insets.bottom]);
 
+  const keyboardHeight = useKeyboardHeight();
   const [name, setName] = useState("");
   const [source, setSource] = useState<CampaignSource>("meta_ads");
   const [budget, setBudget] = useState("");
@@ -66,9 +68,13 @@ export default function NewCampaignScreen() {
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [status, setStatus] = useState<CampaignStatus>("active");
   const [isPriority, setIsPriority] = useState(false);
+  // A campaign synced from Meta gets its budget, dates and status from Meta, so those can't be changed here.
+  const [metaManaged, setMetaManaged] = useState(false);
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // If the saved campaign could not be loaded the form only holds defaults, so saving must stay disabled.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; end_date?: string }>({});
 
   useEffect(() => {
@@ -78,7 +84,9 @@ export default function NewCampaignScreen() {
       setStartDate(campaign.start_date ? fromDateInput(campaign.start_date) : new Date());
       setEndDate(campaign.end_date ? fromDateInput(campaign.end_date) : null);
       setStatus(campaign.status); setIsPriority(!!campaign.is_priority);
+      setMetaManaged(!!campaign.meta_campaign_id);
     }).catch((loadError) => {
+      setLoadFailed(true);
       setError(errorMessage(loadError, "Could not load this campaign."));
     }).finally(() => setLoading(false));
   }, [id]);
@@ -90,20 +98,32 @@ export default function NewCampaignScreen() {
   async function save() {
     const next: typeof fieldErrors = {};
     if (!name.trim()) next.name = "Campaign name is required";
-    if (endDate && endDate.getTime() < startDate.getTime()) next.end_date = "End date must be after the start date";
+    if (!metaManaged && endDate && endDate.getTime() < startDate.getTime()) next.end_date = "End date must be after the start date";
     setFieldErrors(next);
     if (Object.keys(next).length) return;
 
-    const input: SaveCampaignInput = {
-      name: name.trim(), source, budget: budget.trim() || undefined,
-      start_date: toDateInput(startDate),
-      end_date: endDate ? toDateInput(endDate) : undefined,
-      status, is_priority: isPriority,
-    };
+    // On an existing campaign an emptied budget or a removed end date must be sent as a clear value - leaving the
+    // field out would keep the old one. A Meta-managed campaign only sends what the server lets this app change.
+    const input: SaveCampaignInput = metaManaged
+      ? { name: name.trim(), source, is_priority: isPriority }
+      : {
+        name: name.trim(), source,
+        budget: budget.trim() || (isEditing ? "0" : undefined),
+        start_date: toDateInput(startDate),
+        end_date: endDate ? toDateInput(endDate) : (isEditing ? null : undefined),
+        status, is_priority: isPriority,
+      };
     setSaving(true); setError("");
     try {
       if (isEditing && id) await updateCampaign(id, input);
-      else await createCampaign(input);
+      else {
+        const created = await createCampaign(input);
+        // The server starts every new campaign as Active whatever was chosen, so set the chosen status right after.
+        if (status !== "active" && created?.id) {
+          try { await updateCampaign(created.id, input); }
+          catch { Alert.alert("Campaign created", `It was created, but could not be set to ${status}. Open it and change the status.`); }
+        }
+      }
       router.back();
     } catch (saveError) {
       setError(errorMessage(saveError, "Could not save this campaign."));
@@ -113,7 +133,7 @@ export default function NewCampaignScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={[styles.screen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={close} />
         <Appbar.Content title={isEditing ? "Edit Campaign" : "New Campaign"} titleStyle={styles.headerTitle} />
@@ -157,13 +177,24 @@ export default function NewCampaignScreen() {
             })}
           </View>
 
+          {metaManaged ? (
+            <View style={styles.metaNote}>
+              <Ionicons name="lock-closed-outline" size={15} color={colors.textSecondary} />
+              <Text style={styles.metaNoteText}>This campaign is synced from Meta. Its budget, dates and status are managed in Meta Ads Manager.</Text>
+            </View>
+          ) : null}
+
+          <View pointerEvents={metaManaged ? "none" : "auto"} style={metaManaged ? styles.lockedSection : undefined}>
           <Text style={styles.label}>Budget</Text>
           <View style={styles.inputBox}>
             <View style={styles.budgetRow}>
               <Text style={styles.currency}>₹</Text>
               <RNTextInput
                 style={[styles.inputText, { flex: 1 }]} value={budget}
-                onChangeText={(value) => setBudget(value.replace(/[^\d.]/g, ""))}
+                onChangeText={(value) => {
+                  const [whole, ...decimals] = value.replace(/[^\d.]/g, "").split(".");
+                  setBudget(decimals.length ? `${whole}.${decimals.join("")}` : whole);
+                }}
                 placeholder="0" placeholderTextColor={colors.textMuted} keyboardType="numeric"
               />
             </View>
@@ -206,6 +237,8 @@ export default function NewCampaignScreen() {
             })}
           </View>
 
+          </View>
+
           <View style={styles.priorityCard}>
             <View style={styles.priorityIcon}><Ionicons name="star" size={18} color="#7c3aed" /></View>
             <View style={{ flex: 1 }}>
@@ -217,17 +250,26 @@ export default function NewCampaignScreen() {
         </ScrollView>
       )}
 
-      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+      <View style={[styles.bottomBar, { paddingBottom: keyboardHeight ? 12 : Math.max(insets.bottom, 12) }]}>
         <Pressable onPress={close} disabled={saving} style={styles.cancelButton}>
           <Text style={styles.cancelText}>Cancel</Text>
         </Pressable>
-        <Pressable onPress={save} disabled={saving || loading} style={[styles.saveWrap, (saving || loading) && styles.disabled]}>
+        <Pressable onPress={save} disabled={saving || loading || loadFailed} style={[styles.saveWrap, (saving || loading || loadFailed) && styles.disabled]}>
           <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.saveButton}>
             {saving ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="checkmark" size={20} color="#fff" />}
             <Text style={styles.saveText}>{isEditing ? "Save changes" : "Create campaign"}</Text>
           </LinearGradient>
         </Pressable>
       </View>
+
+      {saving ? (
+        <View style={styles.savingOverlay} pointerEvents="auto">
+          <View style={styles.savingCard}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.savingText}>{isEditing ? "Saving changes..." : "Creating campaign..."}</Text>
+          </View>
+        </View>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -239,6 +281,12 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
   loadingState: { flex: 1, alignItems: "center", justifyContent: "center" },
   disabled: { opacity: 0.6 },
+  lockedSection: { opacity: 0.5 },
+  metaNote: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f1f5f9", borderRadius: 12, padding: 12, marginTop: 16 },
+  metaNoteText: { flex: 1, color: colors.textSecondary, fontSize: 12, lineHeight: 17 },
+  savingOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.7)", alignItems: "center", justifyContent: "center", zIndex: 10 },
+  savingCard: { alignItems: "center", gap: 12, paddingHorizontal: 28, paddingVertical: 22, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e2eef7", elevation: 6, shadowColor: "#0f172a", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
+  savingText: { color: colors.text, fontSize: 14, fontWeight: "700" },
   errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12, marginTop: 8 },
   errorBannerText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600" },
 

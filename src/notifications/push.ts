@@ -5,6 +5,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { isExpoGo } from "./environment";
 
+// iOS asks for each kind separately. Asking for alert, badge and sound explicitly means a TestFlight tester who accepts
+// the prompt gets banners and sound, not a half-granted permission.
+const IOS_PERMISSIONS = { ios: { allowAlert: true, allowBadge: true, allowSound: true } };
+
 export const ANDROID_CHANNEL_ID = "default";
 export const ALERT_CHANNEL_ID = "lead-alerts";
 
@@ -23,14 +27,33 @@ export function configureNotificationHandler() {
   if (isExpoGo) return;
   const Notifications = loadNotifications();
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
+    handleNotification: async (notification) => {
+      const content = notification.request.content;
+      const data = (content.data ?? {}) as Record<string, unknown>;
+      // iOS only rings for a push whose payload carries a sound; one sent without it shows a silent banner while the
+      // app is open. Swallow that banner and show the same alert again as a local notification that does ring.
+      const silentRemotePush =
+        Platform.OS === "ios" && (notification.request.trigger as { type?: string } | null)?.type === "push" && !content.sound && data.local !== "1";
+      if (silentRemotePush) {
+        Notifications.scheduleNotificationAsync({
+          content: { title: content.title ?? undefined, body: content.body ?? undefined, sound: "default", data: { ...data, local: "1" } },
+          trigger: null,
+        }).catch(() => {});
+        return { shouldShowAlert: false, shouldPlaySound: false, shouldSetBadge: false, shouldShowBanner: false, shouldShowList: false };
+      }
+      return { shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false, shouldShowBanner: true, shouldShowList: true };
+    },
   });
+}
+
+/** Shows how many notifications are unread as the number on the app icon (iPhone and most Android launchers). */
+export async function setAppBadge(count: number) {
+  if (isExpoGo || Platform.OS === "web") return;
+  try {
+    await loadNotifications().setBadgeCountAsync(Math.max(0, Math.round(count)));
+  } catch {
+    // The phone may not allow badges (or the permission was refused) - the number is only a nicety.
+  }
 }
 
 export async function ensureAndroidChannel() {
@@ -92,7 +115,7 @@ export async function presentLocalNotification(title: string, body: string | und
     const Notifications = loadNotifications();
     await ensureAndroidChannel();
     let { status } = await Notifications.getPermissionsAsync();
-    if (status !== "granted") status = (await Notifications.requestPermissionsAsync()).status;
+    if (status !== "granted") status = (await Notifications.requestPermissionsAsync(IOS_PERMISSIONS)).status;
     if (status !== "granted") {
       console.warn("[push] local alert skipped: notification permission is", status, "— enable it in Android Settings > Apps > CurveLead > Notifications");
       return;
@@ -127,7 +150,7 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   try {
     const Notifications = loadNotifications();
     await ensureAndroidChannel();
-    const { status } = await Notifications.requestPermissionsAsync();
+    const { status } = await Notifications.requestPermissionsAsync(IOS_PERMISSIONS);
     return status;
   } catch {
     return "unsupported";
@@ -156,7 +179,7 @@ export async function registerForPushNotificationsAsync(): Promise<PushPermissio
   const existing = await Notifications.getPermissionsAsync();
   let finalStatus = existing.status;
   if (finalStatus !== "granted") {
-    const requested = await Notifications.requestPermissionsAsync();
+    const requested = await Notifications.requestPermissionsAsync(IOS_PERMISSIONS);
     finalStatus = requested.status;
   }
   if (finalStatus !== "granted") {

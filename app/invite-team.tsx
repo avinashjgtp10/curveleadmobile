@@ -1,10 +1,15 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Button, Text, TextInput } from "react-native-paper";
+import axios from "axios";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing } from "@/theme";
+import { inviteStaffMember } from "@/api/staff";
+import { fetchTeams, Team } from "@/api/workspaceSettings";
+
+const NO_TEAM = "No team";
 
 export default function InviteTeamScreen() {
   const insets = useSafeAreaInsets();
@@ -12,19 +17,47 @@ export default function InviteTeamScreen() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState<"Staff" | "Admin">("Staff");
-  const [team, setTeam] = useState("No team");
+  const [team, setTeam] = useState(NO_TEAM);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [openMenu, setOpenMenu] = useState<"role" | "team" | null>(null);
+  const [sending, setSending] = useState(false);
+
+  // The Team list is the workspace's real teams; if they can't load, "No team" still works.
+  useEffect(() => { fetchTeams().then(setTeams).catch(() => {}); }, []);
 
   function close() {
-    router.back();
+    if (!sending) router.back();
   }
 
-  function sendInvite() {
+  async function sendInvite() {
+    if (sending) return;
     if (!name.trim() || !email.trim() || !phone.trim()) {
       Alert.alert("Missing details", "Please complete the name, email, and phone fields.");
       return;
     }
-    Alert.alert("Invite member", "Member invitations will be available when the invite endpoint is connected.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      Alert.alert("Check the email", "Enter a valid email address.");
+      return;
+    }
+    if (phone.replace(/\D/g, "").length < 10) {
+      Alert.alert("Check the phone number", "Enter a valid phone number with at least 10 digits.");
+      return;
+    }
+    setSending(true);
+    try {
+      await inviteStaffMember({
+        name: name.trim(), email: email.trim(), phone: phone.trim(),
+        role: role === "Admin" ? "admin" : "staff",
+        team_id: teams.find((item) => item.name === team)?.id,
+      });
+      Alert.alert("Invitation sent", `${name.trim()} will get an email with a link to set their password.`);
+      router.back();
+    } catch (inviteError) {
+      Alert.alert("Couldn't send the invitation", axios.isAxiosError(inviteError) && typeof inviteError.response?.data?.error === "string"
+        ? inviteError.response.data.error : "Please check your connection and try again.");
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -59,12 +92,12 @@ export default function InviteTeamScreen() {
             value={team}
             open={openMenu === "team"}
             onPress={() => setOpenMenu(openMenu === "team" ? null : "team")}
-            options={["No team", "Sales team"]}
+            options={[NO_TEAM, ...teams.map((item) => item.name)]}
             onSelect={(value) => { setTeam(value); setOpenMenu(null); }}
           />
           <View style={styles.actions}>
-            <Button mode="outlined" style={styles.cancelButton} contentStyle={styles.actionContent} onPress={close}>Cancel</Button>
-            <Button mode="contained" style={styles.sendButton} contentStyle={styles.actionContent} onPress={sendInvite}>Send invite</Button>
+            <Button mode="outlined" style={styles.cancelButton} contentStyle={styles.actionContent} onPress={close} disabled={sending}>Cancel</Button>
+            <Button mode="contained" style={styles.sendButton} contentStyle={styles.actionContent} onPress={sendInvite} loading={sending} disabled={sending}>Send invite</Button>
           </View>
         </ScrollView>
       </View>

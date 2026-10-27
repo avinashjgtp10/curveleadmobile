@@ -120,10 +120,19 @@ export default function NewLeadScreen() {
     setError("");
   }
 
+  // The number typed, without a leading 0 and without the country code if it was pasted along with it
+  // (e.g. 919876543210 for India), so the code isn't added twice. A real national number that merely
+  // starts with the same digits (e.g. 9123456789) is kept: the code is only dropped when 10+ digits remain.
+  function localNumber() {
+    const digits = form.phone.replace(/\D/g, "").replace(/^0+/, "");
+    const dial = country.dial.replace(/\D/g, "");
+    return digits.startsWith(dial) && digits.length - dial.length >= 10 ? digits.slice(dial.length) : digits;
+  }
+
   function errorFor(field: "name" | "phone" | "email"): string | undefined {
     if (field === "name") return !form.name.trim() ? "Enter the lead's name" : undefined;
     if (field === "phone") {
-      const localDigits = form.phone.replace(/\D/g, "").replace(/^0+/, "");
+      const localDigits = localNumber();
       const internationalDigits = `${country.dial}${localDigits}`.replace(/\D/g, "");
       if (!localDigits) return "Enter a phone number";
       if (internationalDigits.length < 7) return "Enter a valid phone number";
@@ -152,7 +161,7 @@ export default function NewLeadScreen() {
     try {
       const lead = await createLead({
         name: form.name.trim(),
-        phone: `${country.dial}${form.phone.replace(/\D/g, "").replace(/^0+/, "")}`,
+        phone: `${country.dial}${localNumber()}`,
         source: form.source,
         ...(form.email.trim() && { email: form.email.trim() }),
         ...(form.location.trim() && { location: form.location.trim() }),
@@ -161,17 +170,22 @@ export default function NewLeadScreen() {
         ...(form.notes.trim() && { notes: form.notes.trim() }),
         ...(assignedTo && { assigned_to: assignedTo.id }),
       });
+      let followupFailed = false;
       if (scheduleFollowup) {
         try {
           await createLeadFollowup(lead.id, { followup_type: "call", next_followup_at: followupAt.toISOString() });
-        } catch { /* lead is already created; a missed follow-up isn't worth blocking navigation */ }
+        } catch { followupFailed = true; /* the lead exists, so navigation isn't blocked; the person is told below */ }
       }
       notifyLeadCreated({
         id: lead.id,
         name: form.name.trim(),
-        phone: `${country.dial}${form.phone.replace(/\D/g, "").replace(/^0+/, "")}`,
+        phone: `${country.dial}${localNumber()}`,
         source: form.source,
       }).catch(() => {});
+      if (followupFailed) {
+        // Say so instead of letting the person believe the follow-up exists; they can add it from the lead's page.
+        Alert.alert("Lead created, follow-up not saved", "The lead was added, but the follow-up couldn't be scheduled. Open the lead and add it again.");
+      }
       router.replace(`/(app)/leads/${lead.id}`);
     } catch (saveError) {
       if (axios.isAxiosError(saveError)) {
@@ -335,8 +349,8 @@ export default function NewLeadScreen() {
       </ScrollView>
 
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-        <Button mode="outlined" onPress={closeForm} disabled={saving} style={styles.cancelButton} contentStyle={styles.bottomButtonContent}>Cancel</Button>
-        <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} style={styles.saveButton} contentStyle={styles.bottomButtonContent}>Create lead</Button>
+        <Button mode="outlined" onPress={closeForm} disabled={saving} textColor="#0f172a" style={styles.cancelButton} contentStyle={styles.bottomButtonContent} labelStyle={styles.bottomButtonLabel}>Cancel</Button>
+        <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} buttonColor="#0f172a" textColor="#ffffff" style={styles.saveButton} contentStyle={styles.bottomButtonContent} labelStyle={styles.bottomButtonLabel}>Create lead</Button>
       </View>
 
       <Modal visible={countryPickerOpen} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setCountryPickerOpen(false)}>
@@ -395,6 +409,6 @@ const styles = StyleSheet.create({
   dropdownItemSubtext: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   followupToggle: { marginTop: 8, paddingHorizontal: 0 }, followupToggleText: { color: colors.text, fontSize: 13, fontWeight: "700" },
   followupPicker: { marginTop: 4, marginBottom: 8 },
-  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: "rgba(255,255,255,0.82)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.65)" }, cancelButton: { width: 104 }, saveButton: { flex: 1 }, bottomButtonContent: { height: 42 },
+  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: "rgba(255,255,255,0.82)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.65)" }, cancelButton: { width: 104, borderColor: "#0f172a", borderWidth: 1.5, backgroundColor: "#e2e8f0" }, saveButton: { flex: 1 }, bottomButtonContent: { height: 42 }, bottomButtonLabel: { fontWeight: "800" },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" }, countrySheet: { maxHeight: "74%", backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 9 }, sheetHandle: { width: 38, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginBottom: 13 }, sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: colors.borderSoft }, sheetTitle: { color: colors.text, fontSize: 17, fontWeight: "800" }, countryList: { paddingHorizontal: 8 },
 });

@@ -20,12 +20,22 @@ interface LanguageContextValue {
   setLanguage: (code: string) => void;
 }
 
-const LanguageContext = createContext<LanguageContextValue | undefined>(undefined);
+// Kept on `globalThis` so Fast Refresh (editing this file or hi.ts while Metro runs) reuses the same context object.
+// Without it the reload makes a second context: the Provider keeps the old one, screens read the new one, and
+// every useT() throws "must be used inside LanguageProvider" until the app is fully reloaded.
+const CONTEXT_KEY = "__curveleadLanguageContext";
+const LanguageContext: React.Context<LanguageContextValue | undefined> =
+  ((globalThis as Record<string, unknown>)[CONTEXT_KEY] as React.Context<LanguageContextValue | undefined> | undefined)
+  ?? createContext<LanguageContextValue | undefined>(undefined);
+(globalThis as Record<string, unknown>)[CONTEXT_KEY] = LanguageContext;
 
 function fill(text: string, vars?: Vars) {
   if (!vars) return text;
   return text.replace(/\{(\w+)\}/g, (match, key) => (key in vars ? String(vars[key]) : match));
 }
+
+// Shown if a screen ever renders outside the provider: plain English, never a crash.
+const ENGLISH_FALLBACK: LanguageContextValue = { language: "en", t: (text, vars) => fill(text, vars), setLanguage: () => {} };
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -65,7 +75,5 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useT() {
-  const context = useContext(LanguageContext);
-  if (!context) throw new Error("useT must be used inside LanguageProvider");
-  return context;
+  return useContext(LanguageContext) ?? ENGLISH_FALLBACK;
 }
