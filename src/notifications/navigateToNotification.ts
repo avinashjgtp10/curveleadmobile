@@ -26,7 +26,7 @@ export function navigateToNotification(data: NotificationRouteData): boolean {
     });
     return true;
   }
-  if (data.type === "followup") {
+  if (data.type === "followup" || data.type === "followup_due") {
     router.push("/(app)/followups");
     return true;
   }
