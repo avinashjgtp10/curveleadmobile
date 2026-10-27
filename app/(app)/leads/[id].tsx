@@ -229,6 +229,8 @@ export default function LeadDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [notFound, setNotFound] = useState(false);
+  // False while only the name/phone/stage passed from the previous screen are known.
+  const [detailsLoaded, setDetailsLoaded] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0);
@@ -293,6 +295,7 @@ export default function LeadDetailScreen() {
     try {
       const result = await fetchLeadDetails(id);
       setLead(result.lead); setActivities(result.activities); setFollowups(result.followups);
+      setDetailsLoaded(true);
     } catch (loadError) {
       // A notification can point at a lead that has since been deleted — say so instead of "tap to retry".
       setNotFound(axios.isAxiosError(loadError) && loadError.response?.status === 404);
@@ -308,15 +311,17 @@ export default function LeadDetailScreen() {
 
   async function contactLead(type: ContactActivityType, url: string, fallback: string) {
     if (!lead) return;
-    try { await trackContactActivity(lead.id, type); } catch { /* best-effort */ }
-    const now = new Date().toISOString();
-    setActivities((current) => [{
-      id: `local-${type}-${Date.now()}`,
-      activity_type: type,
-      title: type === "call" ? "Call Initiated" : type === "whatsapp" ? "WhatsApp Opened" : "Email Initiated",
-      description: "Contact initiated from the CurveLead mobile app.",
-      created_at: now,
-    }, ...current]);
+    try {
+      await trackContactActivity(lead.id, type);
+      // Only show the activity once the server has it, so the list never lists something that wasn't saved.
+      setActivities((current) => [{
+        id: `local-${type}-${Date.now()}`,
+        activity_type: type,
+        title: type === "call" ? "Call Initiated" : type === "whatsapp" ? "WhatsApp Opened" : "Email Initiated",
+        description: "Contact initiated from the CurveLead mobile app.",
+        created_at: new Date().toISOString(),
+      }, ...current]);
+    } catch { /* best-effort: the call or message still goes ahead */ }
     openUrl(url, fallback);
   }
 
@@ -438,6 +443,10 @@ export default function LeadDetailScreen() {
 
   async function scheduleFollowup() {
     if (!lead) return;
+    if (followupAt.getTime() < Date.now() - 60000) {
+      Alert.alert("Choose a future time", "The follow-up date and time must be in the future.");
+      return;
+    }
     setSchedulingFollowup(true);
     try {
       const created = await createLeadFollowup(lead.id, {
@@ -549,11 +558,11 @@ export default function LeadDetailScreen() {
         {tab === "overview" ? (
           <View style={styles.body}>
             <FieldGroup label="Next Follow-up" required>
-              <ActionBox icon="calendar-outline" value={nextFollowup ? dateTime(nextFollowup.next_followup_at) : undefined} placeholder="Not scheduled" onPress={openFollowupSheet} />
+              <ActionBox icon="calendar-outline" value={nextFollowup ? dateTime(nextFollowup.next_followup_at) : undefined} placeholder={detailsLoaded ? "Not scheduled" : error ? "Couldn't load" : "Loading…"} onPress={openFollowupSheet} />
             </FieldGroup>
 
             <FieldGroup label="Last Activity">
-              <StaticBox icon="checkmark-circle" iconColor={colors.success} value={lastActivity ? `${relativeTime(lastActivity.created_at)} · ${pretty(lastActivity.activity_type)}` : "No activity yet"} />
+              <StaticBox icon="checkmark-circle" iconColor={colors.success} value={lastActivity ? `${relativeTime(lastActivity.created_at)} · ${pretty(lastActivity.activity_type)}` : detailsLoaded ? "No activity yet" : error ? "Couldn't load" : "Loading…"} />
             </FieldGroup>
 
             <FieldGroup label="Stage">
@@ -571,6 +580,7 @@ export default function LeadDetailScreen() {
             <EditableField
               icon="wallet-outline" label="Expected Value" value={lead.deal_value ? String(lead.deal_value) : ""}
               keyboardType="decimal-pad" placeholder="0"
+              validate={(value) => value && !/^\d+(\.\d+)?$/.test(value.replace(/[,₹\s]/g, "")) ? "Enter a valid amount." : null}
               onSave={(value) => saveField("deal_value", value)}
             />
             {lead.deal_value ? <Text style={styles.moneyHint}>{money(lead.deal_value)}</Text> : null}
