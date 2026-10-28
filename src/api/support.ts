@@ -14,6 +14,8 @@ export interface SupportTicket {
 }
 
 export interface CreateTicketInput {
+  name?: string;
+  email?: string;
   subject: string;
   category: string;
   priority: TicketPriority;
