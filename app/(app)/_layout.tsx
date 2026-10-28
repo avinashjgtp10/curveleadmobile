@@ -9,6 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, tabBarStyleFor } from "@/theme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useT } from "@/i18n/LanguageContext";
+import { homeOrigin } from "@/navigation/homeOrigin";
 
 const NAV_ITEMS = {
   index: { label: "Home", icon: "home-outline", activeIcon: "home" },
@@ -106,6 +107,8 @@ export default function AppLayout() {
             listeners: {
               tabPress: (event: any) => {
                 event.preventDefault();
+                // Tapping More is not a Back press: without this the feature screen being replaced would send the user Home.
+                homeOrigin.current = false;
                 router.replace("/(app)/more");
               },
             },
