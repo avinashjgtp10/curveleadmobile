@@ -7,6 +7,7 @@ import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
+import { useAuth } from "@/contexts/AuthContext";
 import { createTicket, fetchMyTickets, SupportTicket, TicketPriority, TicketStatus } from "@/api/support";
 
 type Tab = "request" | "tickets" | "info";
@@ -45,6 +46,7 @@ function dateText(value: string) {
 
 export default function HelpSupportScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [tab, setTab] = useState<Tab>("request");
 
   const [subject, setSubject] = useState("");
@@ -81,7 +83,7 @@ export default function HelpSupportScreen() {
 
     setSubmitting(true);
     try {
-      await createTicket({ subject: subject.trim(), category, priority, message: message.trim() });
+      await createTicket({ name: user?.name, email: user?.email, subject: subject.trim(), category, priority, message: message.trim() });
       setSubject(""); setMessage(""); setCategory("General"); setPriority("medium");
       await loadTickets(true);
       setTab("tickets");
