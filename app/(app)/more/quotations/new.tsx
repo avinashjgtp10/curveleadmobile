@@ -9,6 +9,7 @@ import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
+import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import { createQuotation, CreateQuotationInput, Quotation, QuotationItem, sendQuotation } from "@/api/quotations";
 import { fetchLeads, LeadListItem } from "@/api/leads";
 
@@ -52,6 +53,7 @@ function PresetRow({ presets, value, onSelect }: { presets: string[]; value: str
 
 export default function NewQuotationScreen() {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const navigation = useNavigation();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -172,7 +174,7 @@ export default function NewQuotationScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={[styles.screen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title="New Quotation" titleStyle={styles.headerTitle} />

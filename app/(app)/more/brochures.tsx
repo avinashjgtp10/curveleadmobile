@@ -11,6 +11,7 @@ import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
+import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import { Brochure, deleteBrochure, fetchBrochures, uploadBrochure } from "@/api/brochures";
 
 const FILE_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
@@ -53,6 +54,7 @@ function FieldError({ message }: { message: string }) {
 
 export default function BrochuresScreen() {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const navigation = useNavigation();
   const [brochures, setBrochures] = useState<Brochure[]>([]);
   const [loading, setLoading] = useState(true);
@@ -283,7 +285,7 @@ export default function BrochuresScreen() {
       ) : null}
 
       {uploadOpen ? (
-        <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={[styles.overlay, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={[styles.overlayHeader, { paddingTop: insets.top + 8 }]}>
             <Pressable onPress={() => !uploading && setUploadOpen(false)} hitSlop={10} style={styles.overlayBack}>
               <Ionicons name="arrow-back" size={24} color={colors.text} />
