@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { FeedbackType, sendFeedback } from "@/api/feedback";
+import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 
 const MAX_MESSAGE = 1000;
 
@@ -31,6 +32,7 @@ function errorMessage(error: unknown, fallback: string) {
 
 export default function FeedbackScreen() {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const { user } = useAuth();
   const [type, setType] = useState<FeedbackType>("idea");
   const [rating, setRating] = useState(0);
@@ -70,7 +72,7 @@ ${user?.name || ""} ${user?.email || ""}`.trim();
   }
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={[styles.screen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title="Submit Feedback" titleStyle={styles.headerTitle} />
@@ -91,7 +93,7 @@ ${user?.name || ""} ${user?.email || ""}`.trim();
           </Pressable>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
           <Text style={styles.intro}>Your ideas and bug reports go straight to the CurveLead team.</Text>
 
           <Text style={styles.label}>What's this about?</Text>
@@ -134,7 +136,7 @@ ${user?.name || ""} ${user?.email || ""}`.trim();
       )}
 
       {!sent ? (
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 10 }]}>
+        <View style={[styles.footer, { paddingBottom: keyboardHeight ? 10 : insets.bottom + 10 }]}>
           <Pressable onPress={handleSubmit} disabled={sending} style={sending && { opacity: 0.6 }}>
             <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submitButton}>
               {sending ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={17} color="#fff" />}
