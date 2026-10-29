@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing } from "@/theme";
+import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import { inviteStaffMember } from "@/api/staff";
 import { fetchTeams, Team } from "@/api/workspaceSettings";
 
@@ -13,6 +14,7 @@ const NO_TEAM = "No team";
 
 export default function InviteTeamScreen() {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -61,7 +63,7 @@ export default function InviteTeamScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={[styles.backdrop, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={[styles.sheet, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Text style={styles.title}>Invite Team Member</Text>
