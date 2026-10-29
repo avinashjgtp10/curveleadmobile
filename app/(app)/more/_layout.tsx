@@ -11,7 +11,7 @@ export default function MoreLayout() {
     <Stack
       screenOptions={{ headerShown: false }}
       screenListeners={({ navigation, route }) => ({
-        beforeRemove: () => {
+        beforeRemove: (event) => {
           if (!homeOrigin.current) return;
           const routes = navigation.getState().routes;
           const isTop = routes[routes.length - 1]?.key === route.key;
@@ -19,8 +19,10 @@ export default function MoreLayout() {
           // "new" page) should still go back to their own parent.
           if (!isTop || routes[routes.length - 2]?.name !== "index") return;
           homeOrigin.current = false;
-          // Let the pop happen so the More tab is left showing its menu, then land on Home.
-          setTimeout(() => router.navigate("/(app)"), 0);
+          // Go straight to Home instead of popping to the menu first, which flashed the More menu. The More tab
+          // resets itself to the menu when it loses focus (popToTopOnBlur in the tab layout).
+          event.preventDefault();
+          router.navigate("/(app)");
         },
       })}
     />

@@ -719,8 +719,13 @@ export default function LeadsScreen() {
         <Pressable style={styles.sheetBackdrop} onPress={() => setFiltersSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Filters</Text>
-            <ScrollView style={styles.filterScroll} showsVerticalScrollIndicator={false} nestedScrollEnabled>
+            <View style={styles.filterSheetHeader}>
+              <Text style={[styles.sheetTitle, { marginBottom: 0 }]}>Filters</Text>
+              <Pressable style={styles.filterCloseButton} onPress={() => setFiltersSheetOpen(false)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close filters">
+                <Ionicons name="close" size={16} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+            <ScrollView style={styles.filterScroll} showsVerticalScrollIndicator persistentScrollbar nestedScrollEnabled>
               <Text style={styles.filterSectionLabel}>Score</Text>
               <FilterDropdown
                 value={score} options={FILTERS}
@@ -898,6 +903,8 @@ const styles = StyleSheet.create({
   sheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "80%" },
   sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 14 },
+  filterSheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
+  filterCloseButton: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft },
   sheetErrorText: { color: colors.danger, fontSize: 12, fontWeight: "600", textAlign: "center", marginVertical: 20 },
   sheetHintText: { color: colors.textSecondary, fontSize: 12, textAlign: "center", paddingVertical: 20 },
   sheetCancel: { marginTop: 10 },

@@ -1,6 +1,7 @@
 import { AiAgentPanel } from "@/components/AiAgentPanel";
 import { buildImagePrompt, generateAiImages } from "@/api/ai";
 import { colors } from "@/theme";
+import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import { LinearGradient } from "expo-linear-gradient";
@@ -235,10 +236,11 @@ function ImagePanel() {
 
 export default function AiToolsScreen() {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const [tab, setTab] = useState<"agent" | "images">("agent");
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={[styles.screen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title="AI Agent" titleStyle={styles.headerTitle} />

@@ -11,6 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
+import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import {
   activateAiAdDraft, AiAdBrief, AiAdDestination, AiAdDraft, AiAdDraftSummary, AiAdLanguage, AiMetaDraft,
   createAiAdDraft, createAiAdOnMeta, fetchAiAdDraft, fetchAiAdDrafts, updateAiAdDraft, uploadAiAdImage,
@@ -114,6 +115,7 @@ const EMPTY_METRICS: CampaignMetrics = { total_leads: 0, won: 0, conversion_rate
 
 export default function CampaignsScreen() {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const [managerTab, setManagerTab] = useState<ManagerTab>("campaigns");
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [metrics, setMetrics] = useState<CampaignMetrics>(EMPTY_METRICS);
@@ -674,7 +676,7 @@ export default function CampaignsScreen() {
       ) : null}
 
       <Modal visible={aiOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => !aiDrafting && setAiOpen(false)}>
-        <KeyboardAvoidingView style={styles.aiScreen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={[styles.aiScreen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={[styles.aiHeader, { paddingTop: insets.top + 10 }]}>
             <View style={styles.aiHeaderTitle}>
               <Ionicons name="sparkles-outline" size={19} color="#7c3aed" />

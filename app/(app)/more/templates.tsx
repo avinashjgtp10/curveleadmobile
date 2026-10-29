@@ -238,7 +238,12 @@ export default function TemplatesScreen() {
         <Pressable style={styles.sheetBackdrop} onPress={() => !saving && setEditOpen(false)}>
           <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>{editing ? "Edit Template" : "New Template"}</Text>
+            <View style={styles.sheetHeaderRow}>
+              <Pressable onPress={() => !saving && setEditOpen(false)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back" style={styles.sheetBackButton}>
+                <Ionicons name="arrow-back" size={24} color={colors.text} />
+              </Pressable>
+              <Text style={[styles.sheetTitle, { marginBottom: 0 }]}>{editing ? "Edit Template" : "New Template"}</Text>
+            </View>
             <ScrollView
               style={{ flex: 1 }}
               showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"
@@ -256,7 +261,9 @@ export default function TemplatesScreen() {
                 {CHANNELS.map((item) => (
                   <Chip
                     key={item.key} selected={channel === item.key} onPress={() => setChannel(item.key)}
-                    mode={channel === item.key ? "flat" : "outlined"} icon={item.icon}
+                    mode={channel === item.key ? "flat" : "outlined"}
+                    // Paper's Chip expects Material icon names, so draw the Ionicons glyph ourselves (the names showed as "?").
+                    icon={({ size, color }) => <Ionicons name={item.icon} size={size} color={color} />}
                   >
                     {item.label}
                   </Chip>
@@ -324,6 +331,8 @@ const styles = StyleSheet.create({
   fullSheet: { flex: 1 },
   sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 14 },
+  sheetHeaderRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
+  sheetBackButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
   sheetSectionLabel: { color: colors.text, fontSize: 12, fontWeight: "700", marginTop: 14, marginBottom: 8 },
   sheetError: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, marginBottom: 6, borderRadius: 8, backgroundColor: colors.dangerSoft },
   sheetErrorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "700" },

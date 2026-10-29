@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import axios from "axios";
 import { colors } from "@/theme";
+import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import {
   activateAiAdDraft, AiAdBrief, AiAdDestination, AiAdDraft, AiAdDraftSummary, AiAdLanguage, AiMetaDraft,
   createAiAdDraft, createAiAdOnMeta, fetchAiAdDraft, fetchAiAdDrafts, updateAiAdDraft, uploadAiAdImage,
@@ -38,6 +39,7 @@ function ctaLabel(value: string) {
 
 export default function AiCampaignScreen() {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const [brief, setBrief] = useState<AiAdBrief>(EMPTY_AI_BRIEF);
   const [drafts, setDrafts] = useState<AiAdDraftSummary[]>([]);
   const [draft, setDraft] = useState<AiAdDraft | null>(null);
@@ -180,7 +182,7 @@ export default function AiCampaignScreen() {
   const locked = !!draft && !["draft", "failed"].includes(draft.status);
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={[styles.screen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Appbar.Header style={styles.header} elevated={false}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={draft ? "Review campaign" : "Create with AI"} titleStyle={styles.headerTitle} />
