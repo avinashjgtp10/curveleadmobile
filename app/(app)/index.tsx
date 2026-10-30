@@ -389,6 +389,8 @@ export default function DashboardScreen() {
   }, [dashboardLoaded]));
 
   const [leadSources, setLeadSources] = useState<LeadSourceRow[] | null>(null);
+  // Bumped on pull-to-refresh so the lead sources are recomputed too (they are a big download, so not on every focus).
+  const [sourcesVersion, setSourcesVersion] = useState(0);
   const dashboardReady = !!data;
   useEffect(() => {
     // No dedicated "lead sources" aggregate endpoint exists yet — fetch a large page of
@@ -412,10 +414,10 @@ export default function DashboardScreen() {
           .map(([source, { leads, won }]) => ({ source, leads, won, conversion: leads ? (won / leads) * 100 : 0 }))
           .sort((a, b) => b.leads - a.leads);
         setLeadSources(rows);
-      }).catch(() => { if (!cancelled) setLeadSources(null); });
+      }).catch(() => { /* keep the last breakdown on a failed refresh */ });
     }, 300);
     return () => { cancelled = true; clearTimeout(task); };
-  }, [dashboardReady]);
+  }, [dashboardReady, sourcesVersion]);
 
   // `silent` re-fetches in the background (no spinner, no error alert) when returning to the screen.
   const load = useCallback(async (refresh = false, silent = false) => {
@@ -432,6 +434,7 @@ export default function DashboardScreen() {
       // The focus effect below already fetches notifications on first open; only pull-to-refresh needs it here.
       // On failure the badge keeps its last known count rather than guessing.
       if (refresh) {
+        setSourcesVersion((version) => version + 1);
         fetchNotifications()
           .then((latestNotifications) => setNotificationCount(latestNotifications.filter((item) => !item.read_at).length))
           .catch(() => {});
