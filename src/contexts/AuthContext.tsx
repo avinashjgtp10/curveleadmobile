@@ -120,6 +120,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data } = await apiClient.get<{ user: AuthUser; tenant: Tenant }>("/auth/me");
       setUser(data.user);
       setTenant(data.tenant);
+      // Keep the offline copy in step, or a launch without signal would show the plan from before this refresh.
+      AsyncStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: data.user, tenant: data.tenant })).catch(() => {});
     } catch {
       // Keep what we have; the next launch will try again.
     }
