@@ -7,7 +7,10 @@ import {
   setStoredToken,
   clearStoredToken,
   isNetworkError,
+  setUnauthorizedHandler,
 } from "@/api/client";
+import { unregisterPushToken } from "@/api/pushTokens";
+import { LAST_REGISTERED_TOKEN_KEY } from "@/notifications/pushStatus";
 import { AuthUser, Tenant } from "@/types";
 
 // The last profile the server confirmed, so opening the app offline doesn't look like being signed out.
@@ -41,6 +44,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => {});
+      setUser(null);
+      setTenant(null);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -126,6 +138,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
+    // Unregister this device's push token while the session is still valid; once the token is cleared the call is rejected.
+    try {
+      const pushToken = await AsyncStorage.getItem(LAST_REGISTERED_TOKEN_KEY);
+      if (pushToken) {
+        await unregisterPushToken(pushToken).catch(() => {});
+        await AsyncStorage.removeItem(LAST_REGISTERED_TOKEN_KEY);
+      }
+    } catch { /* best effort */ }
     await clearStoredToken();
     AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => {});
     setUser(null);
