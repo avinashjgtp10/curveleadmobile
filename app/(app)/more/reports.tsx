@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Appbar, Button, Text } from "react-native-paper";
 import axios from "axios";
@@ -180,50 +180,67 @@ export default function ReportsScreen() {
   const [brochuresLoaded, setBrochuresLoaded] = useState(false);
   const [brochureSearch, setBrochureSearch] = useState("");
 
+  // Each loader ignores a response that arrives after a newer request was started (period or search changed meanwhile).
+  const overviewRequest = useRef(0);
+  const funnelRequest = useRef(0);
+  const leadsRequest = useRef(0);
+  const messagesRequest = useRef(0);
+
   const loadOverview = useCallback(async () => {
+    const request = ++overviewRequest.current;
     setLoading(true); setError("");
     try {
       const [conv, sources, staff, campaigns] = await Promise.all([
         fetchConversion(period), fetchBySource(period), fetchByStaff(period), fetchByCampaign(period),
       ]);
+      if (request !== overviewRequest.current) return;
       setConversion(conv); setBySource(sources); setByStaff(staff); setByCampaign(campaigns);
     } catch (loadError) {
-      setError(errorMessage(loadError, "Could not load reports."));
+      if (request === overviewRequest.current) setError(errorMessage(loadError, "Could not load reports."));
     } finally {
-      setLoading(false);
+      if (request === overviewRequest.current) setLoading(false);
     }
   }, [period]);
 
   const loadFunnel = useCallback(async () => {
+    const request = ++funnelRequest.current;
     setFunnelLoading(true);
     try {
       const [funnel, stages] = await Promise.all([fetchFunnel(period), fetchTimeInStage(period)]);
+      if (request !== funnelRequest.current) return;
       setFunnelStages(funnel.stages); setFunnelLeaks(funnel.leaks); setTimeInStage(stages);
     } catch { /* best-effort */ }
-    finally { setFunnelLoading(false); }
+    finally { if (request === funnelRequest.current) setFunnelLoading(false); }
   }, [period]);
 
   const loadLeads = useCallback(async (page: number) => {
+    const request = ++leadsRequest.current;
+    // A new search starts from page 1, so the full-list spinner shows instead of the old rows.
+    if (page === 1) setLeadPage(1);
     setLeadsLoading(true);
     try {
       const result = await fetchLeads({ search: leadSearch.trim() || undefined, page, limit: 25 });
+      if (request !== leadsRequest.current) return;
       setLeads((current) => (page === 1 ? result.leads : [...current, ...result.leads]));
       setLeadsTotal(result.pagination.total);
       setLeadPage(page);
     } catch { /* best-effort */ }
-    finally { setLeadsLoading(false); }
+    finally { if (request === leadsRequest.current) setLeadsLoading(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadSearch]);
 
   const loadMessages = useCallback(async (page: number) => {
+    const request = ++messagesRequest.current;
+    if (page === 1) setMessagePage(1);
     setMessagesLoading(true);
     try {
       const result = await fetchReportMessages({ search: messageSearch.trim() || undefined, page, limit: 25 });
+      if (request !== messagesRequest.current) return;
       setMessages((current) => (page === 1 ? result.messages : [...current, ...result.messages]));
       setMessagesTotal(result.pagination.total);
       setMessagePage(page);
     } catch { /* best-effort */ }
-    finally { setMessagesLoading(false); }
+    finally { if (request === messagesRequest.current) setMessagesLoading(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messageSearch]);
 
@@ -238,8 +255,17 @@ export default function ReportsScreen() {
   useEffect(() => { loadOverview(); }, [loadOverview]);
   useEffect(() => { loadFunnel(); }, [loadFunnel]);
 
-  useEffect(() => { if (tab === "leads") loadLeads(1); }, [tab, loadLeads]);
-  useEffect(() => { if (tab === "messages") loadMessages(1); }, [tab, loadMessages]);
+  // Typing a search waits for a short pause instead of sending a request for every letter.
+  useEffect(() => {
+    if (tab !== "leads") return undefined;
+    const timer = setTimeout(() => loadLeads(1), leadSearch ? 350 : 0);
+    return () => clearTimeout(timer);
+  }, [tab, loadLeads, leadSearch]);
+  useEffect(() => {
+    if (tab !== "messages") return undefined;
+    const timer = setTimeout(() => loadMessages(1), messageSearch ? 350 : 0);
+    return () => clearTimeout(timer);
+  }, [tab, loadMessages, messageSearch]);
   useEffect(() => { if (tab === "brochures" && !brochuresLoaded) loadBrochures(); }, [tab, brochuresLoaded, loadBrochures]);
 
   const filteredBrochures = brochures
@@ -328,7 +354,7 @@ export default function ReportsScreen() {
                           <Text style={[styles.tableCell, { flex: 1.2, fontWeight: "700" }]} numberOfLines={1}>{s.name}</Text>
                           <Text style={[styles.tableCell, { flex: 0.8, textAlign: "right" }]}>{s.reached_count}</Text>
                           <Text style={[styles.tableCell, { flex: 1, textAlign: "right", color: colors.danger }]} numberOfLines={1}>
-                            {i > 0 ? `${s.drop_off_count || 0} (${s.drop_off_pct || 0}%)` : "—"}
+                            {i > 0 ? `${s.drop_off_count || 0} (${Math.round((s.drop_off_pct || 0) * 10) / 10}%)` : "—"}
                           </Text>
                         </View>
                       ))}
@@ -371,7 +397,9 @@ export default function ReportsScreen() {
         ) : null}
 
         {tab === "team" ? (
-          loading ? <View style={styles.spinner}><ActivityIndicator color={colors.primary} /></View> : (
+          loading ? <View style={styles.spinner}><ActivityIndicator color={colors.primary} /></View>
+          : error ? <View style={styles.spinner}><Text style={styles.errorText}>{error}</Text><Button mode="contained" onPress={loadOverview} style={{ marginTop: 8 }}>Try again</Button></View>
+          : (
             <Card title="Staff Performance">
               {byStaff.length ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -402,7 +430,9 @@ export default function ReportsScreen() {
         ) : null}
 
         {tab === "campaigns" ? (
-          loading ? <View style={styles.spinner}><ActivityIndicator color={colors.primary} /></View> : (
+          loading ? <View style={styles.spinner}><ActivityIndicator color={colors.primary} /></View>
+          : error ? <View style={styles.spinner}><Text style={styles.errorText}>{error}</Text><Button mode="contained" onPress={loadOverview} style={{ marginTop: 8 }}>Try again</Button></View>
+          : (
             <Card title="Campaign ROI">
               {byCampaign.length ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -417,7 +447,7 @@ export default function ReportsScreen() {
                         <Text style={[styles.tableCell, { width: 90 }]} numberOfLines={1}>{pretty(c.source)}</Text>
                         <Text style={[styles.tableCell, { width: 85, textAlign: "right" }]}>{money(c.actual_spend)}</Text>
                         <Text style={[styles.tableCell, { width: 60, textAlign: "right" }]}>{c.total_leads || 0}</Text>
-                        <Text style={[styles.tableCell, { width: 65, textAlign: "right", color: colors.primary, fontWeight: "700" }]}>₹{c.cpl || 0}</Text>
+                        <Text style={[styles.tableCell, { width: 65, textAlign: "right", color: colors.primary, fontWeight: "700" }]}>{money(Math.round(c.cpl || 0))}</Text>
                         <Text style={[styles.tableCell, { width: 55, textAlign: "right", color: colors.success }]}>{c.won || 0}</Text>
                       </View>
                     ))}
