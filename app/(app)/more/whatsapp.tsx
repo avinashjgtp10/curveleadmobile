@@ -215,6 +215,9 @@ export default function WhatsAppScreen() {
     return () => { cancelled = true; };
   }, [openLeadId, openAt]);
   useEffect(() => { setContactInfoOpen(false); }, [selectedId]);
+  // Picking a template targets one lead. Leaving that flow must forget the lead, or a later visit to Saved replies
+  // would send a template straight to someone the person is no longer looking at.
+  useEffect(() => { if (tab === "chats") setTemplateLeadId(""); }, [tab]);
 
   // The open chat is an in-page overlay (a Modal stops short of the bottom edge on some phones), so hide the tab bar and own the back button.
   useEffect(() => {
@@ -238,6 +241,8 @@ export default function WhatsAppScreen() {
   const inboxBusy = useRef(false);
   const chatBusy = useRef(false);
   const activeChatId = useRef("");
+  // Ids of messages this phone just sent: a poll that started before the send must not make them vanish.
+  const localSentIds = useRef(new Set<string>());
 
   async function refreshInbox() {
     if (inboxBusy.current) return;
@@ -263,9 +268,14 @@ export default function WhatsAppScreen() {
       // Keep messages still being sent so a poll doesn't make them vanish.
       setMessages((current) => {
         // Drop a pending copy once the server's list already contains that message, so it never shows twice.
-        const pending = current.filter((item) => item.id.startsWith("pending-") && !list.some((saved) => (
-          saved.direction === "outbound" && saved.message === item.message && new Date(saved.sent_at).getTime() >= new Date(item.sent_at).getTime() - 10000
-        )));
+        // A message sent while this poll was in flight is missing from `list` too, so it is kept until the server returns it.
+        const pending = current.filter((item) => {
+          if (list.some((saved) => saved.id === item.id)) { localSentIds.current.delete(item.id); return false; }
+          if (localSentIds.current.has(item.id)) return true;
+          return item.id.startsWith("pending-") && !list.some((saved) => (
+            saved.direction === "outbound" && saved.message === item.message && new Date(saved.sent_at).getTime() >= new Date(item.sent_at).getTime() - 10000
+          ));
+        });
         if (!pending.length && sameMessages(current, list)) return current;
         return [...list, ...pending];
       });
@@ -308,9 +318,18 @@ export default function WhatsAppScreen() {
     if (messages.length) requestAnimationFrame(() => chatScrollRef.current?.scrollToEnd({ animated: false }));
   }, [messages.length]);
 
+  // The lead list only holds the newest 80 leads; a customer who messaged from an older lead still has a chat and must show up.
+  const allLeads = useMemo(() => {
+    const known = new Set(leads.map((lead) => lead.id));
+    const extra: LeadListItem[] = Object.values(inbox)
+      .filter((item) => !known.has(item.lead_id) && item.lead_name)
+      .map((item) => ({ id: item.lead_id, name: item.lead_name, phone: item.lead_phone, created_at: item.sent_at || new Date(0).toISOString() }));
+    return extra.length ? [...leads, ...extra] : leads;
+  }, [leads, inbox]);
+
   const filteredLeads = useMemo(() => {
     const text = search.trim().toLowerCase();
-    return leads
+    return allLeads
       .filter((lead) => {
         if (filter === "unread" && !(inbox[lead.id]?.unread_count > 0)) return false;
         if (filter === "starred" && !starredIds.has(lead.id)) return false;
@@ -319,11 +338,11 @@ export default function WhatsAppScreen() {
       })
       // Newest conversation first, leads with no chat yet at the bottom.
       .sort((a, b) => new Date(inbox[b.id]?.sent_at || 0).getTime() - new Date(inbox[a.id]?.sent_at || 0).getTime());
-  }, [filter, inbox, leads, search, starredIds]);
+  }, [filter, inbox, allLeads, search, starredIds]);
 
-  const selected = selectedId ? leads.find((lead) => lead.id === selectedId) ?? (pinnedLead?.id === selectedId ? pinnedLead : undefined) : undefined;
+  const selected = selectedId ? (pinnedLead?.id === selectedId ? pinnedLead : undefined) ?? allLeads.find((lead) => lead.id === selectedId) : undefined;
   const selectedConversation = selectedId ? inbox[selectedId] : undefined;
-  const templateLead = templateLeadId ? leads.find((lead) => lead.id === templateLeadId) : undefined;
+  const templateLead = templateLeadId ? allLeads.find((lead) => lead.id === templateLeadId) : undefined;
   const totalUnread = Object.values(inbox).filter((item) => item.unread_count > 0).length;
   const windowLeft = replyWindowLeftMs(messages);
   // Until the messages load, fall back to the lead's own flags so the composer doesn't flash locked.
@@ -390,6 +409,7 @@ export default function WhatsAppScreen() {
   }
 
   function addSentMessage(leadId: string, sent: WhatsAppMessage) {
+    localSentIds.current.add(sent.id);
     if (leadId === selectedId) setMessages((current) => [...current, sent]);
     refreshInbox();
   }
@@ -414,7 +434,7 @@ export default function WhatsAppScreen() {
   }
 
   async function useSendableTemplate(template: SendableWhatsAppTemplate) {
-    const templateLead = templateLeadId ? leads.find((lead) => lead.id === templateLeadId) : undefined;
+    const templateLead = templateLeadId ? allLeads.find((lead) => lead.id === templateLeadId) : undefined;
     if (!templateLead || template.unsupported) return;
     // Only the first variable (the lead's name) can be filled automatically; Meta rejects a blank value.
     if (template.variable_count > 1) {
@@ -446,7 +466,7 @@ export default function WhatsAppScreen() {
   }
 
   async function useTemplate(template: MessageTemplate) {
-    const templateLead = templateLeadId ? leads.find((lead) => lead.id === templateLeadId) : undefined;
+    const templateLead = templateLeadId ? allLeads.find((lead) => lead.id === templateLeadId) : undefined;
     if (templateLead) {
       const body = templateTextFor(template, templateLead);
       setSendingTemplateId(template.id);
@@ -507,6 +527,7 @@ export default function WhatsAppScreen() {
     try {
       const uploaded = await uploadLeadAttachment(leadId, { uri: picked.uri, name: picked.name, mimeType: picked.mimeType });
       const result = await sendWhatsAppAttachment(leadId, uploaded.id);
+      localSentIds.current.add(result.message.id);
       setMessages((current) => current.map((item) => (item.id === pendingId ? result.message : item)));
       refreshInbox();
       loadConversation(leadId);
@@ -541,6 +562,7 @@ export default function WhatsAppScreen() {
     setSending(true);
     try {
       const result = await sendWhatsAppMessage(leadId, body);
+      localSentIds.current.add(result.message.id);
       setMessages((current) => current.map((item) => (item.id === pendingId ? result.message : item)));
       refreshInbox();
       loadConversation(leadId);
@@ -646,7 +668,7 @@ export default function WhatsAppScreen() {
             <View style={styles.filterRow}>
               {FILTERS.map((item) => {
                 const active = filter === item.key;
-                const count = item.key === "all" ? leads.length : item.key === "unread" ? totalUnread : starredIds.size;
+                const count = item.key === "all" ? allLeads.length : item.key === "unread" ? totalUnread : starredIds.size;
                 return (
                   <Pressable key={item.key} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setFilter(item.key)}>
                     <Text style={[styles.filterText, active && styles.filterTextActive]}>{item.label} ({count})</Text>
