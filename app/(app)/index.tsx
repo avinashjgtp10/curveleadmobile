@@ -347,6 +347,9 @@ function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconN
   );
 }
 
+const LEAD_SOURCES_TTL_MS = 5 * 60_000;
+let leadSourcesCache: { at: number; rows: LeadSourceRow[] } | null = null;
+
 export default function DashboardScreen() {
   const { t } = useT();
   const { user, tenant } = useAuth();
@@ -388,13 +391,15 @@ export default function DashboardScreen() {
     AsyncStorage.getItem(AI_TOOLS_VISITED_KEY).then((value) => setAiToolsVisited(value === "1")).catch(() => {});
   }, [dashboardLoaded]));
 
-  const [leadSources, setLeadSources] = useState<LeadSourceRow[] | null>(null);
+  const [leadSources, setLeadSources] = useState<LeadSourceRow[] | null>(leadSourcesCache?.rows ?? null);
   const dashboardReady = !!data;
   useEffect(() => {
     // No dedicated "lead sources" aggregate endpoint exists yet — fetch a large page of
     // real leads and compute the breakdown client-side rather than showing fake numbers.
     // That's a big download, so it waits until the dashboard has painted instead of competing with it.
     if (!dashboardReady) return;
+    // Reuse the last result for a few minutes: this is a 500-lead download and every Home visit was repeating it.
+    if (leadSourcesCache && Date.now() - leadSourcesCache.at < LEAD_SOURCES_TTL_MS) return;
     let cancelled = false;
     // A short delay lets the dashboard paint first (InteractionManager is deprecated).
     const task = setTimeout(() => {
@@ -411,6 +416,7 @@ export default function DashboardScreen() {
         const rows = Array.from(bySource.entries())
           .map(([source, { leads, won }]) => ({ source, leads, won, conversion: leads ? (won / leads) * 100 : 0 }))
           .sort((a, b) => b.leads - a.leads);
+        leadSourcesCache = { at: Date.now(), rows };
         setLeadSources(rows);
       }).catch(() => { if (!cancelled) setLeadSources(null); });
     }, 300);
