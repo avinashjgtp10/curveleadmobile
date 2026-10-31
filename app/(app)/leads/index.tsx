@@ -8,6 +8,7 @@ import {
 import {
   ActivityIndicator, Avatar, Button, Card, Checkbox, Chip, FAB, IconButton, List, Menu, Searchbar,
 } from "react-native-paper";
+import { rateLimitRemainingMs } from "@/api/client";
 import axios from "axios";
 import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -283,6 +284,7 @@ export default function LeadsScreen() {
   const [pages, setPages] = useState(1);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
+  const [failedLoads, setFailedLoads] = useState(0);
   const [score, setScore] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -349,6 +351,7 @@ export default function LeadsScreen() {
       setTotal(result.pagination.total);
     } catch (loadError) {
       if (id !== requestId.current) return;
+      setFailedLoads((count) => count + 1);
       setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string" ? loadError.response.data.error : "Could not load leads.");
     } finally {
       if (id === requestId.current) { setLoading(false); setLoadingMore(false); setRefreshing(false); }
@@ -366,6 +369,14 @@ export default function LeadsScreen() {
     if (!focusedOnce.current) { focusedOnce.current = true; return; } // the effect above handles the first load
     loadRef.current(1, false, true);
   }, []));
+  // If the list couldn't load because the server is rate limiting, try again by itself once the wait is over.
+  useEffect(() => {
+    if (!error || leads.length) return;
+    const wait = rateLimitRemainingMs();
+    if (!wait) return;
+    const timer = setTimeout(() => loadRef.current(), wait + 500);
+    return () => clearTimeout(timer);
+  }, [error, failedLoads, leads.length]);
   useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); }, []);
 
   useEffect(() => {
