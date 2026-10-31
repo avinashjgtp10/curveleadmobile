@@ -70,6 +70,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   useEffect(() => {
+    setUnauthorizedHandler(() => {
+      AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => {});
+      setUser(null);
+      setTenant(null);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  useEffect(() => {
     (async () => {
       const token = await getStoredToken();
       if (token) {
