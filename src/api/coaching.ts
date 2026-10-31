@@ -77,6 +77,7 @@ export async function fetchCoaching(): Promise<CoachingData> {
 }
 
 export async function regenerateCoaching() {
-  await apiClient.post("/playbook/generate");
+  // The AI writes the playbook before answering, which takes longer than the default 15 seconds.
+  await apiClient.post("/playbook/generate", undefined, { timeout: 90000 });
   return fetchCoaching();
 }
