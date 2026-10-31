@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import {
@@ -7,7 +8,10 @@ import {
   setStoredToken,
   clearStoredToken,
   isNetworkError,
+  setUnauthorizedHandler,
 } from "@/api/client";
+import { unregisterPushToken } from "@/api/pushTokens";
+import { LAST_REGISTERED_TOKEN_KEY } from "@/notifications/pushStatus";
 import { AuthUser, Tenant } from "@/types";
 
 // The last profile the server confirmed, so opening the app offline doesn't look like being signed out.
@@ -41,6 +45,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const lastCheck = useRef(0);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => {});
+      setUser(null);
+      setTenant(null);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  // Password changed or reset elsewhere (e.g. the website): when the app comes back to the foreground, ask the server
+  // whether this session is still valid. A rejected token (401) signs the user out through the handler above.
+  useEffect(() => {
+    if (!user) return undefined;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active" || Date.now() - lastCheck.current < 30_000) return;
+      lastCheck.current = Date.now();
+      apiClient.get("/auth/me").catch(() => {});
+    });
+    return () => sub.remove();
+  }, [user]);
 
   useEffect(() => {
     (async () => {
@@ -128,6 +155,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
+    // Unregister this device's push token while the session is still valid; once the token is cleared the call is rejected.
+    try {
+      const pushToken = await AsyncStorage.getItem(LAST_REGISTERED_TOKEN_KEY);
+      if (pushToken) {
+        await unregisterPushToken(pushToken).catch(() => {});
+        await AsyncStorage.removeItem(LAST_REGISTERED_TOKEN_KEY);
+      }
+    } catch { /* best effort */ }
     await clearStoredToken();
     AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => {});
     setUser(null);
