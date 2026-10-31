@@ -25,7 +25,6 @@ const MENU: MenuItem[] = [
   { icon: "sparkles-outline", label: "AI Agent", href: "/(app)/more/ai-tools" },
   { icon: "albums-outline", label: "Content Library", href: "/(app)/content" },
   { icon: "trending-up-outline", label: "Ads Manager", href: "/(app)/more/campaigns" },
-  { icon: "sparkles-outline", label: "AI Tools", href: "/(app)/more/ai-tools" },
   { icon: "document-text-outline", label: "Quotations", href: "/(app)/more/quotations" },
   { icon: "folder-open-outline", label: "Brochures", href: "/(app)/more/brochures" },
   { icon: "chatbox-ellipses-outline", label: "Message Templates", href: "/(app)/more/templates" },
@@ -53,8 +52,8 @@ export default function MoreScreen() {
 
   const visibleItems = MENU.filter((item) => !item.roles || can(item.roles));
 
-  const referenceIcons = [Icons.SvgGitBranch, undefined, undefined, Icons.SvgMegaphone, Icons.SvgSparkles, Icons.SvgClipboard, Icons.SvgFolder, Icons.SvgMessageCircle, Icons.SvgTeam, Icons.SvgPlug, Icons.SvgBarChart, Icons.SvgCreditCard, Icons.SvgSettings, undefined, undefined, undefined, undefined, undefined];
-  const tones: GradientName[] = ["sky", "emerald", "indigo", "violet", "pink", "sky", "indigo", "teal", "indigo", "sky", "emerald", "sky", "slate", "amber", "pink", "emerald", "slate", "slate"];
+  const referenceIcons = [Icons.SvgGitBranch, undefined, undefined, Icons.SvgMegaphone, Icons.SvgClipboard, Icons.SvgFolder, Icons.SvgMessageCircle, Icons.SvgTeam, Icons.SvgPlug, Icons.SvgBarChart, Icons.SvgCreditCard, Icons.SvgSettings, undefined, undefined, undefined, undefined, undefined];
+  const tones: GradientName[] = ["sky", "emerald", "indigo", "violet", "sky", "indigo", "teal", "indigo", "sky", "emerald", "sky", "slate", "amber", "pink", "emerald", "slate", "slate"];
   return (
     <View style={{ flex: 1 }}><GlassBackground />
     <ScrollView style={styles.container} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 105 }} showsVerticalScrollIndicator={false}>
@@ -62,7 +61,7 @@ export default function MoreScreen() {
       <Text style={styles.title}>{t("More")}</Text>
       {user && (
         <Text style={styles.subtitle}>
-          {user.name} · {user.role} · {tenant?.name ?? "—"}
+          {user.name} · {user.role.replace(/_/g, " ")} · {tenant?.name ?? "—"}
         </Text>
       )}
 
