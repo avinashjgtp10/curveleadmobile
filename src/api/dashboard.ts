@@ -73,7 +73,8 @@ export async function fetchDashboard(period: DashboardPeriod) {
   } catch (error) {
     // Authentication and subscription errors need to reach the screen unchanged.
     const status = axios.isAxiosError(error) ? error.response?.status : undefined;
-    if (status === 401 || status === 402 || status === 403) throw error;
+    // A rate limit (429) must not trigger the fallback either: it would only send more requests to a server that is refusing them.
+    if (status === 401 || status === 402 || status === 403 || status === 429) throw error;
     // No connection: the fallback requests below would fail the same way, so report it straight away.
     if (isNetworkError(error)) throw error;
 
