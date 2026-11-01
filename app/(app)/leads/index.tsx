@@ -9,6 +9,7 @@ import {
   ActivityIndicator, Avatar, Button, Card, Checkbox, Chip, FAB, IconButton, List, Menu, Searchbar,
 } from "react-native-paper";
 import axios from "axios";
+import { rateLimitRemainingMs } from "@/api/client";
 import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -288,6 +289,7 @@ export default function LeadsScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [failedLoads, setFailedLoads] = useState(0);
 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -350,6 +352,7 @@ export default function LeadsScreen() {
     } catch (loadError) {
       if (id !== requestId.current) return;
       setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string" ? loadError.response.data.error : "Could not load leads.");
+      setFailedLoads((count) => count + 1);
     } finally {
       if (id === requestId.current) { setLoading(false); setLoadingMore(false); setRefreshing(false); }
     }
@@ -357,6 +360,15 @@ export default function LeadsScreen() {
 
   // First load and any filter/search change. It waits for the hidden-stages preference so those stages never flash.
   useEffect(() => { if (prefsReady) load(); }, [load, prefsReady]);
+
+  // If the list couldn't load because the server is rate limiting, try again by itself once the wait is over.
+  useEffect(() => {
+    if (!error || leads.length) return;
+    const wait = rateLimitRemainingMs();
+    if (!wait) return;
+    const timer = setTimeout(() => loadRef.current(), wait + 500);
+    return () => clearTimeout(timer);
+  }, [error, failedLoads, leads.length]);
 
   // Coming back to this screen (e.g. from a lead's page): refresh in place instead of jumping back to page 1.
   const loadRef = useRef(load);
