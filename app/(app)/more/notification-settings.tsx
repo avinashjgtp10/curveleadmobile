@@ -25,6 +25,8 @@ export default function NotificationSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
+  // When the saved settings couldn't be loaded, saving would overwrite them with only what was toggled here.
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const refreshPermission = useCallback(async () => setPermission(await getNotificationPermission()), []);
 
@@ -35,24 +37,27 @@ export default function NotificationSettingsScreen() {
     return () => sub.remove();
   }, [refreshPermission]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [loadedGroups, preferences] = await Promise.all([
-          fetchNotificationGroups().catch(() => FALLBACK_NOTIFICATION_GROUPS),
-          fetchPreferences(),
-        ]);
-        setGroups(loadedGroups);
-        const stored = preferences?.notification_prefs || {};
-        setPrefs(stored);
-        setSaved(stored);
-      } catch {
-        // The screen still works with everything on, same as the web app.
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const loadSettings = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [loadedGroups, preferences] = await Promise.all([
+        fetchNotificationGroups().catch(() => FALLBACK_NOTIFICATION_GROUPS),
+        fetchPreferences(),
+      ]);
+      setGroups(loadedGroups);
+      const stored = preferences?.notification_prefs || {};
+      setPrefs(stored);
+      setSaved(stored);
+      setLoadFailed(false);
+    } catch {
+      // The switches still show (everything on) but saving is blocked until the real settings load.
+      setLoadFailed(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { loadSettings(); }, [loadSettings]);
 
   const isOn = (key: string) => prefs[key] !== false;
   const toggle = (key: string) => setPrefs((current) => ({ ...current, [key]: current[key] === false }));
@@ -118,6 +123,12 @@ export default function NotificationSettingsScreen() {
 
         <Text style={styles.sectionTitle}>NOTIFY ME ABOUT</Text>
 
+        {loadFailed && !loading ? (
+          <Pressable onPress={loadSettings} style={styles.loadError}>
+            <Text style={styles.loadErrorText}>Couldn't load your saved settings. Tap to retry. You can't save until they load.</Text>
+          </Pressable>
+        ) : null}
+
         {loading ? (
           <View style={styles.loading}><ActivityIndicator color={colors.primary} /></View>
         ) : (
@@ -155,7 +166,7 @@ export default function NotificationSettingsScreen() {
         <Pressable style={styles.cancelButton} onPress={() => (dirty ? setPrefs(saved) : router.back())}>
           <Text style={styles.cancelText}>{dirty ? "Reset" : "Cancel"}</Text>
         </Pressable>
-        <Pressable style={[styles.saveButton, (!dirty || saving || loading) && styles.saveDisabled]} onPress={save} disabled={!dirty || saving || loading}>
+        <Pressable style={[styles.saveButton, (!dirty || saving || loading || loadFailed) && styles.saveDisabled]} onPress={save} disabled={!dirty || saving || loading || loadFailed}>
           <Text style={styles.saveText}>{saving ? "Saving..." : "Save"}</Text>
         </Pressable>
       </View>
@@ -164,6 +175,8 @@ export default function NotificationSettingsScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadError: { backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12, marginBottom: 10 },
+  loadErrorText: { color: colors.danger, fontSize: 12, fontWeight: "600", lineHeight: 17 },
   screen: { flex: 1, backgroundColor: "#f4f9fc" },
   header: { backgroundColor: "#ffffff" },
   headerTitle: { fontSize: 16, fontWeight: "800", color: colors.text },

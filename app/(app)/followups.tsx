@@ -5,7 +5,7 @@ import {
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
-import { router, useNavigation } from "expo-router";
+import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
@@ -26,6 +26,8 @@ const FOLLOWUP_TYPES: { key: FollowupType; label: string }[] = [
   { key: "demo", label: "Demo" },
 ];
 
+// Two menu items (~44 each) plus padding.
+const POPOVER_HEIGHT = 96;
 const DAY_ITEM_WIDTH = 46;
 const DAYS_BEFORE_TODAY = 60;
 const DAYS_AFTER_TODAY = 90;
@@ -60,7 +62,10 @@ function FollowupRow({ item, completing, onComplete, onPress, colorFor, findStag
   function openMenu() {
     // Open the popover just under the ⋮ button, right-aligned with it.
     anchorRef.current?.measureInWindow((x, y, width, height) => {
-      setMenuPos({ y: y + height, right: Math.max(8, Dimensions.get("window").width - (x + width)) });
+      const { width: windowWidth, height: windowHeight } = Dimensions.get("window");
+      // Rows near the bottom would push the menu off-screen, so open it upwards there.
+      const top = y + height + POPOVER_HEIGHT > windowHeight - 8 ? Math.max(8, y - POPOVER_HEIGHT) : y + height;
+      setMenuPos({ y: top, right: Math.max(8, windowWidth - (x + width)) });
       setMenuOpen(true);
     });
   }
@@ -152,10 +157,13 @@ export default function FollowupsScreen() {
 
   // Only the newest request may update the screen, so a slow reply for an earlier day can't overwrite a later one.
   const requestId = useRef(0);
-  const load = useCallback(async (date: Date, refresh = false) => {
+  // `silent` re-fetches in the background (no spinner, and a failure keeps the list on screen).
+  const load = useCallback(async (date: Date, refresh = false, silent = false) => {
     const id = ++requestId.current;
-    refresh ? setRefreshing(true) : setLoading(true);
-    setError("");
+    if (!silent) {
+      refresh ? setRefreshing(true) : setLoading(true);
+      setError("");
+    }
     try {
       const dateStr = ymd(date);
       // Keep the selected-day list scoped to that calendar day. Overdue items
@@ -165,13 +173,23 @@ export default function FollowupsScreen() {
       setFollowups(result);
     } catch (loadError) {
       if (id !== requestId.current) return;
-      setError(errorMessage(loadError, "Could not load follow-ups."));
+      if (!silent) setError(errorMessage(loadError, "Could not load follow-ups."));
     } finally {
       if (id === requestId.current) { setLoading(false); setRefreshing(false); }
     }
   }, []);
 
   useEffect(() => { load(selectedDate); }, [selectedDate, load]);
+
+  // The tab stays mounted, so follow-ups completed or added elsewhere (a lead's page, Appointments) would stay stale.
+  // Refresh quietly whenever the tab is shown again.
+  const selectedDateRef = useRef(selectedDate);
+  selectedDateRef.current = selectedDate;
+  const focusedOnce = useRef(false);
+  useFocusEffect(useCallback(() => {
+    if (!focusedOnce.current) { focusedOnce.current = true; return; } // the first load is handled above
+    load(selectedDateRef.current, false, true);
+  }, [load]));
 
   useEffect(() => {
     if (!addOpen) return;

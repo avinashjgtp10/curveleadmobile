@@ -57,7 +57,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/curvelead-adaptive-icon.png",
+          "icon": "./assets/notification-icon.png",
           "color": "#0ea5e9"
         }
       ]

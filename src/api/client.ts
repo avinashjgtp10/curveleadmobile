@@ -26,6 +26,13 @@ export async function clearStoredToken() {
   await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
 
+let unauthorizedHandler: (() => void) | null = null;
+
+/** AuthContext registers here so a rejected token (401) signs the user out and sends them to the login screen. */
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler;
+}
+
 export const RATE_LIMIT_MESSAGE = "Too many requests. Please wait a minute and try again.";
 
 // The server allows a fixed number of requests per window and then answers 429. While we know we're blocked,
@@ -98,7 +105,7 @@ apiClient.interceptors.response.use(
     }
     if (error.response?.status === 401) {
       await clearStoredToken();
-      // AuthContext listens for this and redirects to /login
+      unauthorizedHandler?.();
     }
     return Promise.reject(error);
   }
