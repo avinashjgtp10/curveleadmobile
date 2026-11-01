@@ -5,6 +5,7 @@ import type * as NotificationsType from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { unregisterPushToken } from "@/api/pushTokens";
+import { rateLimitRemainingMs } from "@/api/client";
 import { saveIncomingPushNotification } from "@/api/notifications";
 import { configureNotificationHandler } from "./push";
 import { LAST_REGISTERED_TOKEN_KEY, registerDevice } from "./pushStatus";
@@ -79,7 +80,16 @@ export function usePushNotifications(navigationReady: boolean) {
     }
 
     // The outcome (registered / denied / failed and why) is recorded for the Notification Settings screen.
-    registerDevice().catch((error) => console.warn("[push] registration failed", error));
+    // Started a few seconds late, and again after a rate-limit wait, so it doesn't join the burst of calls Home makes on
+    // opening (the server answers a burst with "Too many requests").
+    let cancelled = false;
+    const start = (delay: number) => setTimeout(() => {
+      if (cancelled) return;
+      const blocked = rateLimitRemainingMs();
+      if (blocked) { timer = start(blocked + 500); return; }
+      registerDevice().catch((error) => console.warn("[push] registration failed", error));
+    }, delay);
+    let timer = start(4000);
 
     // Fires if the underlying push token rotates while the app is running (rare, but
     // documented as possible by Expo — e.g. after a Google Play Services update).
@@ -88,6 +98,8 @@ export function usePushNotifications(navigationReady: boolean) {
     });
 
     return () => {
+      cancelled = true;
+      clearTimeout(timer);
       tokenSub.remove();
     };
   }, [user, isLoading]);
