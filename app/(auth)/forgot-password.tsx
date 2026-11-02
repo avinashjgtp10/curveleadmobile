@@ -47,7 +47,7 @@ export default function ForgotPasswordScreen() {
 
   if (sentTo) {
     return (
-      <AuthShell title="Check your email" subtitle={`If an account exists for ${sentTo}, we've sent a link to reset your password.`} icon="mail-open-outline" onBack={() => setSentTo("")}>
+      <AuthShell title="Check your email" subtitle={`If an account exists for ${sentTo}, we've sent a link to reset your password.`} icon="mail-open-outline" onBack={() => { setSentTo(""); setError(""); }}>
         <View style={styles.tips}>
           <View style={styles.tipRow}><Ionicons name="checkmark-circle" size={18} color={colors.success} /><Text style={styles.tipText}>Open the email and tap the reset link.</Text></View>
           <View style={styles.tipRow}><Ionicons name="checkmark-circle" size={18} color={colors.success} /><Text style={styles.tipText}>Can't see it? Check your spam folder.</Text></View>
@@ -60,6 +60,10 @@ export default function ForgotPasswordScreen() {
             <Text style={styles.buttonLabel}>I have my reset link</Text>
           </LinearGradient>
         </Pressable>
+
+        {error ? (
+          <View style={styles.errorBox}><Ionicons name="alert-circle" size={16} color={colors.danger} /><Text style={styles.errorText}>{error}</Text></View>
+        ) : null}
 
         <Pressable onPress={send} disabled={cooldown > 0 || loading} style={styles.linkWrap} hitSlop={8}>
           {loading ? <ActivityIndicator size="small" color={colors.primary} /> : (

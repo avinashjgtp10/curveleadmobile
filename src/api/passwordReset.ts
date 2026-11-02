@@ -18,5 +18,11 @@ export async function changePassword(currentPassword: string, newPassword: strin
 export function extractResetToken(input: string) {
   const value = input.trim();
   const match = value.match(/[?&]token=([^&#\s]+)/i);
-  return match ? decodeURIComponent(match[1]) : value;
+  if (!match) return value;
+  // Runs on every keystroke while pasting; a stray "%" must not throw and crash the screen.
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
 }

@@ -1,4 +1,3 @@
-import { PlaceholderScreen } from "@/components/PlaceholderScreen";
 import { GlassBackground, glass } from "@/components/Glass";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,6 +26,9 @@ const TYPES: TypeOption[] = [
   { key: "visit", label: "Consultation", icon: "people-outline" },
   { key: "demo", label: "Product Demo", icon: "videocam-outline" },
 ];
+
+// Four menu items (~40 each) plus padding.
+const POPOVER_HEIGHT = 172;
 
 function ymd(date: Date) {
   const d = new Date(date); d.setHours(0, 0, 0, 0);
@@ -88,7 +90,11 @@ function AppointmentRow({ item, completing, done, onView, onComplete, onReschedu
 
   function openMenu() {
     anchorRef.current?.measureInWindow((x, y, width, height) => {
-      setMenuPos({ y: y + height + 2, right: Math.max(8, Dimensions.get("window").width - (x + width)) });
+      const { width: windowWidth, height: windowHeight } = Dimensions.get("window");
+      // Rows near the bottom would push the menu off-screen (Cancel unreachable), so open it upwards there.
+      const below = y + height + 2;
+      const top = below + POPOVER_HEIGHT > windowHeight - 8 ? Math.max(8, y - POPOVER_HEIGHT - 2) : below;
+      setMenuPos({ y: top, right: Math.max(8, windowWidth - (x + width)) });
       setMenuOpen(true);
     });
   }
@@ -237,7 +243,7 @@ function AppointmentsContent() {
       if (activeTab !== "all" && activeTab !== "completed" && statusFor(item) !== activeTab) return false;
       if (typeFilter && followupTypeOrDefault(item.followup_type) !== typeFilter) return false;
       if (!text) return true;
-      return [item.lead_name, item.lead_phone, item.followup_type, item.notes].some((value) => String(value || "").toLowerCase().includes(text));
+      return [item.lead_name, item.lead_phone, item.followup_type, typeMeta(item.followup_type).label, item.notes].some((value) => String(value || "").toLowerCase().includes(text));
     });
   }, [activeTab, appointments, completedItems, query, typeFilter]);
 
@@ -605,12 +611,4 @@ const styles = StyleSheet.create({
 
 export default function AppointmentsScreen() {
   return <AppointmentsContent />;
-  return (
-    <PlaceholderScreen
-      showBack
-      icon="📅"
-      title="Appointments"
-      description="Book and manage customer appointments."
-    />
-  );
 }

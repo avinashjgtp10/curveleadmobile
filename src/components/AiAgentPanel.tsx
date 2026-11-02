@@ -119,6 +119,11 @@ export function AiAgentPanel() {
   }
 
   async function activate() {
+    // Without "About the business" the agent would go live knowing nothing, and the screen would treat it as not set up.
+    if (!String(draft.about || "").trim()) {
+      Alert.alert("Add a description", "Fill in \"About the business\" so the AI knows what to say to your leads.");
+      return;
+    }
     setSaving(true);
     try {
       // Editing a live agent keeps its on/off state; a brand-new draft goes live.

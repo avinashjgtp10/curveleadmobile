@@ -271,7 +271,7 @@ function StartHereTile({ icon, label, bg, iconColor, badges, onPress }: { icon: 
   );
 }
 
-interface GridItem { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; href: string }
+interface GridItem { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; href: string; adminOnly?: boolean }
 
 const TONE = {
   sky: { bg: colors.primarySoft, iconColor: colors.primary },
@@ -295,12 +295,12 @@ const GROW_BUSINESS: GridItem[] = [
 const MANAGE_BUSINESS: GridItem[] = [
   { icon: "document-text-outline", label: "Quotations", ...TONE.violet, href: "/(app)/more/quotations" },
   { icon: "git-network-outline", label: "Lead Automation", ...TONE.sky, href: "/(app)/more/lead-automation" },
-  { icon: "people-outline", label: "Team", ...TONE.violet, href: "/(app)/more/team" },
+  { icon: "people-outline", label: "Team", ...TONE.violet, href: "/(app)/more/team", adminOnly: true },
   { icon: "bar-chart-outline", label: "Reports", ...TONE.emerald, href: "/(app)/more/reports" },
   { icon: "school-outline", label: "Sales Coaching", ...TONE.amber, href: "/(app)/more/sales-coaching" },
   { icon: "globe-outline", label: "Market AI", ...TONE.indigo, badges: [{ text: "AI", bg: "#7c3aed" }], href: "/(app)/more/market-ai" },
-  { icon: "extension-puzzle-outline", label: "Integrations", ...TONE.pink, href: "/(app)/more/integrations" },
-  { icon: "card-outline", label: "Billing", ...TONE.sky, href: "/(app)/more/billing" },
+  { icon: "extension-puzzle-outline", label: "Integrations", ...TONE.pink, href: "/(app)/more/integrations", adminOnly: true },
+  { icon: "card-outline", label: "Billing", ...TONE.sky, href: "/(app)/more/billing", adminOnly: true },
   { icon: "settings-outline", label: "Settings", ...TONE.emerald, href: "/(app)/more/settings" },
   { icon: "help-buoy-outline", label: "Help & Support", ...TONE.indigo, href: "/(app)/more/help-support" },
   { icon: "help-circle-outline", label: "User Guide", ...TONE.amber, href: "/(app)/more/user-guide" },
@@ -347,9 +347,16 @@ function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconN
   );
 }
 
+const LEAD_SOURCES_TTL_MS = 5 * 60_000;
+let leadSourcesCache: { at: number; rows: LeadSourceRow[] } | null = null;
+
 export default function DashboardScreen() {
   const { t } = useT();
   const { user, tenant } = useAuth();
+  // Team, Integrations and Billing are admin-only (the More menu already hides them from staff).
+  const canManage = user?.role === "admin" || user?.role === "super_admin";
+  const manageItems = MANAGE_BUSINESS.filter((item) => canManage || !item.adminOnly);
+  const searchItems = SEARCH_ITEMS.filter((item) => canManage || !item.adminOnly);
   const insets = useSafeAreaInsets();
   const period: DashboardPeriod = "last_7_days";
   const [data, setData] = useState<DashboardSummary | null>(null);
@@ -388,7 +395,7 @@ export default function DashboardScreen() {
     AsyncStorage.getItem(AI_TOOLS_VISITED_KEY).then((value) => setAiToolsVisited(value === "1")).catch(() => {});
   }, [dashboardLoaded]));
 
-  const [leadSources, setLeadSources] = useState<LeadSourceRow[] | null>(null);
+  const [leadSources, setLeadSources] = useState<LeadSourceRow[] | null>(leadSourcesCache?.rows ?? null);
   // Bumped on pull-to-refresh so the lead sources are recomputed too (they are a big download, so not on every focus).
   const [sourcesVersion, setSourcesVersion] = useState(0);
   const dashboardReady = !!data;
@@ -397,6 +404,8 @@ export default function DashboardScreen() {
     // real leads and compute the breakdown client-side rather than showing fake numbers.
     // That's a big download, so it waits until the dashboard has painted instead of competing with it.
     if (!dashboardReady) return;
+    // Reuse the last result for a few minutes: this is a 500-lead download and every Home visit was repeating it.
+    if (leadSourcesCache && Date.now() - leadSourcesCache.at < LEAD_SOURCES_TTL_MS) return;
     let cancelled = false;
     // A short delay lets the dashboard paint first (InteractionManager is deprecated).
     const task = setTimeout(() => {
@@ -413,6 +422,7 @@ export default function DashboardScreen() {
         const rows = Array.from(bySource.entries())
           .map(([source, { leads, won }]) => ({ source, leads, won, conversion: leads ? (won / leads) * 100 : 0 }))
           .sort((a, b) => b.leads - a.leads);
+        leadSourcesCache = { at: Date.now(), rows };
         setLeadSources(rows);
       }).catch(() => { /* keep the last breakdown on a failed refresh */ });
     }, 300);
@@ -701,7 +711,7 @@ export default function DashboardScreen() {
               <Text style={styles.startHereTitle}>{t("Manage your business")}</Text>
               <Text style={styles.startHereSubtitle}>{t("People, data and workspace tools")}</Text>
               <View style={styles.gridWrap}>
-                {MANAGE_BUSINESS.map((item) => (
+                {manageItems.map((item) => (
                   <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
                 ))}
               </View>
@@ -750,8 +760,8 @@ export default function DashboardScreen() {
 
           <ScrollView contentContainerStyle={[styles.searchResults, { paddingBottom: 24 + Math.max(keyboardHeight, insets.bottom) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
             {(searchQuery.trim()
-              ? SEARCH_ITEMS.filter((item) => item.label.toLowerCase().includes(searchQuery.trim().toLowerCase()))
-              : SEARCH_ITEMS
+              ? searchItems.filter((item) => item.label.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+              : searchItems
             ).map((item) => (
               <Pressable
                 key={item.href} style={styles.searchResultRow}
@@ -764,7 +774,7 @@ export default function DashboardScreen() {
                 <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
               </Pressable>
             ))}
-            {searchQuery.trim() && !SEARCH_ITEMS.some((item) => item.label.toLowerCase().includes(searchQuery.trim().toLowerCase())) ? (
+            {searchQuery.trim() && !searchItems.some((item) => item.label.toLowerCase().includes(searchQuery.trim().toLowerCase())) ? (
               <Text style={styles.searchEmptyText}>No matches for "{searchQuery.trim()}".</Text>
             ) : null}
           </ScrollView>
