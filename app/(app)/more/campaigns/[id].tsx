@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Appbar, Button, Text } from "react-native-paper";
 import axios from "axios";
 import { router, useLocalSearchParams } from "expo-router";
@@ -71,6 +71,8 @@ export default function CampaignDetailScreen() {
   const [scoreFilter, setScoreFilter] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<"stage" | "score" | null>(null);
+
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -146,7 +148,10 @@ export default function CampaignDetailScreen() {
           <Button mode="contained" onPress={() => { setLoading(true); load(); }} style={styles.retry}>Try again</Button>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); if (id) fetchCampaignAds(id).then(setAds).catch(() => {}); setRefreshing(false); }} tintColor={colors.primary} colors={[colors.primary]} />}
+        >
           <View style={styles.headerCard}>
             <View style={styles.headerCardTop}>
               <Text style={styles.campaignName}>{campaign.name}</Text>
