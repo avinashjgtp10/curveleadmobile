@@ -77,6 +77,8 @@ function FollowupRow({ item, completing, onComplete, onPress, colorFor, findStag
   const stageColors = colorFor(item.lead_stage);
   const stageLabel = findStage(item.lead_stage)?.name || pretty(item.lead_stage);
   const time = new Date(item.next_followup_at);
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const overdue = !Number.isNaN(time.getTime()) && time < startOfToday;
   const timeLabel = Number.isNaN(time.getTime()) ? "" : time.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
   return (
     <List.Item
@@ -89,7 +91,7 @@ function FollowupRow({ item, completing, onComplete, onPress, colorFor, findStag
       )}
       description={() => (
         <>
-          <Text style={styles.rowTime}>Follow-Up Time – {timeLabel}</Text>
+          <Text style={[styles.rowTime, overdue && styles.rowOverdue]}>{overdue ? "Overdue" : "Follow-Up Time"} – {timeLabel}</Text>
           {item.notes ? <Text style={styles.rowNotes} numberOfLines={2}>{item.notes}</Text> : null}
         </>
       )}
@@ -166,9 +168,9 @@ export default function FollowupsScreen() {
     }
     try {
       const dateStr = ymd(date);
-      // Keep the selected-day list scoped to that calendar day. Overdue items
-      // from earlier days should not be counted under "Today".
-      const result = await fetchTodayFollowups({ date_from: dateStr, date_to: dateStr });
+      // Today also lists follow-ups missed on earlier days (marked Overdue), so they can't be lost.
+      // Other days stay scoped to that calendar day.
+      const result = await fetchTodayFollowups(isSameDay(date, new Date()) ? undefined : { date_from: dateStr, date_to: dateStr });
       if (id !== requestId.current) return;
       setFollowups(result);
     } catch (loadError) {
@@ -218,7 +220,7 @@ export default function FollowupsScreen() {
   function scrollToDate(date: Date, animated: boolean) {
     const index = days.findIndex((d) => isSameDay(d, date));
     if (index < 0) return;
-    const x = Math.max(0, index * DAY_ITEM_WIDTH - screenWidth / 2 + DAY_ITEM_WIDTH / 2);
+    const x = Math.max(0, 8 + index * DAY_ITEM_WIDTH - screenWidth / 2 + DAY_ITEM_WIDTH / 2); // 8 = weekRow padding
     scrollRef.current?.scrollTo({ x, animated });
   }
 
@@ -270,10 +272,14 @@ export default function FollowupsScreen() {
       });
       setAddOpen(false);
       const when = followupAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
-      Alert.alert("Follow-up scheduled", `${selectedLead.name} - ${when}`);
+      // Android drops Alerts fired while a Modal is still dismissing.
+      const leadName = selectedLead.name;
+      setTimeout(() => Alert.alert("Follow-up scheduled", `${leadName} - ${when}`), 300);
       // Show the day it was booked for; if that's already the day on screen, just refresh it.
+      // Days outside the date strip can't be highlighted, so stay on the current day for those.
+      const bookedDay = new Date(followupAt.getFullYear(), followupAt.getMonth(), followupAt.getDate());
       if (isSameDay(followupAt, selectedDate)) load(selectedDate, true);
-      else setSelectedDate(new Date(followupAt.getFullYear(), followupAt.getMonth(), followupAt.getDate()));
+      else if (bookedDay >= days[0] && bookedDay <= days[days.length - 1]) setSelectedDate(bookedDay);
     } catch (saveError) {
       setAddError(errorMessage(saveError, "Could not schedule this follow-up."));
     } finally { setSaving(false); }
@@ -368,7 +374,7 @@ export default function FollowupsScreen() {
               {selectedLead ? (
                 <View style={styles.selectedLead}>
                   <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name} · {selectedLead.phone}</Text>
-                  <Pressable onPress={() => setSelectedLead(null)} hitSlop={8}><Ionicons name="close" size={16} color={colors.textSecondary} /></Pressable>
+                  <Pressable onPress={() => { setSelectedLead(null); setLeadQuery(""); }} hitSlop={8}><Ionicons name="close" size={16} color={colors.textSecondary} /></Pressable>
                 </View>
               ) : (
                 <>
@@ -458,6 +464,7 @@ const styles = StyleSheet.create({
   stagePill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   stagePillText: { fontSize: 10, fontWeight: "800" },
   rowTime: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
+  rowOverdue: { color: colors.danger, fontWeight: "700" },
   rowNotes: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
   doneButton: { alignSelf: "center" },
   popover: {
