@@ -35,11 +35,15 @@ export function configureNotificationHandler() {
       const silentRemotePush =
         Platform.OS === "ios" && (notification.request.trigger as { type?: string } | null)?.type === "push" && !content.sound && data.local !== "1";
       if (silentRemotePush) {
-        Notifications.scheduleNotificationAsync({
-          content: { title: content.title ?? undefined, body: content.body ?? undefined, sound: "default", data: { ...data, local: "1" } },
-          trigger: null,
-        }).catch(() => {});
-        return { shouldShowAlert: false, shouldPlaySound: false, shouldSetBadge: false, shouldShowBanner: false, shouldShowList: false };
+        try {
+          await Notifications.scheduleNotificationAsync({
+            content: { title: content.title ?? undefined, body: content.body ?? undefined, sound: "default", data: { ...data, local: "1" } },
+            trigger: null,
+          });
+          return { shouldShowAlert: false, shouldPlaySound: false, shouldSetBadge: false, shouldShowBanner: false, shouldShowList: false };
+        } catch {
+          // The ringing copy couldn't be scheduled - show the original banner (silent) rather than nothing.
+        }
       }
       return { shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false, shouldShowBanner: true, shouldShowList: true };
     },
