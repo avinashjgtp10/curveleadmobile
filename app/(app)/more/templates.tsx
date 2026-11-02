@@ -82,10 +82,10 @@ export default function TemplatesScreen() {
 
   // `silent` refreshes the list in place (after save/delete/send) so the list keeps its scroll position.
   async function load(silent = false) {
-    if (!silent) setLoading(true);
-    setError("");
-    try { setTemplates(await fetchTemplates()); }
-    catch (loadError) { setError(errorMessage(loadError, "Could not load templates.")); }
+    if (!silent) { setLoading(true); setError(""); }
+    try { setTemplates(await fetchTemplates()); setError(""); }
+    // A failed background refresh keeps the list on screen instead of replacing it with an error.
+    catch (loadError) { if (!silent) setError(errorMessage(loadError, "Could not load templates.")); }
     finally { setLoading(false); }
   }
 
@@ -219,6 +219,7 @@ export default function TemplatesScreen() {
                     </View>
                   </View>
                   <Text style={styles.cardName}>{template.name}</Text>
+                  <Text style={styles.cardMeta}>{CHANNELS.find((item) => item.key === template.channel)?.label || template.channel}{template.category ? ` · ${template.category}` : ""}</Text>
                   <Text style={styles.cardMessage} numberOfLines={2}>{template.message}</Text>
                   <Text style={styles.cardMeta}>Used {template.use_count || 0} times · Updated {relativeTime(template.updated_at)}</Text>
                 </Card.Content>

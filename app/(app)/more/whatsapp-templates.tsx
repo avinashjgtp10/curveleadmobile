@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, BackHandler, ScrollView, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card, Chip, SegmentedButtons, Text, TextInput } from "react-native-paper";
 import axios from "axios";
 import { router } from "expo-router";
@@ -91,6 +91,13 @@ export default function WhatsAppTemplatesScreen() {
 
   useEffect(() => { load(); }, []);
 
+  // The create form replaces the list in place, so the hardware back button should close the form, not the screen.
+  useEffect(() => {
+    if (!creating) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => { setCreating(false); return true; });
+    return () => subscription.remove();
+  }, [creating]);
+
   const counts = useMemo(() => ({
     ALL: templates.length,
     APPROVED: templates.filter((item) => item.status === "APPROVED").length,
@@ -163,6 +170,10 @@ export default function WhatsAppTemplatesScreen() {
               <Chip key={item} compact selected={category === item} onPress={() => setCategory(item)} mode={category === item ? "flat" : "outlined"} textStyle={styles.chipText}>{item}</Chip>
             ))}
           </View>
+
+          {category === "AUTHENTICATION" ? (
+            <Text style={styles.hint}>Meta only approves its fixed one-time-passcode wording for Authentication templates, so a custom body is usually rejected. Use Utility or Marketing for your own text.</Text>
+          ) : null}
 
           <Text style={styles.label}>Language</Text>
           <View style={styles.chipRow}>
