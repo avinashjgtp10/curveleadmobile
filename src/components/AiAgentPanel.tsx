@@ -23,8 +23,9 @@ function whenText(value?: string) {
   return date.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 }
 
-function Field({ label, hint, value, onChangeText, lines = 1, placeholder }: {
+function Field({ label, hint, value, onChangeText, lines = 1, placeholder, capitalize }: {
   label: string; hint?: string; value: string; onChangeText: (value: string) => void; lines?: number; placeholder?: string;
+  capitalize?: boolean;
 }) {
   return (
     <View>
@@ -34,7 +35,9 @@ function Field({ label, hint, value, onChangeText, lines = 1, placeholder }: {
         <RNTextInput
           style={styles.inputText} value={value} onChangeText={onChangeText} placeholder={placeholder}
           placeholderTextColor={colors.textMuted} multiline={lines > 1} textAlignVertical={lines > 1 ? "top" : "center"}
-          autoCapitalize={lines > 1 ? "sentences" : "none"}
+          autoCapitalize={lines > 1 || capitalize ? "sentences" : "none"}
+          autoCorrect={lines > 1 || !!capitalize}
+          keyboardType={label.startsWith("Website") ? "url" : "default"}
         />
       </View>
     </View>
@@ -203,8 +206,8 @@ export function AiAgentPanel() {
           })}
         </View>
 
-        <Field label="Agent name (optional)" value={agentName} onChangeText={setAgentName} placeholder="e.g. Priya" />
-        <Field label="Greeting (optional)" value={greeting} onChangeText={setGreeting} placeholder="e.g. Hi! How can I help?" />
+        <Field label="Agent name (optional)" value={agentName} onChangeText={setAgentName} placeholder="e.g. Priya" capitalize />
+        <Field label="Greeting (optional)" value={greeting} onChangeText={setGreeting} capitalize placeholder="e.g. Hi! How can I help?" />
         <Field label="Extra things to know (optional)" hint="Anything your website won't tell it." value={businessContext} onChangeText={setBusinessContext} lines={2} placeholder="e.g. we only serve women" />
         <Field label="Ground rules (optional)" value={groundRules} onChangeText={setGroundRules} lines={2} placeholder="e.g. never discuss competitors" />
 
