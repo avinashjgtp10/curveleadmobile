@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   Alert, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet,
   TextInput as RNTextInput, View,
@@ -141,7 +141,12 @@ export default function CampaignsScreen() {
   const [aiBusyAction, setAiBusyAction] = useState("");
   const [activateConfirm, setActivateConfirm] = useState("");
 
+  // Only the newest request may update the screen, so a slow reply for an earlier period can't overwrite a later one.
+  const latestRequest = useRef(0);
+  const hasData = useRef(false);
+
   const load = useCallback(async (options: { refresh?: boolean; nextPage?: number; period?: CampaignPeriod } = {}) => {
+    const requestId = ++latestRequest.current;
     const nextPage = options.nextPage || 1;
     const append = nextPage > 1;
     if (options.refresh) setRefreshing(true);
@@ -154,6 +159,8 @@ export default function CampaignsScreen() {
         fetchIntegrationSettings().catch(() => null),
         fetchGoogleAdsIntegrations().catch(() => null),
       ]);
+      if (requestId !== latestRequest.current) return;
+      hasData.current = true;
       setCampaigns((current) => append ? [...current, ...result.campaigns.filter((item) => !current.some((existing) => existing.id === item.id))] : result.campaigns);
       setMetrics(result.metrics);
       setTotal(result.total);
@@ -162,18 +169,22 @@ export default function CampaignsScreen() {
       if (googleList) setGoogleActive(googleList.filter((item) => item.is_active).length);
       else if (integrationSettings?.google_configured) setGoogleActive(1);
     } catch (loadError) {
-      setError(errorMessage(loadError, "Could not load campaigns."));
+      if (requestId !== latestRequest.current) return;
+      const message = errorMessage(loadError, "Could not load campaigns.");
+      // With campaigns already on screen the error banner isn't shown, so say so instead of failing silently.
+      if (hasData.current) Alert.alert("Couldn't load campaigns", message);
+      else setError(message);
     } finally {
-      setLoading(false); setRefreshing(false); setLoadingMore(false);
+      if (requestId === latestRequest.current) { setLoading(false); setRefreshing(false); setLoadingMore(false); }
     }
   }, [period]);
 
+  // `load` changes with the period, so choosing a period reloads through this effect.
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   function choosePeriod(value: CampaignPeriod) {
     if (value === period) return;
     setPeriod(value);
-    load({ period: value });
   }
 
   async function handleSync() {
