@@ -108,7 +108,7 @@ export default function QuotationDetailScreen() {
 
   function openPdf() {
     if (!quotation) return;
-    Linking.openURL(`${API_BASE_URL}/quotations/pdf/${quotation.id}`);
+    Linking.openURL(`${API_BASE_URL}/quotations/pdf/${quotation.id}`).catch(() => Alert.alert("Couldn't open PDF", "Please try again in a moment."));
   }
 
   if (loading && !quotation) {
