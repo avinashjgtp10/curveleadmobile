@@ -137,8 +137,8 @@ export default function TeamScreen() {
 
   async function saveMemberPassword() {
     if (!passwordMember || passwordSaving) return;
-    if (!newPassword || newPassword.length < 6) {
-      Alert.alert("Password too short", "Enter a password with at least 6 characters.");
+    if (!newPassword || newPassword.length < 8) {
+      Alert.alert("Password too short", "Enter a password with at least 8 characters.");
       return;
     }
     if (newPassword !== confirmPassword) {
