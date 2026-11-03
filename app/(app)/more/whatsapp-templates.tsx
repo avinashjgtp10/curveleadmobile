@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, BackHandler, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card, Chip, SegmentedButtons, Text, TextInput } from "react-native-paper";
 import axios from "axios";
 import { router } from "expo-router";
@@ -10,7 +10,10 @@ import {
   createWhatsAppTemplate, fetchWhatsAppTemplates, templateComponent, WhatsAppTemplate,
 } from "@/api/whatsappTemplates";
 
-const CATEGORIES = ["MARKETING", "UTILITY", "AUTHENTICATION"];
+// AUTHENTICATION is left out: Meta requires a fixed one-time-password format for it, which free-text body input can't produce.
+const CATEGORIES = ["MARKETING", "UTILITY"];
+const MAX_BODY_LENGTH = 1024;
+const MAX_NAME_LENGTH = 512;
 const LANGUAGES = [
   { value: "en_US", label: "English (US)" },
   { value: "en", label: "English" },
@@ -61,6 +64,7 @@ export default function WhatsAppTemplatesScreen() {
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [creating, setCreating] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
@@ -86,10 +90,18 @@ export default function WhatsAppTemplatesScreen() {
       setError(errorMessage(loadError, "Could not load templates."));
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
   useEffect(() => { load(); }, []);
+
+  // System back closes the create form instead of leaving the screen.
+  useEffect(() => {
+    if (!creating) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { if (!submitting) setCreating(false); return true; });
+    return () => sub.remove();
+  }, [creating, submitting]);
 
   const counts = useMemo(() => ({
     ALL: templates.length,
@@ -99,6 +111,9 @@ export default function WhatsAppTemplatesScreen() {
     // Meta also returns PAUSED, DISABLED, IN_APPEAL and similar; keep them reachable from a filter.
     OTHER: templates.filter((item) => !KNOWN_STATUSES.includes(item.status)).length,
   }), [templates]);
+
+  // Don't stay on the Other filter once nothing is left in it (its button disappears).
+  useEffect(() => { if (statusFilter === "OTHER" && !counts.OTHER) setStatusFilter("ALL"); }, [statusFilter, counts.OTHER]);
 
   const visibleTemplates = statusFilter === "ALL" ? templates
     : statusFilter === "OTHER" ? templates.filter((item) => !KNOWN_STATUSES.includes(item.status))
@@ -119,8 +134,10 @@ export default function WhatsAppTemplatesScreen() {
       setFormError("Name must be lowercase letters, numbers, and underscores only (e.g. order_update).");
       return;
     }
+    if (name.length > MAX_NAME_LENGTH) { setFormError(`Name can be at most ${MAX_NAME_LENGTH} characters.`); return; }
     const body = bodyText.trim();
     if (!body) { setFormError("Body text is required."); return; }
+    if (body.length > MAX_BODY_LENGTH) { setFormError(`Body text can be at most ${MAX_BODY_LENGTH} characters (currently ${body.length}).`); return; }
     const problem = variableProblem(body);
     if (problem) { setFormError(problem); return; }
     if (varCount > 0 && examples.some((example) => !example.trim())) {
@@ -176,6 +193,7 @@ export default function WhatsAppTemplatesScreen() {
             placeholder="Hi {{1}}, your order is on its way. Track it here: {{2}}"
             multiline numberOfLines={4} style={[styles.field, styles.textarea]}
           />
+          <Text style={styles.hint}>{bodyText.trim().length}/{MAX_BODY_LENGTH} characters</Text>
           <Text style={styles.hint}>Use {"{{1}}"}, {"{{2}}"}... for variables. Header, footer and buttons aren't supported yet.</Text>
 
           {varCount > 0 ? (
@@ -229,7 +247,10 @@ export default function WhatsAppTemplatesScreen() {
           <Button mode="contained" onPress={load} style={{ marginTop: 14 }}>Try again</Button>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} colors={[colors.primary]} />}
+        >
           {visibleTemplates.length ? visibleTemplates.map((template) => {
             const statusStyle = STATUS_COLOR[template.status] || { bg: colors.surfaceMuted, text: colors.textSecondary };
             const body = templateComponent(template, "BODY")?.text;
