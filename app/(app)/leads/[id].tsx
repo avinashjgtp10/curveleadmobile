@@ -4,7 +4,7 @@ import {
   RefreshControl, ScrollView, StyleSheet, TextInput as RNTextInput, View,
 } from "react-native";
 import {
-  ActivityIndicator, Appbar, Button, Chip, IconButton, List, RadioButton,
+  ActivityIndicator, Appbar, Button, Chip, FAB, IconButton, List, RadioButton,
   SegmentedButtons, Text, TextInput,
 } from "react-native-paper";
 import axios from "axios";
@@ -15,12 +15,13 @@ import { colors } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { LeadNotes } from "@/components/LeadNotes";
 import { LeadDocuments } from "@/components/LeadDocuments";
+import { ActivitySheetType, LeadActivitySheet } from "@/components/LeadActivitySheet";
 import { useStages } from "@/hooks/useStages";
 import { StaffMember, fetchStaff } from "@/api/staff";
 import { telUrl } from "@/api/phone";
 import {
-  ActivityLogType, ContactActivityType, FollowupType, LeadActivity, LeadDetails, LeadFollowup,
-  UpdateLeadInput, createLeadFollowup, fetchLeadDetails, logLeadActivity, trackContactActivity,
+  ContactActivityType, FollowupType, LeadActivity, LeadDetails, LeadFollowup,
+  UpdateLeadInput, createLeadFollowup, fetchLeadDetails, trackContactActivity,
   updateLeadDetails, updateLeadStage, updateLeadStatus,
 } from "@/api/leads";
 
@@ -38,19 +39,6 @@ const FOLLOWUP_TYPES: { key: FollowupType; label: string; icon: string }[] = [
   { key: "visit", label: "Visit", icon: "map-marker-outline" },
   { key: "demo", label: "Demo", icon: "video-outline" },
 ];
-
-const ACTIVITY_TYPES: { key: ActivityLogType; label: string; icon: IconName }[] = [
-  { key: "call", label: "Call", icon: "call-outline" },
-  { key: "whatsapp", label: "WhatsApp", icon: "logo-whatsapp" },
-  { key: "visit", label: "Visit", icon: "location-outline" },
-  { key: "other", label: "Note", icon: "document-text-outline" },
-];
-
-const ACTIVITY_TYPE_LABEL: Record<ActivityLogType, string> = {
-  call: "Call", whatsapp: "WhatsApp", visit: "Visit", other: "Note",
-};
-
-const CALL_OUTCOMES = ["Answered", "No Answer", "Busy", "Switched Off", "Not Interested"];
 
 const ACTIVITY_ICON: Record<string, IconName> = {
   call: "call", whatsapp: "logo-whatsapp", visit: "location", email: "mail",
@@ -278,15 +266,10 @@ export default function LeadDetailScreen() {
   const [emailError, setEmailError] = useState("");
   const [savingEmail, setSavingEmail] = useState(false);
 
-  const [activityOptionsOpen, setActivityOptionsOpen] = useState(false);
-  const [logSheetOpen, setLogSheetOpen] = useState(false);
-  const [logType, setLogType] = useState<ActivityLogType>("call");
-  const [logOutcome, setLogOutcome] = useState("");
-  const [logNotes, setLogNotes] = useState("");
-  const [logShowFollowup, setLogShowFollowup] = useState(false);
-  const [logFollowupAt, setLogFollowupAt] = useState(defaultFollowupDate());
-  const [loggingActivity, setLoggingActivity] = useState(false);
-  const [logError, setLogError] = useState("");
+  const [fabOpen, setFabOpen] = useState(false);
+  const [attachSignal, setAttachSignal] = useState(0);
+  const [activitySheet, setActivitySheet] = useState<ActivitySheetType | null>(null);
+  const [notesSignal, setNotesSignal] = useState(0);
 
   const load = useCallback(async (refresh = false) => {
     if (!id) { setError("This lead link is invalid."); setLoading(false); return; }
@@ -462,31 +445,10 @@ export default function LeadDetailScreen() {
     } finally { setSchedulingFollowup(false); }
   }
 
-  function chooseActivityType(type: ActivityLogType) {
-    setActivityOptionsOpen(false);
-    setLogType(type); setLogOutcome(""); setLogNotes("");
-    setLogShowFollowup(false); setLogFollowupAt(defaultFollowupDate());
-    setLogError("");
-    setTimeout(() => setLogSheetOpen(true), 180);
-  }
-
-  async function saveActivityLog() {
-    if (!lead) return;
-    if (logType === "call" && !logOutcome) { setLogError("Select a call outcome."); return; }
-    setLoggingActivity(true); setLogError("");
-    try {
-      const defaultNotes = logType === "call" ? logOutcome : `${ACTIVITY_TYPE_LABEL[logType]} logged`;
-      await logLeadActivity(lead.id, {
-        notes: logNotes.trim() || defaultNotes,
-        followup_type: logType,
-        outcome: logType === "call" ? logOutcome : undefined,
-        next_followup_at: logShowFollowup ? logFollowupAt.toISOString() : undefined,
-      });
-      setLogSheetOpen(false);
-      load(true);
-    } catch (logActivityError) {
-      setLogError(errorMessage(logActivityError, "Could not log this activity."));
-    } finally { setLoggingActivity(false); }
+  function addAttachment() {
+    setTab("overview");
+    // Give the Documents section time to mount before asking it to open the picker.
+    setTimeout(() => setAttachSignal((value) => value + 1), 150);
   }
 
   if (loading && !lead) {
@@ -527,7 +489,7 @@ export default function LeadDetailScreen() {
       <ScrollView
         ref={scrollRef} keyboardShouldPersistTaps="handled" scrollEventThrottle={16}
         onScroll={(event) => { scrollY.current = event.nativeEvent.contentOffset.y; }}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 60 + keyboardHeight }} showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 150 + keyboardHeight }} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} colors={[colors.primary]} />}
       >
         <View style={styles.nameBlock}>
@@ -590,9 +552,9 @@ export default function LeadDetailScreen() {
               placeholder="Add useful context for your team…" onSave={(value) => saveField("notes", value)}
             />
 
-            <LeadNotes leadId={lead.id} onAdded={() => load(true)} onFormOpen={revealInScroll} />
+            <LeadNotes leadId={lead.id} refreshSignal={notesSignal} onAdded={() => load(true)} onFormOpen={revealInScroll} />
 
-            <LeadDocuments leadId={lead.id} onChanged={() => load(true)} />
+            <LeadDocuments leadId={lead.id} onChanged={() => load(true)} pickSignal={attachSignal} />
           </View>
         ) : tab === "details" ? (
           <View style={styles.body}>
@@ -621,7 +583,7 @@ export default function LeadDetailScreen() {
           </View>
         ) : (
           <View style={styles.body}>
-            <Button mode="contained" icon="plus-circle" onPress={() => setActivityOptionsOpen(true)} style={styles.addActivityButton} contentStyle={styles.addActivityButtonContent}>Add Activity</Button>
+            <Button mode="contained" icon="plus-circle" onPress={() => setFabOpen(true)} style={styles.addActivityButton} contentStyle={styles.addActivityButtonContent}>Add Activity</Button>
             {activities.length ? (
               <View style={styles.timeline}>
                 {activities.map((item, index) => <ActivityItem key={item.id} item={item} last={index === activities.length - 1} />)}
@@ -632,6 +594,24 @@ export default function LeadDetailScreen() {
           </View>
         )}
       </ScrollView>
+
+      <FAB.Group
+        open={fabOpen}
+        visible={!keyboardHeight}
+        icon={fabOpen ? "close" : "plus"}
+        label={fabOpen ? "Add activity" : undefined}
+        onStateChange={({ open }) => setFabOpen(open)}
+        fabStyle={styles.fab}
+        color="#ffffff"
+        style={{ paddingBottom: insets.bottom + 76 }}
+        actions={[
+          { icon: "phone-outline", label: "Phone Call", onPress: () => setActivitySheet("call") },
+          { icon: "message-outline", label: "Message", onPress: () => setActivitySheet("message") },
+          { icon: "calendar-outline", label: "Meeting", onPress: () => setActivitySheet("meeting") },
+          { icon: "note-outline", label: "Note", onPress: () => setActivitySheet("note") },
+          { icon: "paperclip", label: "Attachment", onPress: addAttachment },
+        ]}
+      />
 
       <Modal visible={stageSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeStageSheet}>
         <Pressable style={styles.sheetBackdrop} onPress={closeStageSheet}>
@@ -777,25 +757,6 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={activityOptionsOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setActivityOptionsOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => setActivityOptionsOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Log an activity</Text>
-            <View style={styles.optionsList}>
-              {ACTIVITY_TYPES.map((item) => (
-                <List.Item
-                  key={item.key} title={item.label} titleStyle={styles.optionLabel}
-                  onPress={() => chooseActivityType(item.key)}
-                  right={() => <Ionicons name={item.icon} size={19} color={colors.textSecondary} />}
-                />
-              ))}
-            </View>
-            <Button mode="outlined" onPress={() => setActivityOptionsOpen(false)} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
       <Modal visible={emailSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !savingEmail && setEmailSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !savingEmail && setEmailSheetOpen(false)}>
           <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
@@ -822,49 +783,13 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={logSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !loggingActivity && setLogSheetOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => !loggingActivity && setLogSheetOpen(false)}>
-          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Log {ACTIVITY_TYPE_LABEL[logType]} Activity</Text>
-
-            {logError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{logError}</Text></View> : null}
-
-            {logType === "call" ? (
-              <>
-                <Text style={styles.sheetSectionLabel}>Call Outcome <Text style={styles.required}>*</Text></Text>
-                <RadioButton.Group value={logOutcome} onValueChange={setLogOutcome}>
-                  <View style={styles.radioList}>
-                    {CALL_OUTCOMES.map((option) => (
-                      <RadioButton.Item key={option} label={option} value={option} labelStyle={styles.radioLabel} style={styles.radioRow} />
-                    ))}
-                  </View>
-                </RadioButton.Group>
-              </>
-            ) : null}
-
-            <TextInput mode="outlined" label="Note" value={logNotes} onChangeText={setLogNotes} placeholder="Type a summary here…" style={styles.sheetField} />
-
-            <List.Item
-              title="Schedule next follow-up" titleStyle={styles.followupToggleText}
-              onPress={() => setLogShowFollowup((value) => !value)} style={styles.followupToggle}
-              left={() => <List.Icon icon={logShowFollowup ? "checkbox-marked" : "checkbox-blank-outline"} color={colors.primary} />}
-            />
-
-            {logShowFollowup ? (
-              <>
-                <Text style={styles.sheetSectionLabel}>Follow-Up Date &amp; Time</Text>
-                <DateTimeField value={logFollowupAt} onChange={setLogFollowupAt} minimumDate={new Date()} />
-              </>
-            ) : null}
-
-            <View style={styles.logActions}>
-              <Button mode="contained" onPress={saveActivityLog} loading={loggingActivity} disabled={loggingActivity} style={styles.logSaveButton} contentStyle={styles.sheetButtonContent}>Save Activity</Button>
-              <Button mode="text" onPress={() => setLogSheetOpen(false)} disabled={loggingActivity} style={styles.logCancelButton} contentStyle={styles.sheetButtonContent}>Cancel</Button>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <LeadActivitySheet
+        type={activitySheet}
+        leadId={lead.id}
+        leadName={lead.name}
+        onClose={() => setActivitySheet(null)}
+        onSaved={(type) => { if (type === "note") setNotesSignal((value) => value + 1); load(true); }}
+      />
     </View>
   );
 }
@@ -919,6 +844,7 @@ const styles = StyleSheet.create({
   twoUp: { flexDirection: "row", gap: 12 },
   twoUpItem: { flex: 1 },
 
+  fab: { backgroundColor: colors.primary },
   addActivityButton: { marginBottom: 20 },
   addActivityButtonContent: { height: 46 },
 
@@ -958,17 +884,10 @@ const styles = StyleSheet.create({
 
   chipRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
 
-  optionsList: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
-  optionLabel: { color: colors.text, fontSize: 15, fontWeight: "700" },
 
   radioList: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border },
   radioRow: { paddingVertical: 0 },
   radioLabel: { color: colors.text, fontSize: 14, fontWeight: "600" },
 
-  followupToggle: { marginTop: 16, paddingHorizontal: 0 },
-  followupToggleText: { color: colors.text, fontSize: 13, fontWeight: "700" },
 
-  logActions: { flexDirection: "row", gap: 10, marginTop: 20 },
-  logSaveButton: { flex: 1 },
-  logCancelButton: { flex: 1 },
 });

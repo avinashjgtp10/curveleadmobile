@@ -24,7 +24,7 @@ function dateText(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export function LeadNotes({ leadId, onAdded, onFormOpen }: { leadId: string; onAdded?: () => void; onFormOpen?: (form: View | null) => void }) {
+export function LeadNotes({ leadId, onAdded, onFormOpen, refreshSignal = 0 }: { leadId: string; onAdded?: () => void; onFormOpen?: (form: View | null) => void; refreshSignal?: number }) {
   const [notes, setNotes] = useState<LeadNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -43,7 +43,7 @@ export function LeadNotes({ leadId, onAdded, onFormOpen }: { leadId: string; onA
     finally { setLoading(false); }
   }, [leadId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, refreshSignal]);
   useEffect(() => { if (formOpen) onFormOpen?.(formRef.current); }, [formOpen, editingId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function openNew() { setEditingId(null); setType("general"); setText(""); setFieldError(""); setFormOpen(true); }
