@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Alert, Linking, Pressable, ScrollView, Share, StyleSheet, TextInput as RNTextInput, View, useWindowDimensions,
+  Alert, BackHandler, Linking, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput as RNTextInput, View, useWindowDimensions,
 } from "react-native";
 import { ActivityIndicator, Appbar, Button, Card, Chip, HelperText, IconButton, List, Searchbar, Text } from "react-native-paper";
 import axios from "axios";
@@ -25,10 +25,13 @@ function relativeTime(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const minutes = Math.floor((Date.now() - date.getTime()) / 60000);
-  if (minutes < 60) return `${Math.max(minutes, 0)}m ago`;
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -79,6 +82,9 @@ export default function TemplatesScreen() {
   const [leadQuery, setLeadQuery] = useState("");
   const [leadResults, setLeadResults] = useState<LeadListItem[]>([]);
   const [sending, setSending] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
   // `silent` refreshes the list in place (after save/delete/send) so the list keeps its scroll position.
   async function load(silent = false) {
@@ -86,7 +92,7 @@ export default function TemplatesScreen() {
     setError("");
     try { setTemplates(await fetchTemplates()); }
     catch (loadError) { setError(errorMessage(loadError, "Could not load templates.")); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setRefreshing(false); }
   }
 
   useEffect(() => { load(); }, []);
@@ -98,17 +104,34 @@ export default function TemplatesScreen() {
     return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
   }, [editOpen, sendOpen, navigation, insets.bottom]);
 
+  // The edit and send panels are overlays, so the system back button should close them instead of leaving the screen.
+  useEffect(() => {
+    if (!editOpen && !sendOpen) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (saving || sending) return true;
+      setEditOpen(false); setSendOpen(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [editOpen, sendOpen, saving, sending]);
+
   useEffect(() => {
     if (!sendOpen) return;
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (!leadQuery.trim()) { setLeadResults([]); return; }
+    setSearchError("");
+    if (!leadQuery.trim()) { setLeadResults([]); setSearching(false); return; }
     let cancelled = false;
+    setSearching(true);
     searchTimer.current = setTimeout(async () => {
       try {
         const { leads } = await fetchLeads({ search: leadQuery.trim(), limit: 6 });
         // A slower response for an older query must not replace the results of the current one.
         if (!cancelled) setLeadResults(leads);
-      } catch { /* best-effort */ }
+      } catch (searchFailure) {
+        if (!cancelled) { setLeadResults([]); setSearchError(errorMessage(searchFailure, "Could not search leads.")); }
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
     }, 300);
     return () => { cancelled = true; if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [leadQuery, sendOpen]);
@@ -163,7 +186,7 @@ export default function TemplatesScreen() {
   }
 
   function openSend(template: MessageTemplate) {
-    setSendTarget(template); setLeadQuery(""); setLeadResults([]); setSendOpen(true);
+    setSendTarget(template); setLeadQuery(""); setLeadResults([]); setSearchError(""); setSendOpen(true);
   }
 
   async function sendTo(lead: LeadListItem) {
@@ -207,12 +230,23 @@ export default function TemplatesScreen() {
           <Button mode="contained" onPress={() => load()} style={styles.retry}>Try again</Button>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(true); }} tintColor={colors.primary} colors={[colors.primary]} />}
+        >
           {templates.length ? templates.map((template) => {
+            const channel = CHANNELS.find((item) => item.key === template.channel) || CHANNELS[0];
             return (
               <Card key={template.id} mode="outlined" style={styles.card} onPress={() => openEdit(template)}>
                 <Card.Content>
                   <View style={styles.cardTopRow}>
+                    <View style={styles.cardTags}>
+                      <View style={[styles.channelTag, { backgroundColor: `${channel.color}1A` }]}>
+                        <Ionicons name={channel.icon} size={12} color={channel.color} />
+                        <Text style={[styles.channelTagText, { color: channel.color }]}>{channel.label}</Text>
+                      </View>
+                      {template.category ? <Text style={styles.categoryTag} numberOfLines={1}>{template.category}</Text> : null}
+                    </View>
                     <View style={styles.cardActions}>
                       <IconButton icon="send-outline" size={16} iconColor={colors.primary} style={styles.iconButton} onPress={() => openSend(template)} />
                       <IconButton icon="trash-can-outline" size={16} iconColor={colors.danger} style={styles.iconButton} onPress={() => confirmDelete(template)} />
@@ -290,13 +324,17 @@ export default function TemplatesScreen() {
               value={leadQuery} onChangeText={setLeadQuery} placeholder="Search & Select Lead"
               autoFocus elevation={0} style={styles.searchInput}
             />
-            {sending ? <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 14 }} /> : (
+            {sending || searching ? <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 14 }} /> : searchError ? (
+              <Text style={styles.searchMessageError}>{searchError}</Text>
+            ) : leadResults.length ? (
               <View style={styles.suggestions}>
                 {leadResults.map((lead) => (
                   <List.Item key={lead.id} title={lead.name} titleNumberOfLines={1} description={lead.phone} onPress={() => sendTo(lead)} />
                 ))}
               </View>
-            )}
+            ) : leadQuery.trim() ? (
+              <Text style={styles.searchMessage}>No leads found for &quot;{leadQuery.trim()}&quot;.</Text>
+            ) : null}
           </Pressable>
         </Pressable>
       ) : null}
@@ -314,7 +352,11 @@ const styles = StyleSheet.create({
   content: { padding: 18 },
 
   card: { marginBottom: 12 },
-  cardTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
+  cardTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  cardTags: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
+  channelTag: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  channelTagText: { fontSize: 11, fontWeight: "800" },
+  categoryTag: { flexShrink: 1, color: colors.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
   cardActions: { flexDirection: "row" },
   iconButton: { margin: 0 },
   cardName: { color: colors.text, fontSize: 16, fontWeight: "800", marginTop: 10 },
@@ -349,5 +391,7 @@ const styles = StyleSheet.create({
   sheetPrimaryButtonContent: { height: 48 },
 
   searchInput: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8 },
+  searchMessage: { color: colors.textMuted, fontSize: 13, textAlign: "center", marginTop: 16 },
+  searchMessageError: { color: colors.danger, fontSize: 13, textAlign: "center", marginTop: 16 },
   suggestions: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, marginTop: 10, overflow: "hidden" },
 });
