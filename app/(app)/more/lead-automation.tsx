@@ -170,6 +170,7 @@ export default function LeadAutomationScreen() {
   }
 
   function clearFilters() {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
     setSearch("");
     setQuery("");
     setStatusFilter("");
@@ -295,7 +296,14 @@ export default function LeadAutomationScreen() {
                 <Button mode="contained" onPress={() => load()} style={styles.retry}>Try again</Button>
               </View>
             ) : leads.length ? (
-              <View style={styles.leadsList}>
+              <View style={[styles.leadsList, loading && !loadingMore && styles.listBusy]} pointerEvents={loading && !loadingMore ? "none" : "auto"}>
+                {error ? (
+                  <View style={styles.errorBanner}>
+                    <Ionicons name="alert-circle-outline" size={18} color="#b91c1c" />
+                    <Text style={styles.errorBannerText} numberOfLines={2}>{error}</Text>
+                    <Pressable onPress={() => load()} hitSlop={8}><Text style={styles.errorBannerRetry}>Retry</Text></Pressable>
+                  </View>
+                ) : null}
                 {leads.map((lead) => <LeadCard key={lead.id} lead={lead} />)}
                 {page < pages ? (
                   <Pressable style={styles.loadMore} onPress={() => load(page + 1, true)} disabled={loadingMore}>
@@ -403,6 +411,10 @@ const styles = StyleSheet.create({
   clearText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
 
   leadsList: { gap: 10 },
+  listBusy: { opacity: 0.45 },
+  errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#fee2e2", borderRadius: 12, padding: 10 },
+  errorBannerText: { flex: 1, color: "#b91c1c", fontSize: 12 },
+  errorBannerRetry: { color: "#b91c1c", fontSize: 12, fontWeight: "800" },
   leadCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: "#e2eef7", padding: 12 },
   pressed: { backgroundColor: "#f4f9fc" },
   leadAvatar: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
