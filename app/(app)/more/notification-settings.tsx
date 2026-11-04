@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { FALLBACK_NOTIFICATION_GROUPS, NotificationGroup, fetchNotificationGroups } from "@/api/notifications";
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
-import { NotificationPermission, getNotificationPermission, requestNotificationPermission } from "@/notifications/push";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { NOTIFICATION_PREFS_CACHE_KEY, NotificationPermission, getNotificationPermission, requestNotificationPermission } from "@/notifications/push";
 
 const PHONE_STATUS: Record<NotificationPermission, { icon: keyof typeof Ionicons.glyphMap; title: string; hint: string; tone: string; bg: string }> = {
   granted: { icon: "notifications", title: "Phone notifications are on", hint: "Alerts will pop up on this phone.", tone: colors.success, bg: colors.successSoft },
@@ -15,6 +16,11 @@ const PHONE_STATUS: Record<NotificationPermission, { icon: keyof typeof Ionicons
   undetermined: { icon: "notifications-outline", title: "Phone notifications not set up", hint: "Allow notifications to get alerts on this phone.", tone: colors.primary, bg: colors.primarySoft },
   unsupported: { icon: "phone-portrait-outline", title: "Phone alerts unavailable here", hint: "They need the installed CurveLead app on a real phone, not Expo Go or the web.", tone: colors.textMuted, bg: "#f1f5f9" },
 };
+
+// push.ts reads this copy to decide whether to show on-device alerts, so the switches must be mirrored here.
+function cachePrefs(prefs: Record<string, boolean>) {
+  AsyncStorage.setItem(NOTIFICATION_PREFS_CACHE_KEY, JSON.stringify(prefs)).catch(() => {});
+}
 
 export default function NotificationSettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -48,6 +54,7 @@ export default function NotificationSettingsScreen() {
       const stored = preferences?.notification_prefs || {};
       setPrefs(stored);
       setSaved(stored);
+      cachePrefs(stored);
       setLoadFailed(false);
     } catch {
       // The switches still show (everything on) but saving is blocked until the real settings load.
@@ -68,6 +75,7 @@ export default function NotificationSettingsScreen() {
     try {
       await updatePreferences({ notification_prefs: prefs });
       setSaved(prefs);
+      cachePrefs(prefs);
       Alert.alert("Saved", "Your notification settings were updated.");
     } catch {
       Alert.alert("Couldn't save", "Please check your connection and try again.");
