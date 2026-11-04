@@ -203,10 +203,10 @@ export function AssignmentSection() {
     setSaving(true); setFormError("");
     const payload = {
       name: form.name.trim(), sources: form.sources, campaign_ids: form.campaign_ids, location_contains: form.location.trim(),
-      staff_ids: form.target === "selected" ? form.staffIds : undefined,
-      assign_to_user_id: form.target === "user" ? form.userId : undefined,
-      assign_to_team_id: form.target === "team" ? form.teamId : undefined,
-      sequence_id: form.sequenceId || undefined,
+      staff_ids: form.target === "selected" ? form.staffIds : null,
+      assign_to_user_id: form.target === "user" ? form.userId : null,
+      assign_to_team_id: form.target === "team" ? form.teamId : null,
+      sequence_id: form.sequenceId || null,
     };
     try {
       if (editing) await updateAssignmentRule(editing.id, payload); else await createAssignmentRule(payload);
@@ -390,6 +390,12 @@ export function MessagingSection() {
 
   async function save() {
     if (!config) return;
+    if (config.inbound_reply_rules.some((rule) => (rule.trigger === "keyword" && !rule.keyword?.trim()) || !rule.value?.trim())) {
+      setSaveError("Each inbound reply rule needs a keyword (for keyword rules) and a reply or template name."); return;
+    }
+    if (config.canned_replies.some((reply) => !reply.name.trim() || !reply.text.trim())) {
+      setSaveError("Each canned reply needs a shortcut name and reply text."); return;
+    }
     setSaving(true); setSaveError(""); setSaved(false);
     try { await saveFeatureConfig(config); setSaved(true); }
     catch (saveFailure) { setSaveError(errorMessage(saveFailure, "Save failed.")); }
