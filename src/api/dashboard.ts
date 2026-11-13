@@ -1,13 +1,21 @@
 import axios from "axios";
 import { apiClient, isNetworkError } from "@/api/client";
 
-export type DashboardPeriod = "today" | "last_7_days" | "last_30_days";
+export type DashboardPeriod = "today" | "this_week" | "last_7_days" | "this_month" | "last_30_days";
 
-function localDate(daysAgo = 0) {
-  const date = new Date();
-  date.setDate(date.getDate() - daysAgo);
+function localYmd(date: Date) {
   const offset = date.getTimezoneOffset();
   return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 10);
+}
+
+// The calendar range of each choice, worked out from the phone's real date. Weeks start on Monday.
+function rangeFor(period: DashboardPeriod) {
+  const from = new Date();
+  if (period === "this_week") from.setDate(from.getDate() - ((from.getDay() + 6) % 7));
+  else if (period === "last_7_days") from.setDate(from.getDate() - 6);
+  else if (period === "this_month") from.setDate(1);
+  else if (period === "last_30_days") from.setDate(from.getDate() - 29);
+  return { date_from: localYmd(from), date_to: localYmd(new Date()) };
 }
 
 export interface DashboardStage {
@@ -59,11 +67,9 @@ export interface DashboardSummary {
 }
 
 export async function fetchDashboard(period: DashboardPeriod) {
-  const daysAgo = period === "today" ? 0 : period === "last_7_days" ? 6 : 29;
   const params = {
     period: "custom",
-    date_from: localDate(daysAgo),
-    date_to: localDate(),
+    ...rangeFor(period),
   };
   try {
     const { data } = await apiClient.get<DashboardSummary>("/reports/summary", {

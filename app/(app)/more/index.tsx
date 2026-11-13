@@ -11,57 +11,23 @@ import { usePermission } from "@/hooks/usePermission";
 import { fetchStaff } from "@/api/staff";
 import { fetchPlans } from "@/api/billing";
 import { UserRole } from "@/types";
+import { APP_TOOLS, TOOL_TONES, ToolGroup, AppTool, toolVisible } from "@/navigation/appTools";
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
 // Palette of the redesigned More screen: lavender page, white cards, blue accents.
 const UI = { bg: "#eef1fa", line: "#e4e9f3", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", blue: "#2457e6", navy: "#1d4ed8", green: "#0f7b5f", red: "#d6334f" };
 
-interface Tint { bg: string; fg: string }
-const TINT = {
-  blue: { bg: "#dbe5fb", fg: "#2457e6" },
-  purple: { bg: "#e7dffb", fg: "#6d4fd6" },
-  pink: { bg: "#fde1ea", fg: "#d6336c" },
-  orange: { bg: "#fde9c9", fg: "#c2710c" },
-  green: { bg: "#d8f0e5", fg: "#0f7b5f" },
-  gray: { bg: "#e5e9f2", fg: "#475569" },
-} satisfies Record<string, Tint>;
-
 interface Item {
-  icon: IconName;
+  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   href: string;
-  tint: Tint;
-  roles?: UserRole[]; // undefined = visible to everyone
+  tint: { bg: string; fg: string };
 }
 
-// Same destinations as before, grouped like the design.
-const TOOLS: Item[] = [
-  { icon: "git-network-outline", label: "Lead Automation", href: "/(app)/more/lead-automation", tint: TINT.blue },
-  { icon: "albums-outline", label: "Content Library", href: "/(app)/content", tint: TINT.purple },
-  { icon: "trending-up-outline", label: "Ads Manager", href: "/(app)/more/campaigns", tint: TINT.pink },
-  { icon: "star-outline", label: "AI Tools", href: "/(app)/more/market-ai", tint: TINT.orange },
-  { icon: "document-text-outline", label: "Quotations", href: "/(app)/more/quotations", tint: TINT.green },
-  { icon: "folder-open-outline", label: "Brochures", href: "/(app)/more/brochures", tint: TINT.green },
-];
-
-const MANAGE: Item[] = [
-  { icon: "chatbox-ellipses-outline", label: "Message Templates", href: "/(app)/more/templates", tint: TINT.green },
-  { icon: "person-add-outline", label: "Team", href: "/(app)/more/team", tint: TINT.purple, roles: ["admin", "super_admin"] },
-  { icon: "power-outline", label: "Integrations", href: "/(app)/more/integrations", tint: TINT.blue, roles: ["admin", "super_admin"] },
-  { icon: "bar-chart-outline", label: "Reports", href: "/(app)/more/reports", tint: TINT.green },
-  { icon: "card-outline", label: "Billing", href: "/(app)/more/billing", tint: TINT.blue, roles: ["admin", "super_admin"] },
-  { icon: "shield-checkmark-outline", label: "Super Admin", href: "/(app)/more/super-admin", tint: TINT.gray, roles: ["super_admin"] },
-];
-
-const PREFERENCES: Item[] = [
-  { icon: "settings-outline", label: "Settings", href: "/(app)/more/settings", tint: TINT.gray },
-  { icon: "notifications-outline", label: "Notification Settings", href: "/(app)/more/notification-settings", tint: TINT.orange },
-  { icon: "language-outline", label: "Language", href: "/(app)/more/language", tint: TINT.orange },
-  { icon: "bulb-outline", label: "Submit Feedback", href: "/(app)/more/feedback", tint: TINT.pink },
-  { icon: "help-circle-outline", label: "Help & Support", href: "/(app)/more/help-support", tint: TINT.green },
-  { icon: "person-outline", label: "Account", href: "/(app)/more/account", tint: TINT.gray },
-];
+// The tools come from the shared list, so this menu always offers the same features as the dashboard grid.
+const toItem = (tool: AppTool): Item => ({ icon: tool.icon, label: tool.label, href: tool.href, tint: TOOL_TONES[tool.tone] });
+const toolsIn = (group: ToolGroup, role?: UserRole) => APP_TOOLS.filter((tool) => tool.group === group && toolVisible(tool, role)).map(toItem);
 
 function dateText(value?: string | null) {
   if (!value) return "";
@@ -127,7 +93,8 @@ export default function MoreScreen() {
   }, [isAdmin, planName]));
 
   function open(item: Item) { router.push(item.href as never); }
-  const visible = (items: Item[]) => items.filter((item) => !item.roles || can(item.roles));
+  const role = user?.role;
+  const agentTool = APP_TOOLS.find((tool) => tool.group === "agent");
 
   const businessName = tenant?.name || user?.name || "Account";
   const roleLabel = user ? (user.role === "super_admin" ? "Super Admin" : user.role === "admin" ? "Admin" : "Staff") : "";
@@ -190,7 +157,7 @@ export default function MoreScreen() {
         ) : null}
 
         <Text style={styles.section}>{t("TOOLS")}</Text>
-        <Pressable style={styles.agentBanner} onPress={() => router.push("/(app)/more/ai-tools" as never)} accessibilityRole="button" accessibilityLabel="AI Agent">
+        <Pressable style={styles.agentBanner} onPress={() => router.push((agentTool?.href || "/(app)/more/ai-tools") as never)} accessibilityRole="button" accessibilityLabel="AI Agent">
           <View style={styles.agentIcon}><Ionicons name="sparkles-outline" size={20} color="#fff" /></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.agentTitle}>{t("AI Agent")}</Text>
@@ -199,14 +166,14 @@ export default function MoreScreen() {
           <Ionicons name="chevron-forward" size={18} color="#fff" />
         </Pressable>
         <View style={styles.toolGrid}>
-          {visible(TOOLS).map((item) => <ToolTile key={item.label} item={item} onPress={() => open(item)} />)}
+          {toolsIn("tools", role).map((item) => <ToolTile key={item.label} item={item} onPress={() => open(item)} />)}
         </View>
 
         <Text style={styles.section}>{t("MANAGE")}</Text>
-        <RowList items={visible(MANAGE)} onOpen={open} />
+        <RowList items={toolsIn("manage", role)} onOpen={open} />
 
         <Text style={styles.section}>{t("PREFERENCES")}</Text>
-        <RowList items={visible(PREFERENCES)} onOpen={open} />
+        <RowList items={toolsIn("preferences", role)} onOpen={open} />
 
         <Pressable
           style={styles.logout} accessibilityRole="button" accessibilityLabel="Log out"

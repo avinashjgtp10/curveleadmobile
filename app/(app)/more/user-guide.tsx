@@ -1,10 +1,13 @@
-import React, { Fragment } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Card, Text } from "react-native-paper";
+import React, { Fragment, useEffect, useState } from "react";
+import { BackHandler, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
+
+// Palette shared with the other redesigned screens: pale blue page, white cards, deep teal-blue links.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7" };
 
 interface GuideTopic {
   key: string;
@@ -215,88 +218,132 @@ function RichText({ text, style }: { text: string; style?: object }) {
   );
 }
 
-function GuideTopicCard({ topic }: { topic: GuideTopic }) {
+// "Your daily starting point — what needs attention today" reads as a heading plus a line; without a dash the
+// topic's own title is the heading and the paragraph stays as the line.
+function splitIntro(topic: GuideTopic) {
+  const first = topic.paragraphs?.[0] || "";
+  const dash = first.indexOf(" — ");
+  if (dash > 0 && dash < 60) {
+    const rest = first.slice(dash + 3).trim();
+    return { heading: first.slice(0, dash).trim(), lead: rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : "", more: topic.paragraphs?.slice(1) || [] };
+  }
+  return { heading: topic.title, lead: first, more: topic.paragraphs?.slice(1) || [] };
+}
+
+function GuideTopicDetail({ topic }: { topic: GuideTopic }) {
+  const { heading, lead, more } = splitIntro(topic);
   return (
-    <Card mode="outlined" style={styles.card}>
-      <Card.Content>
-        <View style={styles.topicHeader}>
-          <View style={styles.topicIcon}><Ionicons name={topic.icon} size={18} color="#7c3aed" /></View>
-          <Text style={styles.topicTitle}>{topic.title}</Text>
+    <View style={styles.card}>
+      <Text style={styles.detailHeading}>{heading}</Text>
+      {lead ? <RichText text={lead} style={styles.paragraph} /> : null}
+      {more.map((paragraph, index) => <RichText key={index} text={paragraph} style={styles.paragraph} />)}
+
+      {topic.bullets ? (
+        <View style={styles.bulletList}>
+          {topic.bullets.map((bullet, index) => (
+            <View key={index} style={styles.bulletRow}>
+              <View style={styles.bulletDot} />
+              <RichText text={bullet} style={styles.bulletText} />
+            </View>
+          ))}
         </View>
+      ) : null}
 
-        {topic.paragraphs?.map((paragraph, index) => (
-          <RichText key={index} text={paragraph} style={styles.paragraph} />
-        ))}
-
-        {topic.bullets ? (
-          <View style={styles.bulletList}>
-            {topic.bullets.map((bullet, index) => (
-              <View key={index} style={styles.bulletRow}>
-                <View style={styles.bulletDot} />
-                <RichText text={bullet} style={styles.bulletText} />
-              </View>
-            ))}
-          </View>
-        ) : null}
-
-        {topic.warning ? (
-          <View style={styles.warningBox}>
-            <Ionicons name="warning-outline" size={15} color={colors.warning} />
-            <RichText text={topic.warning} style={styles.warningText} />
-          </View>
-        ) : null}
-      </Card.Content>
-    </Card>
+      {topic.warning ? (
+        <View style={styles.warningBox}>
+          <Ionicons name="warning-outline" size={15} color={colors.warning} />
+          <RichText text={topic.warning} style={styles.warningText} />
+        </View>
+      ) : null}
+    </View>
   );
 }
 
 export default function UserGuideScreen() {
   const insets = useSafeAreaInsets();
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const openTopic = openKey ? GUIDE_GROUPS.flatMap((group) => group.topics).find((topic) => topic.key === openKey) : undefined;
+
+  // Back from a topic returns to the list of topics, not out of the guide.
+  function goBack() {
+    if (openTopic) setOpenKey(null);
+    else router.back();
+  }
+  useEffect(() => {
+    if (!openTopic) return undefined;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { setOpenKey(null); return true; });
+    return () => sub.remove();
+  }, [openTopic]);
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="User Guide" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={goBack} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle} numberOfLines={1}>{openTopic ? openTopic.title : "User guide"}</Text>
+      </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
-        {GUIDE_GROUPS.map((group) => (
-          <View key={group.title} style={styles.group}>
-            <Text style={styles.groupTitle}>{group.title.toUpperCase()}</Text>
-            <View style={styles.groupTopics}>
-              {group.topics.map((topic) => <GuideTopicCard key={topic.key} topic={topic} />)}
+        {openTopic ? (
+          <GuideTopicDetail topic={openTopic} />
+        ) : (
+          GUIDE_GROUPS.map((group) => (
+            <View key={group.title} style={styles.group}>
+              <Text style={styles.groupTitle}>{group.title.toUpperCase()}</Text>
+              <View style={styles.list}>
+                {group.topics.map((topic, index) => (
+                  <View key={topic.key}>
+                    <Pressable style={({ pressed }) => [styles.row, pressed && { backgroundColor: "#f5f9fc" }]} onPress={() => setOpenKey(topic.key)} accessibilityRole="button">
+                      <View style={styles.rowIcon}><Ionicons name={topic.icon} size={16} color={UI.teal} /></View>
+                      <Text style={styles.rowTitle}>{topic.title}</Text>
+                      <Ionicons name="chevron-forward" size={16} color={UI.muted} />
+                    </Pressable>
+                    {index < group.topics.length - 1 ? <View style={styles.divider} /> : null}
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
-        ))}
+          ))
+        )}
+
+        <Pressable style={styles.stuckCard} onPress={() => router.push("/(app)/more/help-support")} accessibilityRole="button">
+          <Text style={styles.stuckText}>Still stuck? Send a request</Text>
+          <Ionicons name="chevron-forward" size={18} color={UI.teal} />
+        </Pressable>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
-  content: { padding: 18, gap: 22 },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingBottom: 8 },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 18, fontFamily: "DMSans_700Bold" },
+  content: { paddingHorizontal: 16, paddingTop: 4, gap: 14 },
 
-  group: { gap: 12 },
-  groupTitle: { color: colors.textMuted, fontSize: 11, fontWeight: "800", letterSpacing: 0.6 },
-  groupTopics: { gap: 12 },
+  group: { gap: 8 },
+  groupTitle: { color: "#5b6a8c", fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 1.2, marginLeft: 2 },
+  list: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, overflow: "hidden" },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 13, paddingHorizontal: 14 },
+  rowIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center" },
+  rowTitle: { flex: 1, color: UI.ink, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  divider: { height: 1, backgroundColor: UI.line, marginLeft: 56 },
 
-  card: {},
-  topicHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
-  topicIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: "#ede9fe", alignItems: "center", justifyContent: "center" },
-  topicTitle: { color: colors.text, fontSize: 15, fontWeight: "800", flex: 1 },
+  card: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 16 },
+  detailHeading: { color: UI.ink, fontSize: 17, fontFamily: "DMSans_700Bold" },
+  paragraph: { color: UI.ink, fontSize: 13, lineHeight: 20, marginTop: 8 },
+  bold: { color: UI.ink, fontFamily: "Inter_700Bold" },
 
-  paragraph: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 },
-  bold: { color: colors.text, fontWeight: "800" },
+  bulletList: { marginTop: 14, gap: 14 },
+  bulletRow: { flexDirection: "row", gap: 10 },
+  bulletDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: UI.ink, marginTop: 8 },
+  bulletText: { flex: 1, color: UI.ink, fontSize: 13, lineHeight: 20 },
 
-  bulletList: { marginTop: 10, gap: 9 },
-  bulletRow: { flexDirection: "row", gap: 9 },
-  bulletDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.textMuted, marginTop: 7 },
-  bulletText: { flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
-
-  warningBox: { flexDirection: "row", gap: 8, marginTop: 12, padding: 10, borderRadius: 10, backgroundColor: colors.warningSoft },
+  warningBox: { flexDirection: "row", gap: 8, marginTop: 14, padding: 10, borderRadius: 10, backgroundColor: colors.warningSoft },
   warningText: { flex: 1, color: colors.warning, fontSize: 12, lineHeight: 17, fontWeight: "600" },
+
+  stuckCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, paddingHorizontal: 16, height: 52 },
+  stuckText: { color: UI.teal, fontSize: 13, fontFamily: "Inter_700Bold" },
 });

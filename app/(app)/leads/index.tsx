@@ -19,7 +19,7 @@ import { usePermission } from "@/hooks/usePermission";
 import { useStages } from "@/hooks/useStages";
 import { useT } from "@/i18n/LanguageContext";
 import { telUrl } from "@/api/phone";
-import { openLeadWhatsapp } from "@/api/openWhatsapp";
+import { openPhoneWhatsapp } from "@/api/openWhatsapp";
 import {
   bulkDeleteLeads, bulkUpdateLeads, fetchLeads, LeadListItem, trackContactActivity,
 } from "@/api/leads";
@@ -154,7 +154,7 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
     Linking.openURL(telUrl(lead.phone)).catch(() => Alert.alert("Unable to call", "Calling is not supported on this device."));
   }
   function openWhatsapp() {
-    openLeadWhatsapp(lead);
+    openPhoneWhatsapp(lead);
   }
   return (
     <Pressable

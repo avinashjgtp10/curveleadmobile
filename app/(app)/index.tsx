@@ -16,10 +16,21 @@ import { facebookSyncLeads } from "@/api/integrations";
 import { fetchNotifications, notifyLeadsAdded } from "@/api/notifications";
 import { fetchByStaff, StaffPerformance } from "@/api/reports";
 import { rateLimitRemainingMs } from "@/api/client";
+import { APP_TOOLS, TOOL_TONES } from "@/navigation/appTools";
+import { UserRole } from "@/types";
 import { setAppBadge } from "@/notifications/push";
 import { homeOrigin } from "@/navigation/homeOrigin";
 import { useAuth } from "@/contexts/AuthContext";
 import { useT } from "@/i18n/LanguageContext";
+
+// What the revenue card can show. Each one reloads the card's figures for that real calendar range.
+const PERIOD_OPTIONS: { key: DashboardPeriod; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "this_week", label: "This week" },
+  { key: "last_7_days", label: "Last 7 days" },
+  { key: "this_month", label: "This month" },
+  { key: "last_30_days", label: "Last 30 days" },
+];
 
 const LAST_SYNC_KEY = "meta_leads_last_sync";
 const META_SYNC_THROTTLE_MS = 2 * 60 * 1000;
@@ -178,31 +189,6 @@ function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowu
   );
 }
 
-function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
-  const { t } = useT();
-  const insights = [
-    { label: "Revenue", value: data.revenue_in_period, bg: "#d8f0e5", tint: UI.green },
-    { label: "Avg. deal", value: data.avg_deal_value, bg: "#e7dffb", tint: "#6d4fd6" },
-    { label: "Balance due", value: data.balance_due_in_period, bg: "#fde9c9", tint: "#c2710c" },
-  ];
-  return (
-    <Pressable style={styles.plainBlock} onPress={onPress} accessibilityRole="button">
-      <View style={styles.blockHeaderPlain}>
-        <Text style={styles.sectionTitle}>{t("Insights")}</Text>
-        <Text style={styles.blockMeta}>{t("Last 7 days")}</Text>
-      </View>
-      <View style={styles.insightsRow}>
-        {insights.map((item) => (
-          <View key={item.label} style={[styles.insightCard, { backgroundColor: item.bg }]}>
-            <Text style={[styles.insightLabel, { color: item.tint }]}>{t(item.label)}</Text>
-            <Text style={styles.insightValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>₹{fmt(item.value)}</Text>
-          </View>
-        ))}
-      </View>
-    </Pressable>
-  );
-}
-
 function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
   const { t } = useT();
   const items = [
@@ -233,6 +219,7 @@ function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress:
 }
 
 const MEMBER_TINTS = [{ bg: "#dbe8fb", fg: "#2457e6" }, { bg: "#e7dffb", fg: "#6d4fd6" }, { bg: "#fde9c9", fg: "#c2710c" }, { bg: "#d8f0e5", fg: "#0f7b5f" }];
+
 
 function TeamPerformanceCard({ team, onPress }: { team: StaffPerformance[]; onPress: () => void }) {
   const { t } = useT();
@@ -285,54 +272,14 @@ function TeamPerformanceCard({ team, onPress }: { team: StaffPerformance[]; onPr
   );
 }
 
-interface GridItem { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; href: string; adminOnly?: boolean }
+interface GridItem { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; href: string; roles?: UserRole[] }
 
-const TONE = {
-  sky: { bg: colors.primarySoft, iconColor: colors.primary },
-  violet: { bg: "#ede9fe", iconColor: "#7c3aed" },
-  pink: { bg: "#fce7f3", iconColor: "#db2777" },
-  gray: { bg: "#e5e9ee", iconColor: "#475569" },
-  amber: { bg: colors.warningSoft, iconColor: colors.warning },
-  emerald: { bg: colors.successSoft, iconColor: colors.success },
-  indigo: { bg: "#e0e7ff", iconColor: "#4338ca" },
-};
-
-const GROW_BUSINESS: GridItem[] = [
-  { icon: "people-outline", label: "Leads", ...TONE.sky, href: "/(app)/leads" },
-  { icon: "folder-open-outline", label: "Brochures", ...TONE.amber, href: "/(app)/more/brochures" },
-  { icon: "trending-up-outline", label: "Ads Manager", ...TONE.emerald, href: "/(app)/more/campaigns" },
-  { icon: "sparkles", label: "AI Agent", ...TONE.violet, badges: [{ text: "AI", bg: "#7c3aed" }], href: "/(app)/more/ai-tools" },
-  { icon: "logo-whatsapp", label: "WhatsApp", ...TONE.emerald, href: "/(app)/more/whatsapp" },
-  { icon: "location-outline", label: "GMB", ...TONE.pink, href: "/(app)/more/gmb" },
-  { icon: "calendar-outline", label: "Appointments", ...TONE.sky, href: "/(app)/more/appointments" },
-];
-
-const MANAGE_BUSINESS: GridItem[] = [
-  { icon: "document-text-outline", label: "Quotations", ...TONE.violet, href: "/(app)/more/quotations" },
-  { icon: "git-network-outline", label: "Lead Automation", ...TONE.emerald, href: "/(app)/more/lead-automation" },
-  { icon: "people-outline", label: "Team", ...TONE.pink, href: "/(app)/more/team", adminOnly: true },
-  { icon: "bar-chart-outline", label: "Reports", ...TONE.gray, href: "/(app)/more/reports" },
-  { icon: "school-outline", label: "Sales Coaching", ...TONE.amber, href: "/(app)/more/sales-coaching" },
-  { icon: "globe-outline", label: "Market AI", ...TONE.indigo, badges: [{ text: "AI", bg: "#7c3aed" }], href: "/(app)/more/market-ai" },
-  { icon: "extension-puzzle-outline", label: "Integrations", ...TONE.violet, href: "/(app)/more/integrations", adminOnly: true },
-  { icon: "card-outline", label: "Billing", ...TONE.sky, href: "/(app)/more/billing", adminOnly: true },
-  { icon: "settings-outline", label: "Settings", ...TONE.gray, href: "/(app)/more/settings" },
-  { icon: "help-buoy-outline", label: "Help & Support", ...TONE.indigo, href: "/(app)/more/help-support" },
-  { icon: "help-circle-outline", label: "User Guide", ...TONE.amber, href: "/(app)/more/user-guide" },
-];
-
-const OTHER_DESTINATIONS: GridItem[] = [
-  { icon: "chatbox-ellipses-outline", label: "Message Templates", ...TONE.sky, href: "/(app)/more/templates" },
-  { icon: "notifications-outline", label: "Notifications", ...TONE.sky, href: "/(app)/notifications" },
-  { icon: "options-outline", label: "Notification Settings", ...TONE.emerald, href: "/(app)/more/notification-settings" },
-  { icon: "lock-closed-outline", label: "Security", ...TONE.violet, href: "/(app)/more/security" },
-  { icon: "language-outline", label: "Language", ...TONE.amber, href: "/(app)/more/language" },
-  { icon: "person-circle-outline", label: "Account", ...TONE.emerald, href: "/(app)/more/account" },
-  { icon: "bulb-outline", label: "Submit Feedback", ...TONE.pink, href: "/(app)/more/feedback" },
-  { icon: "albums-outline", label: "Content Library", ...TONE.indigo, href: "/(app)/content" },
-];
-
-const SEARCH_ITEMS: GridItem[] = [...GROW_BUSINESS, ...MANAGE_BUSINESS, ...OTHER_DESTINATIONS];
+// Every tool of the app, from the shared list that the More menu also uses.
+const ALL_TOOLS: GridItem[] = APP_TOOLS.map((tool) => ({
+  icon: tool.icon, label: tool.label, href: tool.href, roles: tool.roles,
+  bg: TOOL_TONES[tool.tone].bg, iconColor: TOOL_TONES[tool.tone].fg,
+  badges: tool.badge ? [{ text: tool.badge, bg: "#7c3aed" }] : undefined,
+}));
 
 function openGridItem(item: GridItem) {
   // Features under More open inside the More tab's stack; remember they came from Home so Back returns here
@@ -341,7 +288,7 @@ function openGridItem(item: GridItem) {
   router.push(item.href as never);
 }
 
-const SHORT_LABEL: Record<string, string> = { "Lead Automation": "Automation", "Sales Coaching": "Coaching" };
+const SHORT_LABEL: Record<string, string> = { "Lead Automation": "Automation", "Sales Coaching": "Coaching", "WhatsApp Templates": "WA Templates", "Notification Settings": "Alerts" };
 
 function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; onPress: () => void }) {
   const { t } = useT();
@@ -403,10 +350,15 @@ export default function DashboardScreen() {
   const { user, tenant } = useAuth();
   // Team, Integrations and Billing are admin-only (the More menu already hides them from staff).
   const canManage = user?.role === "admin" || user?.role === "super_admin";
-  const manageItems = MANAGE_BUSINESS.filter((item) => canManage || !item.adminOnly);
-  const searchItems = SEARCH_ITEMS.filter((item) => canManage || !item.adminOnly);
+  // The "Manage your business" grid shows every tool, in the order of the workspace menu: Leads first, User Guide last.
+  // The grid and the search offer every tool this person may use (Team, Integrations and Billing are admin-only).
+  const visibleTools = ALL_TOOLS.filter((item) => !item.roles || (!!user?.role && item.roles.includes(user.role)));
+  const manageItems = visibleTools;
+  const searchItems = visibleTools;
   const insets = useSafeAreaInsets();
-  const period: DashboardPeriod = "last_7_days";
+  const [period, setPeriod] = useState<DashboardPeriod>("last_7_days");
+  const [periodOpen, setPeriodOpen] = useState(false);
+  const periodLabel = PERIOD_OPTIONS.find((item) => item.key === period)?.label || "Last 7 days";
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [upcomingFollowups, setUpcomingFollowups] = useState<TodayFollowup[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
@@ -633,9 +585,19 @@ export default function DashboardScreen() {
             <View style={styles.revenueCard}>
               <View style={styles.revenueTop}>
                 <Text style={styles.revenueLabel}>{t("Total revenue")}</Text>
-                <View style={styles.periodPill}><Text style={styles.periodPillText}>{t("Last 7 days")}</Text></View>
+                <Pressable style={styles.periodPill} onPress={() => setPeriodOpen(true)} accessibilityRole="button" accessibilityLabel={`Period: ${periodLabel}`}>
+                  <Text style={styles.periodPillText}>{t(periodLabel)}</Text>
+                  <Ionicons name="chevron-down" size={12} color="#d8f0e5" />
+                </Pressable>
               </View>
               <Text style={styles.revenueValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>₹{fmt(data.revenue_in_period)}</Text>
+              {data.is_fallback ? (
+                <Text style={styles.revenueHint}>Revenue isn't available from the server right now, so it shows 0.</Text>
+              ) : data.revenue_in_period === 0 && (data.won_in_period || 0) === 0 ? (
+                <Text style={styles.revenueHint}>No leads were won in this period. Mark a lead as Won and add its Expected Value to see revenue.</Text>
+              ) : data.revenue_in_period === 0 ? (
+                <Text style={styles.revenueHint}>Your won leads have no Expected Value yet. Add one on each lead to count it as revenue.</Text>
+              ) : null}
               <View style={styles.revenueTiles}>
                 <View style={styles.revenueTile}>
                   <Text style={styles.revenueTileLabel}>{t("Avg. deal")}</Text>
@@ -663,7 +625,6 @@ export default function DashboardScreen() {
             </View>
 
             <TodayActivityCard data={data} onPress={() => router.push("/(app)/leads")} />
-            <InsightsCard data={data} onPress={() => router.push("/(app)/more/reports")} />
             <PipelineCard stages={data.pipeline || []} onPress={() => router.push("/(app)/leads")} />
             {team?.length ? <TeamPerformanceCard team={team} onPress={() => router.push("/(app)/more/reports")} /> : null}
             <AttentionCard count={attentionCount} onPress={() => router.push("/(app)/followups")} />
@@ -697,6 +658,23 @@ export default function DashboardScreen() {
           </>
         ) : null}
       </ScrollView>
+
+      <Modal visible={periodOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setPeriodOpen(false)}>
+        <Pressable style={styles.periodBackdrop} onPress={() => setPeriodOpen(false)}>
+          <Pressable style={styles.periodCard} onPress={() => {}}>
+            <Text style={styles.periodTitle}>{t("Show revenue for")}</Text>
+            {PERIOD_OPTIONS.map((item) => {
+              const active = item.key === period;
+              return (
+                <Pressable key={item.key} style={[styles.periodItem, active && styles.periodItemActive]} onPress={() => { setPeriod(item.key); setPeriodOpen(false); }} accessibilityRole="button">
+                  <Text style={[styles.periodItemText, active && styles.periodItemTextActive]}>{t(item.label)}</Text>
+                  {active ? <Ionicons name="checkmark" size={16} color={UI.green} /> : null}
+                </Pressable>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal visible={searchOpen} animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setSearchOpen(false)}>
         <View style={[styles.searchScreen, { paddingTop: insets.top + 12 }]}>
@@ -793,8 +771,16 @@ const styles = StyleSheet.create({
   revenueCard: { marginHorizontal: 16, marginBottom: 16, padding: 16, borderRadius: 18, backgroundColor: UI.greenDark },
   revenueTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   revenueLabel: { color: "#b8d8cc", fontSize: 11, fontFamily: "Inter_500Medium" },
-  periodPill: { backgroundColor: UI.greenMid, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  periodPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: UI.greenMid, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  periodBackdrop: { flex: 1, backgroundColor: "rgba(15,23,42,0.4)", justifyContent: "center", paddingHorizontal: 40 },
+  periodCard: { backgroundColor: "#ffffff", borderRadius: 16, paddingVertical: 8 },
+  periodTitle: { color: UI.sub, fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.6, textTransform: "uppercase", paddingHorizontal: 16, paddingVertical: 8 },
+  periodItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 13 },
+  periodItemActive: { backgroundColor: "#d8f0e5" },
+  periodItemText: { color: UI.ink, fontSize: 14, fontFamily: "Inter_500Medium" },
+  periodItemTextActive: { color: UI.green, fontFamily: "Inter_700Bold" },
   periodPillText: { color: "#d8f0e5", fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  revenueHint: { color: "#b8d8cc", fontSize: 10, lineHeight: 15, marginTop: -8, marginBottom: 12 },
   revenueValue: { color: "#ffffff", fontSize: 30, fontFamily: "DMSans_700Bold", marginTop: 6, marginBottom: 14 },
   revenueTiles: { flexDirection: "row", gap: 8 },
   revenueTile: { flex: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 9, backgroundColor: UI.greenMid },
@@ -824,9 +810,6 @@ const styles = StyleSheet.create({
   activityLabel: { color: UI.sub, fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 1 },
 
   insightsRow: { flexDirection: "row", gap: 8 },
-  insightCard: { flex: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 9 },
-  insightLabel: { fontSize: 10, fontFamily: "Inter_700Bold" },
-  insightValue: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold", marginTop: 6 },
 
   pipelineList: { marginTop: 2 },
   pipelineRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },

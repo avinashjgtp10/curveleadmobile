@@ -509,7 +509,7 @@ export default function LeadDetailScreen() {
       <ScrollView
         ref={scrollRef} keyboardShouldPersistTaps="handled" scrollEventThrottle={16}
         onScroll={(event) => { scrollY.current = event.nativeEvent.contentOffset.y; }}
-        contentContainerStyle={{ paddingBottom: insets.bottom + (tab === "activities" ? 150 : 60) + keyboardHeight }} showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 150 + keyboardHeight }} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={UI.blue} colors={[UI.blue]} />}
       >
         {error ? <Pressable style={styles.warning} onPress={() => notFound ? router.back() : load()}><Text style={styles.warningText}>{notFound ? "This lead no longer exists — it may have been deleted. Tap to go back." : "Some details couldn't be refreshed. Tap to retry."}</Text></Pressable> : null}
@@ -692,7 +692,7 @@ export default function LeadDetailScreen() {
         )}
       </ScrollView>
 
-      {tab === "activities" && !keyboardHeight ? (
+      {!keyboardHeight ? (
         <Pressable style={[styles.addActivityFab, { bottom: fabBottom }]} onPress={() => setFabOpen(true)} accessibilityRole="button" accessibilityLabel="Add activity">
           <Text style={styles.addActivityFabText}>Add activity</Text>
           <Ionicons name="add" size={20} color="#fff" />
