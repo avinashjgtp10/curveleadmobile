@@ -3,7 +3,8 @@ import {
   Alert, KeyboardAvoidingView, Modal, Platform, Pressable,
   ScrollView, StyleSheet, TextInput as RNTextInput, View,
 } from "react-native";
-import { Appbar, Button, HelperText, IconButton, List, Text } from "react-native-paper";
+import { Button, HelperText, IconButton, List, Text } from "react-native-paper";
+import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,6 +14,9 @@ import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { createLead, createLeadFollowup } from "@/api/leads";
 import { fetchStaff, StaffMember } from "@/api/staff";
 import { notifyLeadCreated } from "@/api/notifications";
+
+// Same palette as the Team and follow-up forms: pale blue page, white fields, deep teal-blue actions.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", red: "#d6334f" };
 
 const SOURCES = [
   { value: "manual", label: "Manual" },
@@ -65,7 +69,7 @@ function LabeledInput({ label, required, value, onChangeText, placeholder, error
       <View style={[styles.inputBox, multiline && styles.inputBoxMultiline, error && styles.inputError]}>
         <RNTextInput
           style={[styles.inputBoxText, multiline && styles.inputBoxTextMultiline]}
-          value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.textMuted}
+          value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={UI.muted}
           multiline={multiline} numberOfLines={numberOfLines} textAlignVertical={multiline ? "top" : "center"}
           {...inputProps}
         />
@@ -210,10 +214,12 @@ export default function NewLeadScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={closeForm} />
-        <Appbar.Content title="Add lead" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <Pressable onPress={closeForm} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>Add lead</Text>
+      </View>
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 120 }]}
@@ -240,7 +246,7 @@ export default function NewLeadScreen() {
           <RNTextInput
             ref={phoneRef} style={styles.phoneInput} value={form.phone}
             onChangeText={(value) => update("phone", value.replace(/[^\d\s()-]/g, ""))} placeholder="88888 88888"
-            placeholderTextColor={colors.textMuted} keyboardType="phone-pad" autoComplete="tel"
+            placeholderTextColor={UI.muted} keyboardType="phone-pad" autoComplete="tel"
             returnKeyType="done" onBlur={() => validateField("phone")} editable={!saving}
           />
         </View>
@@ -333,7 +339,7 @@ export default function NewLeadScreen() {
           titleStyle={styles.followupToggleText}
           onPress={() => setScheduleFollowup((value) => !value)}
           style={styles.followupToggle}
-          left={() => <List.Icon icon={scheduleFollowup ? "checkbox-marked" : "checkbox-blank-outline"} color={colors.primary} />}
+          left={() => <List.Icon icon={scheduleFollowup ? "checkbox-marked" : "checkbox-blank-outline"} color={UI.teal} />}
         />
 
         {scheduleFollowup ? (
@@ -349,8 +355,8 @@ export default function NewLeadScreen() {
       </ScrollView>
 
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-        <Button mode="outlined" onPress={closeForm} disabled={saving} textColor="#0f172a" style={styles.cancelButton} contentStyle={styles.bottomButtonContent} labelStyle={styles.bottomButtonLabel}>Cancel</Button>
-        <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} buttonColor="#0f172a" textColor="#ffffff" style={styles.saveButton} contentStyle={styles.bottomButtonContent} labelStyle={styles.bottomButtonLabel}>Create lead</Button>
+        <Button mode="outlined" onPress={closeForm} disabled={saving} textColor={UI.teal} style={styles.cancelButton} contentStyle={styles.bottomButtonContent} labelStyle={styles.bottomButtonLabel}>Cancel</Button>
+        <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} buttonColor={UI.teal} textColor="#ffffff" style={styles.saveButton} contentStyle={styles.bottomButtonContent} labelStyle={styles.bottomButtonLabel}>Create lead</Button>
       </View>
 
       <Modal visible={countryPickerOpen} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setCountryPickerOpen(false)}>
@@ -368,7 +374,7 @@ export default function NewLeadScreen() {
                   title={`${item.flag}  ${item.name}`}
                   description={item.dial}
                   onPress={() => { setCountry(item); setCountryPickerOpen(false); setFieldErrors((current) => ({ ...current, phone: undefined })); }}
-                  right={country.code === item.code ? (props) => <List.Icon {...props} icon="check" color={colors.primary} /> : undefined}
+                  right={country.code === item.code ? (props) => <List.Icon {...props} icon="check" color={UI.teal} /> : undefined}
                 />
               ))}
             </ScrollView>
@@ -381,34 +387,35 @@ export default function NewLeadScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f4f9fc" },
-  header: { backgroundColor: "#ffffff" },
-  headerTitle: { fontSize: 15, fontWeight: "700" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   content: { paddingHorizontal: 16, paddingTop: 10 },
   errorBanner: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 12, marginBottom: 12 }, errorBannerText: { color: colors.danger, fontSize: 12, fontWeight: "600", lineHeight: 18 },
-  label: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 7, marginTop: 16 },
-  required: { color: colors.danger },
-  inputError: { borderColor: colors.danger },
-  inputBox: { minHeight: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, justifyContent: "center" },
+  label: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold", marginBottom: 6, marginTop: 14 },
+  required: { color: UI.red },
+  inputError: { borderColor: UI.red },
+  inputBox: { minHeight: 46, borderRadius: 10, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, justifyContent: "center" },
   inputBoxMultiline: { paddingVertical: 12, minHeight: 84 },
-  inputBoxText: { color: colors.text, fontSize: 14 },
+  inputBoxText: { color: UI.ink, fontSize: 13 },
   inputBoxTextMultiline: { minHeight: 60 },
-  phoneField: { height: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: "row", alignItems: "center" }, countryButton: { height: "100%", flexDirection: "row", alignItems: "center", gap: 0, paddingLeft: 12, paddingRight: 2 }, countryFlag: { fontSize: 17 }, countryDial: { color: colors.text, fontSize: 13, fontWeight: "700", marginLeft: 5 }, countryChevron: { margin: 0 }, phoneDivider: { width: 1, height: 24, backgroundColor: colors.borderSoft }, phoneInput: { flex: 1, height: "100%", paddingHorizontal: 12, color: colors.text, fontSize: 14 },
-  assignField: { height: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  assignFieldText: { color: colors.text, fontSize: 14, fontWeight: "600" },
-  assignFieldPlaceholder: { color: colors.textMuted, fontSize: 14 },
-  dropdownFieldActive: { borderColor: colors.primary, borderWidth: 2 },
+  phoneField: { height: 46, borderRadius: 10, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center" }, countryButton: { height: "100%", flexDirection: "row", alignItems: "center", gap: 0, paddingLeft: 12, paddingRight: 2 }, countryFlag: { fontSize: 17 }, countryDial: { color: UI.ink, fontSize: 13, fontWeight: "700", marginLeft: 5 }, countryChevron: { margin: 0 }, phoneDivider: { width: 1, height: 24, backgroundColor: UI.line }, phoneInput: { flex: 1, height: "100%", paddingHorizontal: 12, color: UI.ink, fontSize: 13 },
+  assignField: { height: 46, borderRadius: 10, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  assignFieldText: { color: UI.ink, fontSize: 13, fontWeight: "600" },
+  assignFieldPlaceholder: { color: UI.muted, fontSize: 13 },
+  dropdownFieldActive: { borderColor: UI.teal, borderWidth: 2 },
   dropdownPanel: {
-    marginTop: 6, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft,
+    marginTop: 6, backgroundColor: "#ffffff", borderRadius: 10, borderWidth: 1, borderColor: UI.line,
     paddingVertical: 4, elevation: 4, shadowColor: "#0F172A", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 6 },
   },
   dropdownItem: { paddingHorizontal: 16, paddingVertical: 12 },
-  dropdownItemSelected: { backgroundColor: colors.primarySoft },
-  dropdownItemText: { color: colors.primary, fontSize: 14, fontWeight: "500" },
-  dropdownItemTextSelected: { color: colors.text, fontWeight: "700" },
+  dropdownItemSelected: { backgroundColor: UI.tealSoft },
+  dropdownItemText: { color: UI.ink, fontSize: 13, fontWeight: "500" },
+  dropdownItemTextSelected: { color: UI.teal, fontWeight: "700" },
   dropdownItemSubtext: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
-  followupToggle: { marginTop: 8, paddingHorizontal: 0 }, followupToggleText: { color: colors.text, fontSize: 13, fontWeight: "700" },
+  followupToggle: { marginTop: 8, paddingHorizontal: 0 }, followupToggleText: { color: UI.ink, fontSize: 13, fontWeight: "700" },
   followupPicker: { marginTop: 4, marginBottom: 8 },
-  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: "rgba(255,255,255,0.82)", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.65)" }, cancelButton: { width: 104, borderColor: "#0f172a", borderWidth: 1.5, backgroundColor: "#e2e8f0" }, saveButton: { flex: 1 }, bottomButtonContent: { height: 42 }, bottomButtonLabel: { fontWeight: "800" },
-  modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" }, countrySheet: { maxHeight: "74%", backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 9 }, sheetHandle: { width: 38, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginBottom: 13 }, sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: colors.borderSoft }, sheetTitle: { color: colors.text, fontSize: 17, fontWeight: "800" }, countryList: { paddingHorizontal: 8 },
+  bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: UI.bg, borderTopWidth: 1, borderTopColor: UI.line }, cancelButton: { width: 110, borderColor: UI.line, borderRadius: 999, backgroundColor: "#ffffff" }, saveButton: { flex: 1, borderRadius: 999 }, bottomButtonContent: { height: 44 }, bottomButtonLabel: { fontWeight: "800" },
+  modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" }, countrySheet: { maxHeight: "74%", backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 9 }, sheetHandle: { width: 38, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginBottom: 13 }, sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: UI.line }, sheetTitle: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" }, countryList: { paddingHorizontal: 8 },
 });

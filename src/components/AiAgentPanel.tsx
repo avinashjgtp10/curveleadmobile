@@ -2,16 +2,23 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Switch, Text } from "react-native-paper";
 import axios from "axios";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/theme";
 import {
   AiAgentState, AiKnowledge, AiReply, draftAiAgent, fetchAiAgent, fetchAiReplies, KNOWLEDGE_FIELDS, saveAiAgent,
 } from "@/api/aiAgent";
 
+// Palette of the redesigned screen: lavender page, white cards, blue actions, green "live" status.
+const UI = { bg: "#eef1fa", line: "#e4e9f3", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", blue: "#2457e6", green: "#0f7b5f", greenSoft: "#d8f0e5", red: "#d6334f" };
+
 const BUSINESS_TYPES = ["E-commerce", "Service Business", "Real Estate", "Restaurant", "Education", "Healthcare", "Other"];
 
 type Mode = "overview" | "setup" | "review";
+
+const KNOWS_TAGS: Record<string, string> = {
+  about: "About us", services_prices: "Services & prices", faqs: "FAQs", tone: "Tone", goal: "Main goal", never_say: "Boundaries", handoff_rules: "Hand-off rules",
+};
+const MAX_TAGS = 5;
 
 function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
@@ -47,10 +54,10 @@ function Field({ label, hint, value, onChangeText, lines = 1, placeholder, capit
 function PrimaryButton({ label, icon, onPress, busy }: { label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void; busy?: boolean }) {
   return (
     <Pressable onPress={onPress} disabled={busy} style={busy && styles.disabled}>
-      <LinearGradient colors={["#06b6d4", "#6366f1", "#d946ef"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
+      <View style={styles.primaryButton}>
         {busy ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name={icon} size={18} color="#fff" />}
         <Text style={styles.primaryText}>{label}</Text>
-      </LinearGradient>
+      </View>
     </Pressable>
   );
 }
@@ -72,6 +79,9 @@ export function AiAgentPanel() {
   const [agentName, setAgentName] = useState("");
   const [greeting, setGreeting] = useState("");
   const [setupError, setSetupError] = useState("");
+  const [showAllReplies, setShowAllReplies] = useState(false);
+  // "Looks good" is remembered for this visit only; there is no server call for it.
+  const [reviewed, setReviewed] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setError("");
@@ -142,7 +152,7 @@ export function AiAgentPanel() {
     }
   }
 
-  if (loading) return <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>;
+  if (loading) return <View style={styles.center}><ActivityIndicator color={UI.blue} /></View>;
 
   if (error && !state) {
     return (
@@ -159,7 +169,7 @@ export function AiAgentPanel() {
     return (
       <View style={styles.stack}>
         <Pressable style={styles.backRow} onPress={() => setMode(hasAgent ? "overview" : "setup")} hitSlop={8}>
-          <Ionicons name="arrow-back" size={18} color={colors.primary} />
+          <Ionicons name="arrow-back" size={18} color={UI.blue} />
           <Text style={styles.backText}>{hasAgent ? "Back" : "Back to setup"}</Text>
         </Pressable>
         <Text style={styles.sectionTitle}>{hasAgent ? "Edit training" : "Review before it goes live"}</Text>
@@ -180,7 +190,7 @@ export function AiAgentPanel() {
     return (
       <View style={styles.stack}>
         <View style={styles.introCard}>
-          <View style={styles.introIcon}><Ionicons name="hardware-chip-outline" size={26} color="#7c3aed" /></View>
+          <View style={styles.introIcon}><Ionicons name="hardware-chip-outline" size={24} color="#2457e6" /></View>
           <Text style={styles.introTitle}>Your WhatsApp AI Agent</Text>
           <Text style={styles.introText}>Give it your website. It learns your business, then answers leads on WhatsApp for you. You review everything before it goes live.</Text>
         </View>
@@ -219,44 +229,97 @@ export function AiAgentPanel() {
     );
   }
 
+  const enabled = !!state?.enabled;
+  const knowledge = state?.knowledge || {};
+  const filledTags = KNOWLEDGE_FIELDS.filter((field) => String(knowledge[field.key] || "").trim()).map((field) => KNOWS_TAGS[field.key] || field.label);
+  const shownTags = filledTags.slice(0, MAX_TAGS);
+  const moreTags = filledTags.length - shownTags.length;
+  const visibleReplies = showAllReplies ? replies.slice(0, 20) : replies.slice(0, 3);
+  const avatarColors = ["#c8294a", "#d98a0b", "#2457e6", "#0f7b5f", "#7c3aed"];
+  function editTraining() { setDraft({ ...(state?.knowledge || {}) }); setMode("review"); }
+
   return (
     <View style={styles.stack}>
-      <LinearGradient colors={state?.enabled ? ["#06b6d4", "#6366f1", "#d946ef"] : ["#94a3b8", "#64748b"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statusCard}>
+      <View style={[styles.statusCard, !enabled && styles.statusCardOff]}>
         <View style={styles.statusTop}>
-          <View style={styles.statusIcon}><Ionicons name="hardware-chip-outline" size={24} color="#fff" /></View>
+          <View style={[styles.statusIcon, !enabled && { backgroundColor: UI.muted }]}><Ionicons name="sparkles" size={20} color="#fff" /></View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.statusTitle}>AI Agent is {state?.enabled ? "ON" : "OFF"}</Text>
-            <Text style={styles.statusSub}>{state?.enabled ? "Answering your leads on WhatsApp" : "Turn on to auto-reply to leads"}</Text>
+            <Text style={styles.statusTitle}>AI Agent is {enabled ? "ON" : "OFF"}</Text>
+            <Text style={styles.statusSub}>{enabled ? "Answering your leads on WhatsApp" : "Turn on to auto-reply to leads"}</Text>
           </View>
-          <Switch value={!!state?.enabled} onValueChange={toggle} disabled={toggling} color="#ffffff" trackColor={{ true: "rgba(255,255,255,0.45)", false: "rgba(255,255,255,0.25)" }} />
+          <Switch value={enabled} onValueChange={toggle} disabled={toggling} color={UI.green} />
         </View>
-      </LinearGradient>
+        <View style={styles.statusPills}>
+          <View style={styles.statusPill}>
+            <View style={[styles.liveDot, !enabled && { backgroundColor: UI.muted }]} />
+            <Text style={styles.statusPillText}>{enabled ? "Live on WhatsApp" : "Not live"}</Text>
+          </View>
+          <View style={styles.statusPill}><Text style={styles.statusPillText}>{enabled ? "Auto-replies enabled" : "Auto-replies paused"}</Text></View>
+        </View>
+      </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>What it knows</Text>
+        <View style={styles.cardTitleRow}>
+          <View style={styles.cardIcon}><Ionicons name="bulb-outline" size={16} color={UI.blue} /></View>
+          <Text style={styles.cardTitle}>What it knows</Text>
+        </View>
         <Text style={styles.aboutText} numberOfLines={6}>{state?.knowledge.about}</Text>
+        {shownTags.length ? (
+          <View style={styles.tagRow}>
+            {shownTags.map((tag) => <View key={tag} style={styles.tag}><Text style={styles.tagText}>{tag}</Text></View>)}
+            {moreTags > 0 ? <View style={styles.tag}><Text style={styles.tagText}>+{moreTags} more</Text></View> : null}
+          </View>
+        ) : null}
         <View style={styles.actionRow}>
-          <Pressable style={styles.actionButton} onPress={() => { setDraft({ ...(state?.knowledge || {}) }); setMode("review"); }}>
-            <Ionicons name="create-outline" size={16} color={colors.primary} />
-            <Text style={styles.actionText}>Edit training</Text>
+          <Pressable style={[styles.actionButton, styles.actionPrimary]} onPress={editTraining} accessibilityRole="button">
+            <Ionicons name="create-outline" size={16} color="#fff" />
+            <Text style={[styles.actionText, { color: "#fff" }]}>Edit training</Text>
           </Pressable>
-          <Pressable style={styles.actionButton} onPress={() => setMode("setup")}>
-            <Ionicons name="refresh-outline" size={16} color={colors.primary} />
+          <Pressable style={[styles.actionButton, styles.actionLight]} onPress={() => setMode("setup")} accessibilityRole="button">
+            <Ionicons name="refresh-outline" size={16} color={UI.blue} />
             <Text style={styles.actionText}>Re-read website</Text>
           </Pressable>
         </View>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Recent AI replies</Text>
+        <View style={styles.repliesHeader}>
+          <Text style={styles.cardTitle}>Recent AI replies</Text>
+          {replies.length > 3 ? (
+            <Pressable onPress={() => setShowAllReplies((value) => !value)} hitSlop={8} accessibilityRole="button">
+              <Text style={styles.viewAll}>{showAllReplies ? "Show less" : "View all"}</Text>
+            </Pressable>
+          ) : null}
+        </View>
         <Text style={styles.cardHint}>Check these, then improve the training if something sounds off.</Text>
-        {replies.length ? replies.slice(0, 10).map((item) => (
-          <View key={item.id} style={styles.replyRow}>
-            <Text style={styles.replyMeta}>{item.lead_name} · {whenText(item.sent_at)}</Text>
-            {item.lead_message ? <View style={styles.bubbleIn}><Text style={styles.bubbleText}>{item.lead_message}</Text></View> : null}
-            <View style={styles.bubbleAi}><Text style={styles.bubbleText}>{item.reply}</Text></View>
-          </View>
-        )) : <Text style={styles.noneText}>No AI replies yet.</Text>}
+        {replies.length ? visibleReplies.map((item) => {
+          const done = reviewed.includes(item.id);
+          return (
+            <View key={item.id} style={styles.replyRow}>
+              <View style={styles.replyHead}>
+                <View style={[styles.replyAvatar, { backgroundColor: avatarColors[(item.lead_name?.charCodeAt(0) || 0) % avatarColors.length] }]}>
+                  <Text style={styles.replyAvatarText}>{(item.lead_name?.charAt(0) || "?").toUpperCase()}</Text>
+                </View>
+                <Text style={styles.replyName} numberOfLines={1}>{item.lead_name}</Text>
+                <Text style={styles.replyMeta}>{whenText(item.sent_at)}</Text>
+              </View>
+              {item.lead_message ? <View style={styles.bubbleIn}><Text style={styles.bubbleText}>{item.lead_message}</Text></View> : null}
+              <View style={styles.bubbleAi}><Text style={styles.bubbleAiText}>{item.reply}</Text></View>
+              {done ? (
+                <Text style={styles.reviewedText}>Marked as good</Text>
+              ) : (
+                <View style={styles.feedbackRow}>
+                  <Pressable style={[styles.feedbackButton, { backgroundColor: UI.greenSoft }]} onPress={() => setReviewed((current) => [...current, item.id])} accessibilityRole="button">
+                    <Text style={[styles.feedbackText, { color: UI.green }]}>Looks good</Text>
+                  </Pressable>
+                  <Pressable style={[styles.feedbackButton, { backgroundColor: "#fde9c9" }]} onPress={editTraining} accessibilityRole="button">
+                    <Text style={[styles.feedbackText, { color: "#b45f06" }]}>Needs fixing</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          );
+        }) : <Text style={styles.noneText}>No AI replies yet.</Text>}
       </View>
     </View>
   );
@@ -267,12 +330,12 @@ const styles = StyleSheet.create({
   center: { minHeight: 220, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, gap: 6 },
   centerTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
   centerText: { color: colors.textSecondary, fontSize: 12, textAlign: "center" },
-  retry: { marginTop: 8, backgroundColor: colors.primary, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 9 },
+  retry: { marginTop: 8, backgroundColor: UI.blue, borderRadius: 12, paddingHorizontal: 18, paddingVertical: 9 },
   retryText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   disabled: { opacity: 0.6 },
 
-  introCard: { alignItems: "center", backgroundColor: "#faf5ff", borderRadius: 22, borderWidth: 1, borderColor: "#ede9fe", padding: 20 },
-  introIcon: { width: 56, height: 56, borderRadius: 18, backgroundColor: "#ede9fe", alignItems: "center", justifyContent: "center" },
+  introCard: { alignItems: "center", backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 20 },
+  introIcon: { width: 52, height: 52, borderRadius: 16, backgroundColor: "#dbe5fb", alignItems: "center", justifyContent: "center" },
   introTitle: { color: colors.text, fontSize: 18, fontWeight: "900", marginTop: 12 },
   introText: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, textAlign: "center", marginTop: 6 },
 
@@ -281,43 +344,66 @@ const styles = StyleSheet.create({
 
   fieldLabel: { color: colors.text, fontSize: 13, fontWeight: "800", marginBottom: 4 },
   fieldHint: { color: colors.textMuted, fontSize: 11, marginBottom: 6 },
-  inputBox: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#f8fbfd", paddingHorizontal: 14, paddingVertical: 4, justifyContent: "center" },
+  inputBox: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, paddingVertical: 4, justifyContent: "center" },
   inputText: { color: colors.text, fontSize: 14, paddingVertical: 8 },
 
   pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 2 },
-  pill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#f4f9fc", borderWidth: 1, borderColor: "#d7e6f1" },
-  pillActive: { backgroundColor: "#6366f1", borderColor: "#6366f1" },
+  pill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
+  pillActive: { backgroundColor: UI.blue, borderColor: UI.blue },
   pillText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
   pillTextActive: { color: "#ffffff" },
 
-  primaryButton: { height: 52, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  primaryButton: { height: 48, borderRadius: 12, backgroundColor: UI.blue, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   primaryText: { color: "#ffffff", fontSize: 15, fontWeight: "800" },
   linkButton: { alignItems: "center", paddingVertical: 6 },
   linkText: { color: colors.textSecondary, fontSize: 14, fontWeight: "700" },
 
   backRow: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start" },
-  backText: { color: colors.primary, fontSize: 13, fontWeight: "800" },
+  backText: { color: UI.blue, fontSize: 13, fontWeight: "800" },
   sectionTitle: { color: colors.text, fontSize: 18, fontWeight: "900" },
   sectionHint: { color: colors.textSecondary, fontSize: 13, marginTop: -8 },
 
-  statusCard: { borderRadius: 22, padding: 16 },
+  statusCard: { borderRadius: 16, padding: 14, backgroundColor: "#d8f0e5", borderWidth: 1, borderColor: "#b7e0cb", gap: 12 },
+  statusCardOff: { backgroundColor: "#eceff5", borderColor: UI.line },
   statusTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  statusIcon: { width: 46, height: 46, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.22)", alignItems: "center", justifyContent: "center" },
-  statusTitle: { color: "#fff", fontSize: 17, fontWeight: "900" },
-  statusSub: { color: "rgba(255,255,255,0.88)", fontSize: 12, marginTop: 2 },
+  statusIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: UI.green, alignItems: "center", justifyContent: "center" },
+  statusTitle: { color: UI.ink, fontSize: 15, fontFamily: "DMSans_700Bold" },
+  statusSub: { color: UI.sub, fontSize: 11, marginTop: 2 },
+  statusPills: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  statusPill: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#ffffff", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: UI.green },
+  statusPillText: { color: UI.ink, fontSize: 10, fontFamily: "Inter_600SemiBold" },
 
-  card: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: "#e2eef7", padding: 14, gap: 8 },
-  cardTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
-  cardHint: { color: colors.textMuted, fontSize: 12, marginTop: -4 },
-  aboutText: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
-  actionRow: { flexDirection: "row", gap: 10, marginTop: 4 },
-  actionButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 11, borderRadius: 14, backgroundColor: colors.primarySoft },
-  actionText: { color: colors.primary, fontSize: 13, fontWeight: "800" },
+  card: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 14, gap: 10 },
+  cardTitleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  cardIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: "#dbe5fb", alignItems: "center", justifyContent: "center" },
+  cardTitle: { color: UI.ink, fontSize: 14, fontFamily: "DMSans_700Bold" },
+  cardHint: { color: UI.sub, fontSize: 11, marginTop: -4 },
+  aboutText: { color: UI.sub, fontSize: 12, lineHeight: 18 },
+  tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  tag: { backgroundColor: "#e9edf9", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  tagText: { color: "#475569", fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  actionRow: { flexDirection: "row", gap: 10, marginTop: 2 },
+  actionButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 42, borderRadius: 10 },
+  actionPrimary: { backgroundColor: UI.blue },
+  actionLight: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
+  actionText: { color: UI.blue, fontSize: 12, fontFamily: "Inter_700Bold" },
 
-  replyRow: { gap: 6, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#eef4f9" },
-  replyMeta: { color: colors.textMuted, fontSize: 11 },
-  bubbleIn: { alignSelf: "flex-start", maxWidth: "88%", backgroundColor: "#f1f5f9", borderRadius: 14, borderTopLeftRadius: 4, padding: 10 },
-  bubbleAi: { alignSelf: "flex-end", maxWidth: "88%", backgroundColor: "#ede9fe", borderRadius: 14, borderTopRightRadius: 4, padding: 10 },
-  bubbleText: { color: colors.text, fontSize: 13, lineHeight: 18 },
-  noneText: { color: colors.textMuted, fontSize: 13, textAlign: "center", paddingVertical: 14 },
+  repliesHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  viewAll: { color: UI.blue, fontSize: 12, fontFamily: "Inter_700Bold" },
+  replyRow: { gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: UI.line },
+  replyHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  replyAvatar: { width: 24, height: 24, borderRadius: 7, alignItems: "center", justifyContent: "center" },
+  replyAvatarText: { color: "#ffffff", fontSize: 11, fontFamily: "Inter_700Bold" },
+  replyName: { flex: 1, color: UI.ink, fontSize: 13, fontFamily: "Inter_700Bold" },
+  replyMeta: { color: UI.sub, fontSize: 10 },
+  bubbleIn: { alignSelf: "flex-start", maxWidth: "88%", backgroundColor: "#eef1f6", borderRadius: 10, padding: 10 },
+  bubbleAi: { alignSelf: "flex-end", maxWidth: "88%", backgroundColor: UI.blue, borderRadius: 10, padding: 10 },
+  bubbleText: { color: UI.ink, fontSize: 12, lineHeight: 17 },
+  bubbleAiText: { color: "#ffffff", fontSize: 12, lineHeight: 17 },
+  feedbackRow: { flexDirection: "row", gap: 10 },
+  feedbackButton: { flex: 1, height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  feedbackText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  reviewedText: { color: UI.green, fontSize: 11, fontFamily: "Inter_600SemiBold", textAlign: "right" },
+  noneText: { color: UI.muted, fontSize: 13, textAlign: "center", paddingVertical: 14 },
 });

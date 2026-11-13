@@ -8,10 +8,15 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
-  Image, ImageBackground, KeyboardAvoidingView, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput as RNTextInput, View,
+  Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput as RNTextInput, View,
 } from "react-native";
-import { ActivityIndicator, Appbar } from "react-native-paper";
+import { ActivityIndicator } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+// Palette of the redesigned screen: lavender page, white cards, blue actions.
+const UI = { bg: "#eef1fa", line: "#e4e9f3", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", blue: "#2457e6", violet: "#6c43d9", violetSoft: "#ece6fb", violetLine: "#d9cff7" };
+// Soft tiles for "Need inspiration?": lavender, pink, green.
+const TILE_TINTS = [{ bg: "#e4dcfb", fg: "#6c43d9" }, { bg: "#fbdce3", fg: "#c8294a" }, { bg: "#d4eee3", fg: "#0f7b5f" }];
 
 const IDEAS = [
   { caption: "Product shot", idea: "A clean product shot on a soft studio background", source: require("../../../assets/ai-samples/product-shot.png") },
@@ -112,8 +117,8 @@ function ImagePanel() {
 
   return (
     <View style={styles.stack}>
-      <LinearGradient colors={["#06b6d4", "#6366f1", "#d946ef"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
-        <View style={styles.heroIcon}><Ionicons name="sparkles" size={24} color="#fff" /></View>
+      <LinearGradient colors={["#6c43d9", "#5b34c9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+        <View style={styles.heroIcon}><Ionicons name="sparkles-outline" size={22} color="#fff" /></View>
         <View style={{ flex: 1 }}>
           <Text style={styles.heroTitle}>Create marketing images</Text>
           <Text style={styles.heroSub}>Describe it in a few words. The AI makes two options for you.</Text>
@@ -139,7 +144,7 @@ function ImagePanel() {
         </ScrollView>
 
         <Pressable style={styles.optionHeader} onPress={() => setTextOpen((open) => !open)}>
-          <Ionicons name="text-outline" size={16} color={colors.primary} />
+          <Text style={styles.aaMark}>Aa</Text>
           <Text style={styles.optionTitle}>Add text on the image</Text>
           <Text style={styles.optionHint}>optional</Text>
           <Ionicons name={textOpen ? "chevron-up" : "chevron-down"} size={18} color={colors.textMuted} />
@@ -165,8 +170,8 @@ function ImagePanel() {
         ) : null}
 
         <Pressable onPress={create} disabled={working} style={working && { opacity: 0.7 }}>
-          <LinearGradient colors={["#06b6d4", "#6366f1", "#d946ef"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.createButton}>
-            {working ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="sparkles" size={18} color="#fff" />}
+          <LinearGradient colors={["#6c43d9", "#5b34c9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.createButton}>
+            {working ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="sparkles-outline" size={18} color="#fff" />}
             <Text style={styles.createText}>
               {busy === "prompt" ? "Writing the prompt..." : busy === "images" ? "Creating images (up to a minute)..." : images.length ? "Create new options" : "Create images"}
             </Text>
@@ -207,7 +212,7 @@ function ImagePanel() {
       {prompt ? (
         <View style={styles.card}>
           <Pressable style={styles.optionHeader} onPress={() => setPromptOpen((open) => !open)}>
-            <Ionicons name="document-text-outline" size={16} color={colors.primary} />
+            <Ionicons name="document-text-outline" size={16} color={UI.violet} />
             <Text style={styles.optionTitle}>The AI prompt</Text>
             <Text style={styles.optionHint}>{promptEdited ? "edited" : "tap to view or edit"}</Text>
             <Ionicons name={promptOpen ? "chevron-up" : "chevron-down"} size={18} color={colors.textMuted} />
@@ -222,12 +227,12 @@ function ImagePanel() {
               </View>
               <View style={styles.promptActions}>
                 <Pressable style={styles.smallButton} onPress={sharePrompt}>
-                  <Ionicons name="share-outline" size={15} color={colors.primary} />
+                  <Ionicons name="share-outline" size={15} color={UI.violet} />
                   <Text style={styles.smallButtonText}>Share prompt</Text>
                 </Pressable>
                 {promptEdited ? (
                   <Pressable style={styles.smallButton} onPress={() => { setPromptEdited(false); setPrompt(""); }}>
-                    <Ionicons name="refresh-outline" size={15} color={colors.primary} />
+                    <Ionicons name="refresh-outline" size={15} color={UI.violet} />
                     <Text style={styles.smallButtonText}>Reset</Text>
                   </Pressable>
                 ) : null}
@@ -240,13 +245,17 @@ function ImagePanel() {
 
       <Text style={styles.sectionTitle}>Need inspiration?</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imageRow}>
-        {IDEAS.map((item) => (
-          <Pressable key={item.caption} onPress={() => pickIdea(item.idea)}>
-            <ImageBackground source={item.source} style={styles.imageCard} imageStyle={{ borderRadius: 14 }}>
-              <View style={styles.imageLabelWrap}><Text style={styles.imageLabel} numberOfLines={1}>{item.caption}</Text></View>
-            </ImageBackground>
-          </Pressable>
-        ))}
+        {IDEAS.map((item, index) => {
+          const tint = TILE_TINTS[index % TILE_TINTS.length];
+          return (
+            <Pressable key={item.caption} onPress={() => pickIdea(item.idea)} style={styles.ideaTileWrap} accessibilityRole="button" accessibilityLabel={item.caption}>
+              <View style={[styles.ideaTile, { backgroundColor: tint.bg }]}>
+                <View style={styles.ideaTileIcon}><Ionicons name="image-outline" size={18} color={tint.fg} /></View>
+              </View>
+              <Text style={styles.ideaCaption} numberOfLines={1}>{item.caption}</Text>
+            </Pressable>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -259,19 +268,21 @@ export default function AiToolsScreen() {
 
   return (
     <KeyboardAvoidingView style={[styles.screen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="AI Agent" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={20} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>AI Agent</Text>
+      </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 112 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.segment}>
           <Pressable onPress={() => setTab("agent")} style={[styles.segmentButton, tab === "agent" && styles.segmentActive]}>
-            <Ionicons name="logo-whatsapp" size={16} color={tab === "agent" ? "#6366f1" : colors.textSecondary} />
+            <Ionicons name="logo-whatsapp" size={16} color={tab === "agent" ? UI.blue : UI.sub} />
             <Text style={[styles.segmentText, tab === "agent" && styles.segmentTextActive]}>WhatsApp Agent</Text>
           </Pressable>
           <Pressable onPress={() => setTab("images")} style={[styles.segmentButton, tab === "images" && styles.segmentActive]}>
-            <Ionicons name="image-outline" size={16} color={tab === "images" ? "#6366f1" : colors.textSecondary} />
+            <Ionicons name="image-outline" size={16} color={tab === "images" ? UI.blue : UI.sub} />
             <Text style={[styles.segmentText, tab === "images" && styles.segmentTextActive]}>Images</Text>
           </Pressable>
         </View>
@@ -283,62 +294,65 @@ export default function AiToolsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#ffffff" },
-  header: { backgroundColor: "#ffffff" },
-  headerTitle: { color: colors.text, fontSize: 17, fontWeight: "800" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingBottom: 10 },
+  headerButton: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, alignItems: "center", justifyContent: "center" },
+  headerTitle: { color: UI.ink, fontSize: 18, fontFamily: "DMSans_700Bold" },
   content: { paddingHorizontal: 16, paddingTop: 4, gap: 14 },
   stack: { gap: 14 },
 
-  segment: { flexDirection: "row", backgroundColor: "#f1f6fa", borderRadius: 14, padding: 4 },
+  segment: { flexDirection: "row", backgroundColor: "#e0e6f4", borderRadius: 14, padding: 4 },
   segmentButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 40, borderRadius: 11 },
-  segmentActive: { backgroundColor: "#ffffff", shadowColor: "#0f172a", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  segmentText: { color: colors.textSecondary, fontSize: 14, fontWeight: "700" },
-  segmentTextActive: { color: "#6366f1" },
+  segmentActive: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
+  segmentText: { color: UI.sub, fontSize: 13, fontFamily: "Inter_700Bold" },
+  segmentTextActive: { color: UI.ink },
 
-  hero: { borderRadius: 22, padding: 18, flexDirection: "row", alignItems: "center", gap: 14, overflow: "hidden" },
-  heroIcon: { width: 48, height: 48, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.22)", alignItems: "center", justifyContent: "center" },
-  heroTitle: { color: "#fff", fontSize: 18, fontWeight: "900" },
-  heroSub: { color: "rgba(255,255,255,0.9)", fontSize: 12, lineHeight: 17, marginTop: 3 },
+  hero: { borderRadius: 16, padding: 18, flexDirection: "row", alignItems: "center", gap: 14, overflow: "hidden" },
+  heroIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  heroTitle: { color: "#fff", fontSize: 15, fontFamily: "DMSans_700Bold" },
+  heroSub: { color: "rgba(255,255,255,0.9)", fontSize: 11, lineHeight: 16, marginTop: 3 },
   heroCircle: { position: "absolute", width: 120, height: 120, borderRadius: 60, backgroundColor: "rgba(255,255,255,0.12)", right: -30, top: -36 },
 
-  card: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: "#e2eef7", padding: 14, gap: 10 },
-  cardTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
-  inputBox: { minHeight: 84, borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#f8fbfd", paddingHorizontal: 14, paddingVertical: 4 },
+  card: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 14, gap: 10 },
+  cardTitle: { color: UI.ink, fontSize: 14, fontFamily: "DMSans_700Bold" },
+  inputBox: { minHeight: 84, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, paddingVertical: 4 },
   ideaText: { color: colors.text, fontSize: 14, minHeight: 72, paddingVertical: 8 },
   promptText: { color: colors.text, fontSize: 13, lineHeight: 19, minHeight: 108, paddingVertical: 8 },
   chipRow: { gap: 8, paddingRight: 8 },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#f4f1ff", borderWidth: 1, borderColor: "#e4defc" },
-  chipText: { color: "#6366f1", fontSize: 13, fontWeight: "700" },
+  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: UI.violetSoft, borderWidth: 1, borderColor: UI.violetLine },
+  chipText: { color: UI.violet, fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  aaMark: { color: UI.violet, fontSize: 13, fontFamily: "Inter_700Bold" },
 
   optionHeader: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
   optionTitle: { flex: 1, color: colors.text, fontSize: 14, fontWeight: "800" },
   optionHint: { color: colors.textMuted, fontSize: 11 },
   textFields: { gap: 8 },
   fieldLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginBottom: 4 },
-  smallInput: { minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#f8fbfd", paddingHorizontal: 12, justifyContent: "center" },
+  smallInput: { minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 12, justifyContent: "center" },
   smallInputText: { color: colors.text, fontSize: 14 },
 
-  createButton: { height: 52, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 4 },
-  createText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  createButton: { height: 48, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 4 },
+  createText: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" },
   errorBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12 },
   errorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600", lineHeight: 17 },
 
   bigImage: { width: "100%", aspectRatio: 1, borderRadius: 16, backgroundColor: colors.surfaceMuted },
   thumbRow: { flexDirection: "row", gap: 10 },
   thumbWrap: { flex: 1, borderRadius: 14, borderWidth: 2, borderColor: "transparent", padding: 2, alignItems: "center", gap: 4 },
-  thumbActive: { borderColor: "#6366f1" },
+  thumbActive: { borderColor: UI.violet },
   thumb: { width: "100%", aspectRatio: 1, borderRadius: 11, backgroundColor: colors.surfaceMuted },
   thumbLabel: { color: colors.textMuted, fontSize: 11, fontWeight: "700", paddingBottom: 2 },
-  thumbLabelActive: { color: "#6366f1" },
+  thumbLabelActive: { color: UI.violet },
 
   promptActions: { flexDirection: "row", gap: 10 },
-  smallButton: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
-  smallButtonText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
+  smallButton: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: UI.violetSoft, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  smallButtonText: { color: UI.violet, fontSize: 12, fontWeight: "800" },
   noteText: { color: colors.textSecondary, fontSize: 12, lineHeight: 17 },
 
-  sectionTitle: { color: colors.text, fontSize: 15, fontWeight: "800", marginTop: 4 },
+  sectionTitle: { color: UI.ink, fontSize: 14, fontFamily: "DMSans_700Bold", marginTop: 4 },
   imageRow: { gap: 10, paddingRight: 8 },
-  imageCard: { width: 104, height: 130, justifyContent: "flex-end", overflow: "hidden", borderRadius: 14 },
-  imageLabelWrap: { backgroundColor: "rgba(15,23,42,0.45)", paddingHorizontal: 7, paddingVertical: 6 },
-  imageLabel: { color: "#fff", fontSize: 11, textAlign: "center", fontWeight: "800" },
+  ideaTileWrap: { width: 104 },
+  ideaTile: { width: 104, height: 112, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  ideaTileIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.7)", alignItems: "center", justifyContent: "center" },
+  ideaCaption: { color: UI.ink, fontSize: 11, fontFamily: "Inter_600SemiBold", marginTop: 6 },
 });

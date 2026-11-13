@@ -1,11 +1,9 @@
-import { IconBell, SvgUserAdd, SvgCalendar, SvgFolder } from "@/components/ReferenceIcons";
-import { glass, GradientIcon, GradientNumber } from "@/components/Glass";
+import { IconBell } from "@/components/ReferenceIcons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert, ImageBackground, Keyboard, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
+  Alert, Keyboard, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
 } from "react-native";
-import { ActivityIndicator, Appbar, Button, Card } from "react-native-paper";
-import { LinearGradient } from "expo-linear-gradient";
+import { ActivityIndicator, Button } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { router, useFocusEffect } from "expo-router";
@@ -14,27 +12,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboard";
 import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "@/api/leads";
-import { facebookSyncLeads, fetchIntegrationSettings, IntegrationSettings } from "@/api/integrations";
+import { facebookSyncLeads } from "@/api/integrations";
 import { fetchNotifications, notifyLeadsAdded } from "@/api/notifications";
+import { fetchByStaff, StaffPerformance } from "@/api/reports";
 import { rateLimitRemainingMs } from "@/api/client";
 import { setAppBadge } from "@/notifications/push";
 import { homeOrigin } from "@/navigation/homeOrigin";
 import { useAuth } from "@/contexts/AuthContext";
 import { useT } from "@/i18n/LanguageContext";
 
-const AI_IMAGE_SAMPLES = [
-  { caption: "Product shot", source: require("../../assets/ai-samples/product-shot.png") },
-  { caption: "Studio look", source: require("../../assets/ai-samples/studio-look.png") },
-  { caption: "Lifestyle", source: require("../../assets/ai-samples/lifestyle.png") },
-  { caption: "Fashion", source: require("../../assets/ai-samples/fashion.png") },
-  { caption: "Glow", source: require("../../assets/ai-samples/glow.png") },
-  { caption: "Salon color", source: require("../../assets/ai-samples/salon-color.png") },
-  { caption: "Bridal makeup", source: require("../../assets/ai-samples/bridal-makeup.png") },
-  { caption: "Spa facial", source: require("../../assets/ai-samples/spa-facial.png") },
-];
-
 const LAST_SYNC_KEY = "meta_leads_last_sync";
-const AI_TOOLS_VISITED_KEY = "setup_ai_tools_visited";
 const META_SYNC_THROTTLE_MS = 2 * 60 * 1000;
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -84,75 +71,80 @@ function sourceLook(source: string): SourceLook {
 
 interface LeadSourceRow { source: string; leads: number; won: number; conversion: number }
 
-function StatTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
+// The dashboard's palette: soft grey-green page, white cards, dark green revenue card, blue actions.
+const UI = {
+  bg: "#f1f4f2", line: "#e4e9e6", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8",
+  green: "#0f7b5f", greenDark: "#0f4d3f", greenMid: "#1b6b58", blue: "#2457e6", red: "#d6334f",
+};
+
+function QuickTile({ icon, label, bg, color, onPress }: { icon: IconName; label: string; bg: string; color: string; onPress: () => void }) {
   const { t } = useT();
   return (
-    <View style={styles.statTile}>
-      <Text style={styles.statLabel}>{t(label)}</Text>
-      {hint ? <Text style={styles.statHint}>{t(hint)}</Text> : null}
-      <GradientNumber value={value} tone={label.includes("Converted") ? "violet" : label.includes("New") ? "emerald" : label.includes("Due") ? "amber" : "sky"} />
-    </View>
+    <Pressable style={styles.quickTile} onPress={onPress} accessibilityRole="button">
+      <View style={[styles.quickIcon, { backgroundColor: bg }]}><Ionicons name={icon} size={17} color={color} /></View>
+      <Text style={styles.quickLabel} numberOfLines={2}>{t(label)}</Text>
+    </Pressable>
   );
 }
 
-function QuickTile({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
-  const { t } = useT();
-  const { width } = useWindowDimensions();
-  return (
-    <Card mode="contained" style={[styles.quickTile, { width: (width - 44) / 2 }]} onPress={onPress}>
-      <Card.Content style={styles.quickTileContent}>
-        <GradientIcon tone={label.includes("Schedule") ? "amber" : label.includes("Search") ? "emerald" : label.includes("Import") ? "violet" : "sky"}>{label.includes("Add") ? <SvgUserAdd color="#fff" /> : label.includes("Schedule") ? <SvgCalendar color="#fff" /> : label.includes("Import") ? <SvgFolder color="#fff" /> : <Ionicons name={icon} size={20} color="#fff" />}</GradientIcon>
-        <Text style={styles.quickLabel}>{t(label)}</Text>
-      </Card.Content>
-    </Card>
-  );
+// Stage dots follow the stage's name, so the same stage keeps the same colour on every screen.
+const STAGE_PALETTE = ["#2563eb", "#0f8a6a", "#7c3aed", "#2f6fd6", "#db2777", "#92400e", "#065f46", "#e11d48", "#f59e0b", "#475569", "#94a3b8"];
+function stageColor(name: string, index: number) {
+  const key = (name || "").toLowerCase();
+  if (key.includes("unqual")) return "#475569";
+  if (key.includes("qualif")) return "#7c3aed";
+  if (key.includes("contact")) return "#0f8a6a";
+  if (key.includes("demo") || key.includes("visit")) return "#2f6fd6";
+  if (key.includes("proposal")) return "#db2777";
+  if (key.includes("negotiat")) return "#92400e";
+  if (key.includes("follow")) return "#f59e0b";
+  if (key === "won" || key.includes("enrolled")) return "#065f46";
+  if (key.includes("lost")) return "#e11d48";
+  if (key === "new") return "#2563eb";
+  return STAGE_PALETTE[index % STAGE_PALETTE.length];
 }
 
-const STAGE_COLORS = ["#0ea5e9", "#6366f1", "#f59e0b", "#10b981", "#ec4899", "#8b5cf6"];
-const STAGE_TINTS = ["#e0f2fe", "#e0e7ff", "#fef3c7", "#dcfce7", "#fce7f3", "#ede9fe"];
-
-function LeadsByStageCard({ stages, onPress }: { stages: DashboardSummary["pipeline"]; onPress: () => void }) {
+function PipelineCard({ stages, onPress }: { stages: DashboardSummary["pipeline"]; onPress: () => void }) {
   const { t } = useT();
-  const { width } = useWindowDimensions();
-  const columns = width >= 600 ? 5 : 2;
-  const maxCount = Math.max(1, ...stages.map((stage) => stage.count));
-  const totalCount = stages.reduce((sum, stage) => sum + stage.count, 0);
+  const total = stages.reduce((sum, stage) => sum + stage.count, 0);
   return (
-    <View style={styles.stageCard}>
-      <Pressable style={styles.stageCardHeader} onPress={onPress} accessibilityRole="button">
-        <Text style={styles.stageCardTitle}>{t("Lead Pipeline")}</Text>
-        <Text style={styles.stageViewAll}>{t("View all ›")}</Text>
+    <View style={styles.cardBlock}>
+      <Pressable style={styles.blockHeader} onPress={onPress} accessibilityRole="button">
+        <Text style={styles.blockTitle}>{t("Pipeline")}</Text>
+        <Text style={styles.blockMeta}>{t("{n} leads", { n: fmt(total) })}</Text>
       </Pressable>
       {stages.length ? (
-        <View style={styles.stageColumns}>
-          {stages.map((stage, stageIndex) => (
-            <Pressable key={stage.name} style={[styles.stageColumn, { width: `${(100 - (columns - 1) * 3) / columns}%`, backgroundColor: STAGE_TINTS[stageIndex % STAGE_TINTS.length], borderColor: STAGE_TINTS[stageIndex % STAGE_TINTS.length] }]} onPress={onPress}>
-              <Text style={styles.stageName} numberOfLines={1}>{pretty(stage.name).toUpperCase()}</Text>
-              <Text style={[styles.stageCount, { color: STAGE_COLORS[stageIndex % STAGE_COLORS.length] }]}>{fmt(stage.count)}</Text>
-              <Text style={styles.stagePercent}>{totalCount ? `${Math.round((stage.count / totalCount) * 100)}%` : "0%"}</Text>
-              <View style={styles.stageTrack}>
-                <View style={[styles.stageFill, { width: `${Math.max(4, (stage.count / maxCount) * 100)}%`, backgroundColor: STAGE_COLORS[stageIndex % STAGE_COLORS.length] }]} />
-              </View>
+        <View style={styles.pipelineList}>
+          {stages.map((stage, index) => (
+            <Pressable key={stage.name} style={styles.pipelineRow} onPress={onPress}>
+              <View style={[styles.pipelineDot, { backgroundColor: stageColor(stage.name, index) }]} />
+              <Text style={styles.pipelineName} numberOfLines={1}>{pretty(stage.name)}</Text>
+              {stage.count > 0 && total > 0 ? (
+                <View style={styles.pipelinePill}><Text style={styles.pipelinePillText}>{Math.round((stage.count / total) * 100)}%</Text></View>
+              ) : null}
+              <Text style={styles.pipelineCount}>{fmt(stage.count)}</Text>
             </Pressable>
           ))}
         </View>
       ) : (
-        <Text style={styles.stageEmpty}>{t("No stage data yet.")}</Text>
+        <Text style={styles.emptyText}>{t("No stage data yet.")}</Text>
       )}
     </View>
   );
 }
 
-function UrgentFollowupsCard({ count, onPress }: { count: number; onPress: () => void }) {
+// Always shown, like the design: red when something needs action, calm when nothing does.
+function AttentionCard({ count, onPress }: { count: number; onPress: () => void }) {
   const { t } = useT();
+  const calm = count === 0;
   return (
-    <Pressable style={styles.urgentCard} onPress={onPress} accessibilityRole="button">
-      <View style={styles.urgentIcon}><Ionicons name="alert" size={18} color="#fff" /></View>
-      <View style={styles.urgentCopy}>
-        <Text style={styles.urgentTitle}>{t("{n} follow-ups need urgent attention", { n: fmt(count) })}</Text>
-        <Text style={styles.urgentSubtitle}>{t("Open the list and take action now")}</Text>
+    <Pressable style={[styles.attentionCard, calm && styles.attentionCalm]} onPress={onPress} accessibilityRole="button">
+      <View style={[styles.attentionIcon, calm && { backgroundColor: UI.red }]}><Ionicons name="alert" size={16} color="#fff" /></View>
+      <View style={styles.attentionCopy}>
+        <Text style={styles.attentionTitle}>{t("{n} follow-ups need attention", { n: fmt(count) })}</Text>
+        <Text style={styles.attentionSub}>{calm ? t("You're all caught up") : t("Open the list and take action now")}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={25} color={colors.danger} />
+      <Ionicons name="chevron-forward" size={18} color="#c2475f" />
     </Pressable>
   );
 }
@@ -160,10 +152,10 @@ function UrgentFollowupsCard({ count, onPress }: { count: number; onPress: () =>
 function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowup[]; onPress: () => void }) {
   const { t } = useT();
   return (
-    <View style={styles.upcomingCard}>
-      <Pressable style={styles.upcomingHeader} onPress={onPress}>
-        <Text style={styles.upcomingTitle}>{t("Upcoming Follow Ups")}</Text>
-        <Text style={styles.upcomingCount}>{followups.length}</Text>
+    <View style={styles.cardBlock}>
+      <Pressable style={styles.blockHeader} onPress={onPress}>
+        <Text style={styles.blockTitle}>{t("Upcoming Follow Ups")}</Text>
+        <Text style={styles.blockMeta}>{followups.length}</Text>
       </Pressable>
       {followups.length ? followups.slice(0, 2).map((followup, index) => {
         const time = new Date(followup.next_followup_at);
@@ -174,13 +166,13 @@ function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowu
               <Text style={styles.upcomingType}>{pretty(followup.followup_type)} follow-up</Text>
             </View>
             <View style={styles.upcomingTimeWrap}>
-              <Ionicons name="call-outline" size={18} color={colors.textMuted} />
+              <Ionicons name="call-outline" size={18} color={UI.muted} />
               <Text style={styles.upcomingTime}>{Number.isNaN(time.getTime()) ? "" : time.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}</Text>
             </View>
           </Pressable>
         );
       }) : (
-        <Text style={styles.upcomingEmpty}>{t("No upcoming follow-ups")}</Text>
+        <Text style={styles.emptyText}>{t("No upcoming follow-ups")}</Text>
       )}
     </View>
   );
@@ -189,17 +181,20 @@ function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowu
 function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
   const { t } = useT();
   const insights = [
-    { label: "Revenue", value: data.revenue_in_period },
-    { label: "Avg. deal", value: data.avg_deal_value },
-    { label: "Balance due", value: data.balance_due_in_period },
+    { label: "Revenue", value: data.revenue_in_period, bg: "#d8f0e5", tint: UI.green },
+    { label: "Avg. deal", value: data.avg_deal_value, bg: "#e7dffb", tint: "#6d4fd6" },
+    { label: "Balance due", value: data.balance_due_in_period, bg: "#fde9c9", tint: "#c2710c" },
   ];
   return (
-    <Pressable style={styles.insightsSection} onPress={onPress} accessibilityRole="button">
-      <Text style={styles.insightsTitle}>{t("Insights")} <Text style={styles.insightsPeriod}>· {t("Last 7 days")}</Text></Text>
+    <Pressable style={styles.plainBlock} onPress={onPress} accessibilityRole="button">
+      <View style={styles.blockHeaderPlain}>
+        <Text style={styles.sectionTitle}>{t("Insights")}</Text>
+        <Text style={styles.blockMeta}>{t("Last 7 days")}</Text>
+      </View>
       <View style={styles.insightsRow}>
         {insights.map((item) => (
-          <View key={item.label} style={styles.insightCard}>
-            <Text style={styles.insightLabel}>{t(item.label)}</Text>
+          <View key={item.label} style={[styles.insightCard, { backgroundColor: item.bg }]}>
+            <Text style={[styles.insightLabel, { color: item.tint }]}>{t(item.label)}</Text>
             <Text style={styles.insightValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>₹{fmt(item.value)}</Text>
           </View>
         ))}
@@ -211,31 +206,25 @@ function InsightsCard({ data, onPress }: { data: DashboardSummary; onPress: () =
 function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
   const { t } = useT();
   const items = [
-    { icon: "person-add-outline", label: "New Leads", value: data.leads_today, tone: TONE.sky },
-    { icon: "calendar-outline", label: "Follow-ups", value: data.followups_today, tone: TONE.emerald },
-    { icon: "videocam-outline", label: "Demos", value: data.demos_today, tone: TONE.violet },
-    { icon: "alert-circle-outline", label: "Overdue", value: data.overdue_followups, tone: TONE.pink },
-    { icon: "flame-outline", label: "Hot Leads", value: data.hot_leads, tone: TONE.amber },
-    { icon: "warning-outline", label: "Critical", value: data.critical_followups, tone: TONE.pink },
+    { label: "New leads", value: data.leads_today, dot: "#10b981" },
+    { label: "Follow-ups", value: data.followups_today, dot: "#f59e0b" },
+    { label: "Demos", value: data.demos_today, dot: "#7c3aed" },
+    { label: "Overdue", value: data.overdue_followups, dot: "#e11d48" },
+    { label: "Hot Leads", value: data.hot_leads, dot: "#ea580c" },
+    { label: "Critical", value: data.critical_followups, dot: "#be123c" },
   ];
-
   return (
-    <View style={styles.activityCard}>
-      <View style={styles.activityHeaderRow}>
-        <View style={styles.activityIconWrap}><Ionicons name="calendar-outline" size={18} color={colors.primary} /></View>
-        <Text style={styles.activityTitle}>{t("Today's Activity")}</Text>
-        <Pressable style={{ marginLeft: "auto" }} onPress={onPress}>
-          <Text style={styles.activityViewAll}>{t("View all")}</Text>
-        </Pressable>
+    <View style={styles.plainBlock}>
+      <View style={styles.blockHeaderPlain}>
+        <Text style={styles.sectionTitle}>{t("Today's activity")}</Text>
+        <Pressable onPress={onPress} hitSlop={8}><Text style={styles.viewAll}>{t("View all")}</Text></Pressable>
       </View>
       <View style={styles.activityGrid}>
         {items.map((item) => (
-          <View key={item.label} style={[styles.activityTile, { backgroundColor: item.tone.bg }]}>
-            <View style={styles.activityTileIcon}>
-              <Ionicons name={item.icon as IconName} size={16} color={item.tone.iconColor} />
-            </View>
-            <Text style={[styles.activityTileValue, { color: item.tone.iconColor }]}>{fmt(item.value)}</Text>
-            <Text style={styles.activityTileLabel} numberOfLines={1}>{t(item.label)}</Text>
+          <View key={item.label} style={styles.activityTile}>
+            <View style={[styles.activityDot, { backgroundColor: item.dot }]} />
+            <Text style={styles.activityValue}>{fmt(item.value)}</Text>
+            <Text style={styles.activityLabel} numberOfLines={1}>{t(item.label)}</Text>
           </View>
         ))}
       </View>
@@ -243,31 +232,56 @@ function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress:
   );
 }
 
-const START_HERE: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; href: string }[] = [
-  { icon: "trending-up-outline", label: "Ads Manager", bg: colors.successSoft, iconColor: colors.success, href: "/(app)/more/campaigns" },
-  { icon: "git-network-outline", label: "Lead Automation", bg: colors.primarySoft, iconColor: colors.primary, badges: [{ text: "NEW", bg: colors.success }], href: "/(app)/more/lead-automation" },
-  { icon: "albums-outline", label: "Content", bg: colors.warningSoft, iconColor: colors.warning, badges: [{ text: "NEW", bg: colors.success }], href: "/(app)/content" },
-  { icon: "logo-whatsapp", label: "AI Templates", bg: "#ede9fe", iconColor: "#7c3aed", href: "/(app)/more/whatsapp-templates" },
-];
+const MEMBER_TINTS = [{ bg: "#dbe8fb", fg: "#2457e6" }, { bg: "#e7dffb", fg: "#6d4fd6" }, { bg: "#fde9c9", fg: "#c2710c" }, { bg: "#d8f0e5", fg: "#0f7b5f" }];
 
-function StartHereTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; onPress: () => void }) {
+function TeamPerformanceCard({ team, onPress }: { team: StaffPerformance[]; onPress: () => void }) {
   const { t } = useT();
+  const leads = team.reduce((sum, member) => sum + (member.total_leads || 0), 0);
+  const won = team.reduce((sum, member) => sum + (member.won || 0), 0);
+  const lost = team.reduce((sum, member) => sum + (member.lost || 0), 0);
+  const ranked = [...team].sort((a, b) => (b.total_leads || 0) - (a.total_leads || 0));
+  const summary = [
+    { label: "Team leads", value: fmt(leads), bg: "#dbe8fb", tint: "#2457e6" },
+    { label: "Won", value: fmt(won), bg: "#d8f0e5", tint: UI.green },
+    { label: "Lost", value: fmt(lost), bg: "#fde9c9", tint: "#c2710c" },
+  ];
   return (
-    <Pressable style={styles.startTile} onPress={onPress}>
-      <View style={[styles.startIconWrap, { backgroundColor: bg }]}>
-        {badges?.length ? (
-          <View style={styles.startBadgeRow}>
-            {badges.map((badge) => (
-              <View key={badge.text} style={[styles.startBadge, { backgroundColor: badge.bg }]}>
-                <Text style={styles.startBadgeText}>{badge.text}</Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
-        <Ionicons name={icon} size={22} color={iconColor} />
+    <View style={styles.plainBlock}>
+      <View style={styles.blockHeaderPlain}>
+        <Text style={styles.sectionTitle}>{t("Team performance")} <Text style={styles.blockMeta}>· {t("this month")}</Text></Text>
+        <Pressable onPress={onPress} hitSlop={8}><Text style={styles.viewAll}>{t("View all ›")}</Text></Pressable>
       </View>
-      <Text style={styles.startLabel} numberOfLines={2}>{t(label)}</Text>
-    </Pressable>
+      <View style={styles.insightsRow}>
+        {summary.map((item) => (
+          <View key={item.label} style={[styles.teamSummary, { backgroundColor: item.bg }]}>
+            <Text style={[styles.teamSummaryLabel, { color: item.tint }]}>{t(item.label)}</Text>
+            <Text style={styles.teamSummaryValue}>{item.value}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={styles.memberGrid}>
+        {ranked.slice(0, 4).map((member, index) => {
+          const tint = MEMBER_TINTS[index % MEMBER_TINTS.length];
+          return (
+            <Pressable key={`${member.name}-${index}`} style={styles.memberCard} onPress={onPress}>
+              <View style={styles.memberHead}>
+                <View style={[styles.memberAvatar, { backgroundColor: tint.bg }]}><Text style={[styles.memberAvatarText, { color: tint.fg }]}>{(member.name?.charAt(0) || "?").toUpperCase()}</Text></View>
+                <Text style={styles.memberName} numberOfLines={1}>{member.name}</Text>
+                {index === 0 && (member.total_leads || 0) > 0 && ranked.length > 1 ? <View style={styles.topBadge}><Text style={styles.topBadgeText}>{t("Top")}</Text></View> : null}
+              </View>
+              <View style={styles.memberLeadsRow}>
+                <Text style={styles.memberStatLabel}>{t("Leads")}</Text>
+                <Text style={styles.memberLeads}>{fmt(member.total_leads)}</Text>
+              </View>
+              <View style={styles.memberStats}>
+                <View><Text style={styles.memberStatLabel}>{t("Won")}</Text><Text style={[styles.memberStatValue, { color: UI.green }]}>{fmt(member.won)}</Text></View>
+                <View><Text style={styles.memberStatLabel}>{t("Lost")}</Text><Text style={[styles.memberStatValue, { color: UI.red }]}>{fmt(member.lost)}</Text></View>
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -277,6 +291,7 @@ const TONE = {
   sky: { bg: colors.primarySoft, iconColor: colors.primary },
   violet: { bg: "#ede9fe", iconColor: "#7c3aed" },
   pink: { bg: "#fce7f3", iconColor: "#db2777" },
+  gray: { bg: "#e5e9ee", iconColor: "#475569" },
   amber: { bg: colors.warningSoft, iconColor: colors.warning },
   emerald: { bg: colors.successSoft, iconColor: colors.success },
   indigo: { bg: "#e0e7ff", iconColor: "#4338ca" },
@@ -294,14 +309,14 @@ const GROW_BUSINESS: GridItem[] = [
 
 const MANAGE_BUSINESS: GridItem[] = [
   { icon: "document-text-outline", label: "Quotations", ...TONE.violet, href: "/(app)/more/quotations" },
-  { icon: "git-network-outline", label: "Lead Automation", ...TONE.sky, href: "/(app)/more/lead-automation" },
-  { icon: "people-outline", label: "Team", ...TONE.violet, href: "/(app)/more/team", adminOnly: true },
-  { icon: "bar-chart-outline", label: "Reports", ...TONE.emerald, href: "/(app)/more/reports" },
+  { icon: "git-network-outline", label: "Lead Automation", ...TONE.emerald, href: "/(app)/more/lead-automation" },
+  { icon: "people-outline", label: "Team", ...TONE.pink, href: "/(app)/more/team", adminOnly: true },
+  { icon: "bar-chart-outline", label: "Reports", ...TONE.gray, href: "/(app)/more/reports" },
   { icon: "school-outline", label: "Sales Coaching", ...TONE.amber, href: "/(app)/more/sales-coaching" },
   { icon: "globe-outline", label: "Market AI", ...TONE.indigo, badges: [{ text: "AI", bg: "#7c3aed" }], href: "/(app)/more/market-ai" },
-  { icon: "extension-puzzle-outline", label: "Integrations", ...TONE.pink, href: "/(app)/more/integrations", adminOnly: true },
+  { icon: "extension-puzzle-outline", label: "Integrations", ...TONE.violet, href: "/(app)/more/integrations", adminOnly: true },
   { icon: "card-outline", label: "Billing", ...TONE.sky, href: "/(app)/more/billing", adminOnly: true },
-  { icon: "settings-outline", label: "Settings", ...TONE.emerald, href: "/(app)/more/settings" },
+  { icon: "settings-outline", label: "Settings", ...TONE.gray, href: "/(app)/more/settings" },
   { icon: "help-buoy-outline", label: "Help & Support", ...TONE.indigo, href: "/(app)/more/help-support" },
   { icon: "help-circle-outline", label: "User Guide", ...TONE.amber, href: "/(app)/more/user-guide" },
 ];
@@ -326,11 +341,17 @@ function openGridItem(item: GridItem) {
   router.push(item.href as never);
 }
 
+const SHORT_LABEL: Record<string, string> = { "Lead Automation": "Automation", "Sales Coaching": "Coaching" };
+
 function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconName; label: string; bg: string; iconColor: string; badges?: { text: string; bg: string }[]; onPress: () => void }) {
   const { t } = useT();
+  const { width } = useWindowDimensions();
+  const translated = t(label);
+  // Four tiles per row between the 16px page margins and 8px gaps.
+  const size = Math.floor((width - 32 - 24) / 4);
   return (
-    <Pressable style={styles.gridTile} onPress={onPress}>
-      <View style={[styles.startIconWrap, { backgroundColor: bg }]}>
+    <Pressable style={[styles.gridTile, { width: size }]} onPress={onPress} accessibilityRole="button" accessibilityLabel={translated}>
+      <View style={[styles.gridIconWrap, { backgroundColor: bg }]}>
         {badges?.length ? (
           <View style={styles.startBadgeRow}>
             {badges.map((badge) => (
@@ -340,11 +361,38 @@ function GridTile({ icon, label, bg, iconColor, badges, onPress }: { icon: IconN
             ))}
           </View>
         ) : null}
-        <Ionicons name={icon} size={22} color={iconColor} />
+        <Ionicons name={icon} size={18} color={iconColor} />
       </View>
-      <Text style={styles.startLabel} numberOfLines={2}>{t(label)}</Text>
+      <Text style={styles.gridLabel} numberOfLines={2}>{translated === label && SHORT_LABEL[label] ? SHORT_LABEL[label] : translated}</Text>
     </Pressable>
   );
+}
+
+function ToolGrid({ title, items, onOpen }: { title: string; items: GridItem[]; onOpen: (item: GridItem) => void }) {
+  const { t } = useT();
+  return (
+    <View style={styles.plainBlock}>
+      <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>{t(title)}</Text>
+      <View style={styles.gridWrap}>
+        {items.map((item) => (
+          <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => onOpen(item)} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// Lead-source bars keep one colour per channel, matching the design.
+function sourceBarColor(source: string) {
+  const look = sourceLook(source);
+  switch (look.label) {
+    case "Manual": return "#5b4bd5";
+    case "Meta Ads": return "#1d5fc4";
+    case "WhatsApp": return "#0f8a6a";
+    case "Google Ads": return "#f59e0b";
+    case "Walk-in": return "#ec4899";
+    default: return look.color;
+  }
 }
 
 const LEAD_SOURCES_TTL_MS = 5 * 60_000;
@@ -381,19 +429,9 @@ export default function DashboardScreen() {
   }, []);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const [setupExpanded, setSetupExpanded] = useState(false);
-  const [integrations, setIntegrations] = useState<IntegrationSettings | null>(null);
-  const [aiToolsVisited, setAiToolsVisited] = useState(false);
   // The dashboard is the request that matters; the extras below wait for it so opening Home doesn't fire a burst
   // of calls at once (the server answers a burst with "Too many requests").
   const dashboardLoaded = !!data;
-  // Refetch on focus so steps tick off as soon as the user comes back from connecting something.
-  useFocusEffect(useCallback(() => {
-    if (!dashboardLoaded) return;
-    // Non-admins may not have access to this endpoint — hide the setup banner rather than error out.
-    fetchIntegrationSettings().then(setIntegrations).catch(() => setIntegrations(null));
-    AsyncStorage.getItem(AI_TOOLS_VISITED_KEY).then((value) => setAiToolsVisited(value === "1")).catch(() => {});
-  }, [dashboardLoaded]));
 
   const [leadSources, setLeadSources] = useState<LeadSourceRow[] | null>(leadSourcesCache?.rows ?? null);
   // Bumped on pull-to-refresh so the lead sources are recomputed too (they are a big download, so not on every focus).
@@ -428,6 +466,17 @@ export default function DashboardScreen() {
     }, 300);
     return () => { cancelled = true; clearTimeout(task); };
   }, [dashboardReady, sourcesVersion]);
+
+  const [team, setTeam] = useState<StaffPerformance[] | null>(null);
+  useEffect(() => {
+    // Team figures are an admin view; like the other extras they wait for the dashboard so Home doesn't fire a burst of calls.
+    if (!dashboardReady || !canManage) return;
+    let cancelled = false;
+    const task = setTimeout(() => {
+      fetchByStaff("this_month").then((rows) => { if (!cancelled) setTeam(rows); }).catch(() => { if (!cancelled) setTeam(null); });
+    }, 600);
+    return () => { cancelled = true; clearTimeout(task); };
+  }, [dashboardReady, canManage]);
 
   // `silent` re-fetches in the background (no spinner, no error alert) when returning to the screen.
   const load = useCallback(async (refresh = false, silent = false) => {
@@ -509,15 +558,26 @@ export default function DashboardScreen() {
     return () => clearTimeout(timer);
   }, [error, failedLoads, data, load]);
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const businessName = tenant?.name || user?.name || "Account";
+  // A finished subscription, or a trial whose end date has passed.
+  const subscriptionStatus = (tenant?.subscriptionStatus || "").toLowerCase();
+  const trialOver = subscriptionStatus === "trial" && !!tenant?.trialEndsAt && new Date(tenant.trialEndsAt).getTime() < Date.now();
+  const subscriptionEnded = trialOver || ["expired", "ended", "cancelled", "canceled", "inactive", "past_due", "suspended"].includes(subscriptionStatus);
+  const attentionCount = data ? data.critical_followups || data.overdue_followups || 0 : 0;
+
   return (
     <View style={styles.screen}>
-      <LinearGradient pointerEvents="none" colors={["#e0f2fe", "#f0f9ff", "#FFFFFF"]} style={styles.topGlow} />
-      <Appbar.Header style={styles.header} elevated={false}>
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Pressable style={styles.profileRow} accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => router.push("/(app)/more/account")}>
           <View style={styles.profileAvatar}>
-            <Text style={styles.profileAvatarText}>{(user?.name?.charAt(0) || "?").toUpperCase()}</Text>
+            <Text style={styles.profileAvatarText}>{(businessName.charAt(0) || "?").toUpperCase()}</Text>
           </View>
-          <Text style={styles.profileName} numberOfLines={1}>{tenant?.name || user?.name || "Account"}</Text>
+          <View style={{ flexShrink: 1 }}>
+            <Text style={styles.greeting}>{t(greeting)}</Text>
+            <Text style={styles.profileName} numberOfLines={1}>{businessName}</Text>
+          </View>
         </Pressable>
         <View style={{ flex: 1 }} />
         {user ? (
@@ -525,26 +585,43 @@ export default function DashboardScreen() {
             <Text style={styles.roleBadgeText}>{t(user.role === "super_admin" ? "Super Admin" : user.role === "admin" ? "Admin" : "Staff")}</Text>
           </View>
         ) : null}
-        <Pressable style={styles.notificationButton} onPress={() => router.push("/(app)/notifications")}>
+        <Pressable style={styles.notificationButton} accessibilityRole="button" accessibilityLabel="Notifications" onPress={() => router.push("/(app)/notifications")}>
           <IconBell />
           {notificationCount ? (
             <Text style={styles.notificationBadge}>{notificationCount > 99 ? "99+" : notificationCount}</Text>
           ) : null}
         </Pressable>
-      </Appbar.Header>
-
-      <Pressable style={styles.searchRow} onPress={() => setSearchOpen(true)}>
-        <Ionicons name="search-outline" size={18} color={colors.textMuted} />
-        <Text style={styles.searchPlaceholder}>{t("Search tools & settings")}</Text>
-      </Pressable>
+      </View>
 
       <ScrollView
         contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} colors={[colors.primary]} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={UI.green} colors={[UI.green]} />}
         showsVerticalScrollIndicator={false}
       >
+        {subscriptionEnded ? (
+          <View style={styles.subscriptionCard}>
+            <View style={styles.subscriptionRow}>
+              <View style={styles.subscriptionIcon}><Ionicons name="power" size={18} color="#fff" /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.subscriptionTitle}>{t("Your subscription has ended")}</Text>
+                <Text style={styles.subscriptionSub}>{canManage ? t("Renew now to keep using {name}.", { name: businessName }) : t("Ask your admin to renew {name}.", { name: businessName })}</Text>
+              </View>
+            </View>
+            {canManage ? (
+              <Pressable style={styles.renewButton} onPress={() => router.push("/(app)/more/billing" as never)} accessibilityRole="button">
+                <Text style={styles.renewButtonText}>{t("Renew your subscription")}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        <Pressable style={styles.searchRow} onPress={() => setSearchOpen(true)} accessibilityRole="search">
+          <Ionicons name="search-outline" size={17} color={UI.muted} />
+          <Text style={styles.searchPlaceholder}>{t("Search tools & settings")}</Text>
+        </Pressable>
+
         {loading && !data ? (
-          <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.stateText}>{t("Getting your latest numbers…")}</Text></View>
+          <View style={styles.state}><ActivityIndicator size="large" color={UI.green} /><Text style={styles.stateText}>{t("Getting your latest numbers…")}</Text></View>
         ) : error && !data ? (
           <View style={styles.state}>
             <Text style={styles.stateTitle}>{t("Couldn't load dashboard")}</Text>
@@ -553,186 +630,70 @@ export default function DashboardScreen() {
           </View>
         ) : data ? (
           <>
-            {(() => {
-              // Integrations is an admin-only page, so staff never see its two setup steps (they could never finish them).
-              const isAdmin = user?.role === "admin" || user?.role === "super_admin";
-              const steps: { label: string; hint: string; icon: IconName; done: boolean; href: string }[] = [
-                ...(isAdmin ? [
-                  { label: "Connect WhatsApp", hint: "Message leads from the app", icon: "logo-whatsapp" as IconName, done: !!integrations?.whatsapp_configured, href: "/(app)/more/integrations" },
-                  { label: "Connect Facebook Ads", hint: "Pull in leads automatically", icon: "logo-facebook" as IconName, done: !!integrations?.meta_configured, href: "/(app)/more/integrations" },
-                ] : []),
-                { label: "Add your first lead", hint: "Start building your pipeline", icon: "person-add-outline", done: (data.total_leads ?? 0) > 0, href: "/(app)/leads/new" },
-                { label: "Explore AI Tools", hint: "Let AI do the busywork", icon: "sparkles-outline", done: aiToolsVisited, href: "/(app)/more/ai-tools" },
-              ];
-              const doneCount = steps.filter((step) => step.done).length;
-              const allDone = doneCount === steps.length;
-              return (
-                <View style={styles.setupCard}>
-                  <Pressable style={styles.setupHeaderRow} onPress={() => setSetupExpanded((open) => !open)}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.setupHeadline}>{allDone ? t("You're all set 🎉") : t("Finish setting up")}</Text>
-                      <Text style={styles.setupSub}>{t("{done} of {total} steps done", { done: doneCount, total: steps.length })}</Text>
-                    </View>
-                    <Ionicons name={setupExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textSecondary} />
-                  </Pressable>
-                  <View style={styles.setupTrack}>
-                    <View style={[styles.setupFill, { width: `${(doneCount / steps.length) * 100}%` }]} />
-                  </View>
-                  {setupExpanded ? (
-                    <View style={styles.setupList}>
-                      {steps.map((step) => (
-                        <Pressable
-                          key={step.label}
-                          style={styles.setupItem}
-                          onPress={() => {
-                            if (step.href === "/(app)/more/ai-tools") {
-                              AsyncStorage.setItem(AI_TOOLS_VISITED_KEY, "1").catch(() => {});
-                              setAiToolsVisited(true);
-                            }
-                            router.push(step.href as never);
-                          }}
-                        >
-                          <View style={[styles.setupItemIcon, step.done && styles.setupItemIconDone]}>
-                            <Ionicons name={step.done ? "checkmark" : step.icon} size={18} color={step.done ? colors.success : colors.primary} />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.setupItemTitle, step.done && styles.setupItemTitleDone]}>{t(step.label)}</Text>
-                            <Text style={styles.setupItemHint} numberOfLines={1}>{t(step.hint)}</Text>
-                          </View>
-                          {step.done ? (
-                            <View style={styles.setupDonePill}><Text style={styles.setupDonePillText}>{t("Done")}</Text></View>
-                          ) : (
-                            <View style={styles.setupGoPill}><Text style={styles.setupGoPillText}>{t("Set up")}</Text></View>
-                          )}
-                        </Pressable>
-                      ))}
-                    </View>
-                  ) : null}
+            <View style={styles.revenueCard}>
+              <View style={styles.revenueTop}>
+                <Text style={styles.revenueLabel}>{t("Total revenue")}</Text>
+                <View style={styles.periodPill}><Text style={styles.periodPillText}>{t("Last 7 days")}</Text></View>
+              </View>
+              <Text style={styles.revenueValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>₹{fmt(data.revenue_in_period)}</Text>
+              <View style={styles.revenueTiles}>
+                <View style={styles.revenueTile}>
+                  <Text style={styles.revenueTileLabel}>{t("Avg. deal")}</Text>
+                  <Text style={styles.revenueTileValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>₹{fmt(data.avg_deal_value)}</Text>
                 </View>
-              );
-            })()}
+                <View style={styles.revenueTile}>
+                  <Text style={styles.revenueTileLabel}>{t("Balance due")}</Text>
+                  <Text style={styles.revenueTileValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>₹{fmt(data.balance_due_in_period)}</Text>
+                </View>
+                <View style={[styles.revenueTile, styles.revenueTileYellow]}>
+                  <Text style={[styles.revenueTileLabel, { color: "#7a5300" }]}>{t("Converted")}</Text>
+                  <Text style={[styles.revenueTileValue, { color: "#3b2a00" }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{fmt(data.won_in_period)} / {fmt(data.leads_in_period)}</Text>
+                </View>
+              </View>
+            </View>
 
-            <View style={styles.startHereSection}>
-              <Text style={styles.startHereTitle}>{t("Start here")}</Text>
-              <Text style={styles.startHereSubtitle}>{t("Your everyday actions")}</Text>
-              <View style={styles.startHereRow}>
-                {START_HERE.map((item) => (
-                  <StartHereTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
-                ))}
+            <View style={styles.plainBlock}>
+              <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>{t("Quick actions")}</Text>
+              <View style={styles.quickGrid}>
+                <QuickTile icon="person-add-outline" label="Add new lead" bg="#d8f0e5" color={UI.green} onPress={() => router.push({ pathname: "/(app)/leads/new", params: { returnTo: "dashboard" } })} />
+                <QuickTile icon="calendar-outline" label="Schedule follow-up" bg="#fde9c9" color="#c2710c" onPress={() => router.push("/(app)/followups")} />
+                <QuickTile icon="search-outline" label="Search leads" bg="#dbe8fb" color="#2457e6" onPress={() => router.push("/(app)/leads")} />
+                <QuickTile icon="cloud-upload-outline" label="Import contacts" bg="#e7dffb" color="#6d4fd6" onPress={() => router.push("/(app)/leads/import")} />
               </View>
             </View>
 
             <TodayActivityCard data={data} onPress={() => router.push("/(app)/leads")} />
             <InsightsCard data={data} onPress={() => router.push("/(app)/more/reports")} />
-
-            <View style={styles.aiImagesCard}>
-              <View style={styles.aiImagesHeaderRow}>
-                <View style={styles.aiImagesIconWrap}>
-                  <View style={styles.aiImagesBadge}><Text style={styles.aiImagesBadgeText}>AI</Text></View>
-                  <Ionicons name="hardware-chip-outline" size={22} color="#7c3aed" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.aiImagesTitle}>{t("AI Images")}</Text>
-                  <Text style={styles.aiImagesSubtitle}>{t("Create high-quality product or fashion photoshoot")}</Text>
-                </View>
-                <Pressable onPress={() => router.push("/(app)/more/ai-tools")}>
-                  <Text style={styles.aiImagesCreate}>{t("Create")}</Text>
-                </Pressable>
-              </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.aiImagesRow}>
-                {AI_IMAGE_SAMPLES.map((item) => (
-                  <ImageBackground key={item.caption} source={item.source} style={styles.aiImageThumb} imageStyle={{ borderRadius: 14 }}>
-                    <View style={styles.aiImageCaptionWrap}>
-                      <Text style={styles.aiImageCaption} numberOfLines={1}>{item.caption}</Text>
-                    </View>
-                  </ImageBackground>
-                ))}
-              </ScrollView>
-            </View>
-
-            <View style={styles.statSection}>
-              <Pressable style={styles.statSectionViewAll} onPress={() => router.push("/(app)/more/reports")} accessibilityRole="button">
-                <Text style={styles.activityViewAll}>{t("View all")}</Text>
-              </Pressable>
-              <View style={styles.statGrid}>
-                <StatTile label="Total Leads" hint="Last 7 days" value={fmt(data.leads_in_period)} />
-                <StatTile label="Total Converted" hint="Last 7 days" value={fmt(data.won_in_period)} />
-                <StatTile label="New Leads Today" value={fmt(data.leads_today)} />
-                <StatTile label="Follow-ups Due Today" value={fmt(data.followups_today)} />
-              </View>
-            </View>
-
-            {leadSources?.length ? (
-              <View style={styles.sourcesCard}>
-                <View style={styles.sourcesHeaderRow}>
-                  <Ionicons name="pie-chart-outline" size={16} color={colors.text} />
-                  <Text style={styles.sourcesTitle}>{t("Lead Sources")}</Text>
-                  <Pressable style={{ marginLeft: "auto" }} onPress={() => router.push("/(app)/leads")}>
-                    <Text style={styles.sourcesViewAll}>{t("View all ›")}</Text>
-                  </Pressable>
-                </View>
-                <View style={styles.sourcesColumnHeader}>
-                  <Text style={[styles.sourcesColumnLabel, { flex: 1 }]}>{t("SOURCE")}</Text>
-                  <Text style={[styles.sourcesColumnLabel, { width: 44, textAlign: "right" }]}>{t("LEADS")}</Text>
-                  <Text style={[styles.sourcesColumnLabel, { width: 44, textAlign: "right" }]}>WON</Text>
-                  <Text style={[styles.sourcesColumnLabel, { width: 70, textAlign: "right" }]}>{t("CONV.")}</Text>
-                </View>
-                {leadSources.slice(0, 5).map((row) => (
-                  <View key={row.source} style={styles.sourceRow}>
-                    <View style={styles.sourceNameCell}>
-                      <View style={[styles.sourceIcon, { backgroundColor: sourceLook(row.source).bg }]}>
-                        <Ionicons name={sourceLook(row.source).icon} size={16} color={sourceLook(row.source).color} />
-                      </View>
-                      <Text style={styles.sourceNameText} numberOfLines={1}>{sourceLook(row.source).label || pretty(row.source)}</Text>
-                    </View>
-                    <Text style={[styles.sourceValueText, { width: 44, textAlign: "right" }]}>{row.leads}</Text>
-                    <Text style={[styles.sourceValueText, styles.sourceWonText, { width: 44, textAlign: "right" }]}>{row.won}</Text>
-                    <View style={{ width: 70, alignItems: "flex-end" }}>
-                      <View style={[styles.sourceConvBadge, row.conversion >= 10 && styles.sourceConvBadgeHigh]}>
-                        <Text style={[styles.sourceConvText, row.conversion >= 10 && styles.sourceConvTextHigh]}>{row.conversion.toFixed(1)}%</Text>
-                      </View>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-
-            <View style={styles.startHereSection}>
-              <Text style={styles.startHereTitle}>{t("Grow your business")}</Text>
-              <Text style={styles.startHereSubtitle}>{t("Reach, engage and convert customers")}</Text>
-              <View style={styles.gridWrap}>
-                {GROW_BUSINESS.map((item) => (
-                  <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.startHereSection}>
-              <Text style={styles.startHereTitle}>{t("Manage your business")}</Text>
-              <Text style={styles.startHereSubtitle}>{t("People, data and workspace tools")}</Text>
-              <View style={styles.gridWrap}>
-                {manageItems.map((item) => (
-                  <GridTile key={item.label} icon={item.icon} label={item.label} bg={item.bg} iconColor={item.iconColor} badges={item.badges} onPress={() => openGridItem(item)} />
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Quick actions</Text>
-              <View style={styles.quickGrid}>
-                <QuickTile icon="add-circle-outline" label="Add New Lead" onPress={() => router.push({ pathname: "/(app)/leads/new", params: { returnTo: "dashboard" } })} />
-                <QuickTile icon="calendar-outline" label="Schedule Follow-up" onPress={() => router.push("/(app)/followups")} />
-                <QuickTile icon="search-outline" label="Search Leads" onPress={() => router.push("/(app)/leads")} />
-                <QuickTile icon="download-outline" label="Import Contacts" onPress={() => router.push("/(app)/leads/import")} />
-              </View>
-            </View>
-
-            <LeadsByStageCard stages={data.pipeline || []} onPress={() => router.push("/(app)/leads")} />
-            {(data.critical_followups || data.overdue_followups || 0) > 0 ? (
-              <UrgentFollowupsCard count={data.critical_followups || data.overdue_followups || 0} onPress={() => router.push("/(app)/followups")} />
-            ) : null}
+            <PipelineCard stages={data.pipeline || []} onPress={() => router.push("/(app)/leads")} />
+            {team?.length ? <TeamPerformanceCard team={team} onPress={() => router.push("/(app)/more/reports")} /> : null}
+            <AttentionCard count={attentionCount} onPress={() => router.push("/(app)/followups")} />
             <UpcomingFollowupsCard followups={upcomingFollowups} onPress={() => router.push("/(app)/followups")} />
 
+            <ToolGrid title="Manage your business" items={manageItems} onOpen={openGridItem} />
+
+            {leadSources?.length ? (
+              <View style={styles.cardBlock}>
+                <View style={styles.blockHeader}>
+                  <Text style={styles.blockTitle}>{t("Lead sources")}</Text>
+                  <Pressable onPress={() => router.push("/(app)/leads")} hitSlop={8}><Text style={styles.viewAll}>{t("View all")}</Text></Pressable>
+                </View>
+                {(() => {
+                  const rows = leadSources.slice(0, 5);
+                  const max = Math.max(1, ...rows.map((row) => row.leads));
+                  return rows.map((row) => (
+                    <View key={row.source} style={styles.sourceRow}>
+                      <View style={styles.sourceTop}>
+                        <Text style={styles.sourceName} numberOfLines={1}>{sourceLook(row.source).label || pretty(row.source)}</Text>
+                        <Text style={styles.sourceValue}>{row.leads} · {row.conversion.toFixed(1)}%</Text>
+                      </View>
+                      <View style={styles.sourceTrack}>
+                        <View style={[styles.sourceFill, { width: `${Math.max(3, (row.leads / max) * 100)}%`, backgroundColor: sourceBarColor(row.source) }]} />
+                      </View>
+                    </View>
+                  ));
+                })()}
+              </View>
+            ) : null}
           </>
         ) : null}
       </ScrollView>
@@ -784,189 +745,145 @@ export default function DashboardScreen() {
   );
 }
 
+const CARD = { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 16 } as const;
+
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#FFFFFF" },
-  topGlow: { position: "absolute", top: 0, left: 0, right: 0, height: 280 },
-  header: { height: 80, paddingHorizontal: 12, backgroundColor: "transparent" },
-  profileRow: { flexDirection: "row", alignItems: "center", gap: 8, maxWidth: "45%" },
-  profileAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.success, alignItems: "center", justifyContent: "center" },
-  profileAvatarText: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" },
-  profileName: { color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold", flexShrink: 1 },
-  roleBadge: { backgroundColor: "#FFFFFF", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8, borderWidth: 1, borderColor: colors.border },
-  roleBadgeText: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "capitalize" },
-  notificationButton: {
-    ...glass,
-    width: 42,
-    height: 42,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 8,
-  },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 12 },
+  profileRow: { flexDirection: "row", alignItems: "center", gap: 10, maxWidth: "55%" },
+  profileAvatar: { width: 40, height: 40, borderRadius: 12, backgroundColor: UI.green, alignItems: "center", justifyContent: "center" },
+  profileAvatarText: { color: "#fff", fontSize: 16, fontFamily: "Inter_700Bold" },
+  greeting: { color: UI.sub, fontSize: 11, fontFamily: "Inter_500Medium" },
+  profileName: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
+  roleBadge: { backgroundColor: "#d8f0e5", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginRight: 10 },
+  roleBadgeText: { color: UI.green, fontSize: 10, fontFamily: "Inter_700Bold", textTransform: "capitalize" },
+  notificationButton: { ...CARD, width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   notificationBadge: {
-    position: "absolute",
-    top: 3,
-    right: 3,
-    minWidth: 17,
-    height: 15,
-    paddingHorizontal: 4,
-    borderRadius: 8,
-    overflow: "hidden",
-    backgroundColor: colors.danger,
-    color: "#fff",
-    fontSize: 9,
-    lineHeight: 15,
-    textAlign: "center",
-    fontFamily: "Inter_700Bold",
+    position: "absolute", top: -6, right: -6, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, overflow: "hidden",
+    backgroundColor: colors.danger, color: "#fff", fontSize: 9, lineHeight: 18, textAlign: "center", fontFamily: "Inter_700Bold",
   },
-  searchRow: { ...glass, flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginBottom: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  searchPlaceholder: { color: colors.textMuted, fontSize: 14, fontFamily: "Inter_400Regular" },
+
+  subscriptionCard: { marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 14, backgroundColor: "#fdecef", borderWidth: 1, borderColor: "#f6c8d0" },
+  subscriptionRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  subscriptionIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: UI.red, alignItems: "center", justifyContent: "center" },
+  subscriptionTitle: { color: "#b4233f", fontSize: 13, fontFamily: "Inter_700Bold" },
+  subscriptionSub: { color: "#c2475f", fontSize: 11, marginTop: 2 },
+  renewButton: { marginTop: 12, height: 40, borderRadius: 10, backgroundColor: UI.blue, alignItems: "center", justifyContent: "center" },
+  renewButtonText: { color: "#fff", fontSize: 13, fontFamily: "Inter_700Bold" },
+
+  searchRow: { ...CARD, flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginBottom: 12, paddingHorizontal: 14, height: 44, borderRadius: 12 },
+  searchPlaceholder: { color: UI.muted, fontSize: 13, fontFamily: "Inter_400Regular" },
 
   searchScreen: { flex: 1, backgroundColor: colors.background },
   searchModalRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingBottom: 12 },
-  searchModalInputWrap: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12 },
+  searchModalInputWrap: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: UI.line, paddingHorizontal: 12 },
   searchModalInput: { flex: 1, color: colors.text, fontSize: 14, paddingVertical: 0, height: 46 },
-  searchModalCancel: { color: colors.primary, fontSize: 14, fontFamily: "Inter_700Bold" },
+  searchModalCancel: { color: UI.blue, fontSize: 14, fontFamily: "Inter_700Bold" },
   searchResults: { paddingHorizontal: 16, paddingBottom: 24, gap: 4 },
-  searchResultRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
+  searchResultRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: UI.line },
   searchResultIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   searchResultLabel: { flex: 1, color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
   searchEmptyText: { color: colors.textMuted, fontSize: 13, textAlign: "center", marginTop: 30 },
 
   state: { minHeight: 350, padding: 30, alignItems: "center", justifyContent: "center" },
-  stateTitle: { color: colors.text, fontSize: 18, fontWeight: "800" },
-  stateText: { color: colors.textSecondary, fontSize: 13, textAlign: "center", lineHeight: 19, marginTop: 9 },
+  stateTitle: { color: UI.ink, fontSize: 18, fontWeight: "800" },
+  stateText: { color: UI.sub, fontSize: 13, textAlign: "center", lineHeight: 19, marginTop: 9 },
   retry: { marginTop: 16 },
 
-  setupCard: { ...glass, marginHorizontal: 16, marginBottom: 16, padding: 16 },
-  setupHeaderRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  setupHeadline: { color: colors.text, fontSize: 16, fontFamily: "Inter_700Bold" },
-  setupSub: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 2 },
-  setupTrack: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceMuted, overflow: "hidden", marginTop: 12 },
-  setupFill: { height: 6, borderRadius: 3, backgroundColor: colors.success },
-  setupList: { marginTop: 8 },
-  setupItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
-  setupItemIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
-  setupItemIconDone: { backgroundColor: "#dcfce7" },
-  setupItemTitle: { color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  setupItemTitleDone: { color: colors.textSecondary },
-  setupItemHint: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
-  setupDonePill: { backgroundColor: "#dcfce7", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
-  setupDonePillText: { color: "#15803d", fontSize: 11, fontFamily: "Inter_700Bold" },
-  setupGoPill: { backgroundColor: colors.primary, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 },
-  setupGoPillText: { color: "#ffffff", fontSize: 11, fontFamily: "Inter_700Bold" },
+  revenueCard: { marginHorizontal: 16, marginBottom: 16, padding: 16, borderRadius: 18, backgroundColor: UI.greenDark },
+  revenueTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  revenueLabel: { color: "#b8d8cc", fontSize: 11, fontFamily: "Inter_500Medium" },
+  periodPill: { backgroundColor: UI.greenMid, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  periodPillText: { color: "#d8f0e5", fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  revenueValue: { color: "#ffffff", fontSize: 30, fontFamily: "DMSans_700Bold", marginTop: 6, marginBottom: 14 },
+  revenueTiles: { flexDirection: "row", gap: 8 },
+  revenueTile: { flex: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 9, backgroundColor: UI.greenMid },
+  revenueTileYellow: { backgroundColor: "#fbbf24" },
+  revenueTileLabel: { color: "#b8d8cc", fontSize: 9, fontFamily: "Inter_600SemiBold" },
+  revenueTileValue: { color: "#ffffff", fontSize: 14, fontFamily: "DMSans_700Bold", marginTop: 3 },
 
-  statSection: { marginBottom: 16 },
-  statSectionViewAll: { alignSelf: "flex-end", marginRight: 20, marginBottom: 6 },
-  statGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginHorizontal: 16 },
-  statTile: { ...glass, width: "48%", flexGrow: 1, padding: 16 },
-  statLabel: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_500Medium" },
-  statHint: { color: colors.textMuted, fontSize: 10, fontFamily: "Inter_500Medium", marginTop: 1 },
+  plainBlock: { marginHorizontal: 16, marginBottom: 16 },
+  sectionTitle: { color: UI.ink, fontSize: 14, fontFamily: "DMSans_700Bold" },
+  blockHeaderPlain: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  viewAll: { color: UI.green, fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  cardBlock: { ...CARD, marginHorizontal: 16, marginBottom: 16, padding: 14 },
+  blockHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  blockTitle: { color: UI.ink, fontSize: 14, fontFamily: "DMSans_700Bold" },
+  blockMeta: { color: UI.sub, fontSize: 11, fontFamily: "Inter_500Medium" },
+  emptyText: { color: UI.muted, fontSize: 12, paddingVertical: 6 },
 
-  activityCard: { ...glass, marginHorizontal: 16, marginBottom: 16, padding: 16 },
-  activityHeaderRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 },
-  activityIconWrap: { width: 26, height: 26, borderRadius: 8, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
-  activityTitle: { color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold" },
-  activityViewAll: { color: colors.primary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  activityGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  activityTile: { width: "31%", flexGrow: 1, borderRadius: 16, padding: 12, alignItems: "flex-start" },
-  activityTileIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.85)", alignItems: "center", justifyContent: "center", marginBottom: 8 },
-  activityTileLabel: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_600SemiBold", marginTop: 1 },
-  activityTileValue: { fontSize: 22, fontFamily: "Inter_700Bold" },
+  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  quickTile: { ...CARD, width: "48.7%", borderRadius: 12, flexDirection: "row", alignItems: "center", gap: 10, padding: 10 },
+  quickIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  quickLabel: { flex: 1, color: UI.ink, fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
-  sourcesCard: { ...glass, marginHorizontal: 16, marginBottom: 16, padding: 16 },
-  sourcesHeaderRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 },
-  sourcesTitle: { color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold" },
-  sourcesViewAll: { color: colors.primary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  sourcesColumnHeader: { flexDirection: "row", marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "rgba(224,242,254,0.6)" },
-  sourcesColumnLabel: { color: colors.textMuted, fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
-  sourceRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
-  sourceIcon: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  sourceNameCell: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
-  sourceNameText: { flex: 1, color: colors.text, fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  sourceValueText: { color: colors.textSecondary, fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  sourceWonText: { color: colors.success },
-  sourceConvBadge: { backgroundColor: colors.surfaceMuted, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
-  sourceConvBadgeHigh: { backgroundColor: colors.warningSoft },
-  sourceConvText: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_700Bold" },
-  sourceConvTextHigh: { color: colors.warning },
+  activityGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  activityTile: { ...CARD, width: "31.6%", borderRadius: 12, padding: 12 },
+  activityDot: { width: 7, height: 7, borderRadius: 4, marginBottom: 8 },
+  activityValue: { color: UI.ink, fontSize: 24, fontFamily: "DMSans_700Bold" },
+  activityLabel: { color: UI.sub, fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 1 },
 
-  aiImagesCard: { ...glass, marginHorizontal: 16, marginBottom: 16, padding: 16 },
-  aiImagesHeaderRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  aiImagesIconWrap: { width: 48, height: 48, borderRadius: 14, backgroundColor: "#ede9fe", alignItems: "center", justifyContent: "center" },
-  aiImagesBadge: { position: "absolute", top: -6, right: -6, backgroundColor: "#7c3aed", borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1, zIndex: 2 },
-  aiImagesBadgeText: { color: "#fff", fontSize: 9, fontFamily: "Inter_700Bold" },
-  aiImagesTitle: { color: colors.text, fontSize: 13, fontFamily: "DMSans_700Bold" },
-  aiImagesSubtitle: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
-  aiImagesCreate: { color: colors.success, fontSize: 13, fontFamily: "Inter_700Bold" },
-  aiImagesRow: { flexDirection: "row", gap: 10, marginTop: 14 },
-  aiImageThumb: { width: 96, height: 128, borderRadius: 14, alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  aiImageCaptionWrap: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "rgba(0,0,0,0.35)", paddingVertical: 6, paddingHorizontal: 6 },
-  aiImageCaption: { color: "#fff", fontSize: 10, fontFamily: "Inter_600SemiBold", textAlign: "center" },
+  insightsRow: { flexDirection: "row", gap: 8 },
+  insightCard: { flex: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 9 },
+  insightLabel: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  insightValue: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold", marginTop: 6 },
 
-  startHereSection: { ...glass, marginHorizontal: 16, marginBottom: 16, padding: 16 },
-  startHereTitle: { color: colors.text, fontSize: 14, fontFamily: "DMSans_700Bold" },
-  startHereSubtitle: { color: colors.textMuted, fontSize: 12, marginTop: 2, marginBottom: 16 },
-  startHereRow: { flexDirection: "row", justifyContent: "space-between" },
-  gridWrap: { flexDirection: "row", flexWrap: "wrap", rowGap: 18 },
-  gridTile: { width: "25%", alignItems: "center" },
+  pipelineList: { marginTop: 2 },
+  pipelineRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
+  pipelineDot: { width: 8, height: 8, borderRadius: 3 },
+  pipelineName: { flex: 1, color: UI.ink, fontSize: 13, fontFamily: "Inter_500Medium" },
+  pipelinePill: { backgroundColor: "#d8f0e5", borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2 },
+  pipelinePillText: { color: UI.green, fontSize: 10, fontFamily: "Inter_700Bold" },
+  pipelineCount: { minWidth: 22, textAlign: "right", color: UI.ink, fontSize: 13, fontFamily: "Inter_700Bold" },
 
-  settingsList: { borderRadius: 16, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.7)", borderWidth: 1, borderColor: "rgba(255,255,255,0.6)" },
-  settingsRow: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 14, paddingHorizontal: 4 },
-  settingsIconWrap: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  settingsRowTitle: { color: colors.text, fontSize: 13, fontFamily: "Inter_700Bold" },
-  settingsRowSubtitle: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
-  settingsDivider: { height: 1, backgroundColor: "rgba(224,242,254,0.6)" },
-  startTile: { flex: 1, alignItems: "center" },
-  startIconWrap: { width: 56, height: 56, borderRadius: 16, alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  teamSummary: { flex: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 10 },
+  teamSummaryLabel: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  teamSummaryValue: { color: UI.ink, fontSize: 22, fontFamily: "DMSans_700Bold", marginTop: 4 },
+  memberGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  memberCard: { ...CARD, width: "48.7%", borderRadius: 12, padding: 10 },
+  memberHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  memberAvatar: { width: 22, height: 22, borderRadius: 7, alignItems: "center", justifyContent: "center" },
+  memberAvatarText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  memberName: { flexShrink: 1, color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold" },
+  topBadge: { backgroundColor: "#fde9c9", borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 },
+  topBadgeText: { color: "#c2710c", fontSize: 8, fontFamily: "Inter_700Bold" },
+  memberLeadsRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 10 },
+  memberLeads: { color: UI.ink, fontSize: 13, fontFamily: "Inter_700Bold" },
+  memberStats: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
+  memberStatLabel: { color: UI.muted, fontSize: 9, fontFamily: "Inter_500Medium" },
+  memberStatValue: { fontSize: 11, fontFamily: "Inter_700Bold", marginTop: 1 },
+
+  attentionCard: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginBottom: 16, padding: 12, borderRadius: 14, backgroundColor: "#fdecef", borderWidth: 1, borderColor: "#f6c8d0" },
+  attentionCalm: { backgroundColor: "#fdecef" },
+  attentionIcon: { width: 30, height: 30, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: colors.danger },
+  attentionCopy: { flex: 1 },
+  attentionTitle: { color: "#b4233f", fontSize: 12, fontFamily: "Inter_700Bold" },
+  attentionSub: { color: "#c2475f", fontSize: 10, marginTop: 2 },
+
+  upcomingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48, paddingVertical: 7 },
+  upcomingRowBorder: { borderTopWidth: 1, borderTopColor: UI.line },
+  upcomingCopy: { flex: 1, minWidth: 0 },
+  upcomingLead: { color: UI.ink, fontSize: 13, fontFamily: "Inter_500Medium" },
+  upcomingType: { color: UI.sub, fontSize: 11, marginTop: 2 },
+  upcomingTimeWrap: { alignItems: "center", gap: 3, marginLeft: 8 },
+  upcomingTime: { color: UI.ink, fontSize: 11, fontFamily: "Inter_700Bold" },
+
+  gridWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  gridTile: { ...CARD, borderRadius: 12, alignItems: "center", paddingVertical: 10, paddingHorizontal: 4 },
+  gridIconWrap: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  gridLabel: { fontSize: 9, color: UI.ink, fontFamily: "Inter_600SemiBold", textAlign: "center" },
+
+  sourceRow: { paddingVertical: 7 },
+  sourceTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 5 },
+  sourceName: { flex: 1, color: UI.ink, fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  sourceValue: { color: UI.sub, fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  sourceTrack: { height: 5, borderRadius: 3, backgroundColor: "#e6ece9", overflow: "hidden" },
+  sourceFill: { height: 5, borderRadius: 3 },
+
+
   startBadgeRow: { position: "absolute", top: -10, flexDirection: "row", gap: 4, zIndex: 2 },
   startBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   startBadgeText: { color: "#fff", fontSize: 8, fontFamily: "Inter_700Bold" },
-  startLabel: { fontSize: 11, color: colors.text, fontFamily: "Inter_600SemiBold", textAlign: "center" },
 
 
-  section: { marginTop: 16, marginBottom: 16, paddingHorizontal: 16 },
-  sectionTitle: { color: "#334155", fontSize: 13, fontFamily: "Inter_700Bold", marginBottom: 12 },
-
-  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  quickTile: { ...glass, width: "48%", flexGrow: 1 },
-  quickTileContent: { padding: 12, flexDirection: "row", alignItems: "center", gap: 10 },
-  quickLabel: { flex: 1, color: "#334155", fontSize: 12, fontFamily: "Inter_600SemiBold" },
-
-  stageCard: { ...glass, marginHorizontal: 16, marginBottom: 10, padding: 10, backgroundColor: "rgba(255,255,255,0.78)" },
-  stageCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
-  stageCardTitle: { color: colors.text, fontSize: 14, fontFamily: "DMSans_700Bold" },
-  stageViewAll: { color: colors.primary, fontSize: 10, fontFamily: "Inter_600SemiBold" },
-  stageColumns: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  stageColumn: { minWidth: 0, padding: 6, borderRadius: 8, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: "rgba(255,255,255,0.55)" },
-  stageName: { color: colors.textMuted, fontSize: 9, fontFamily: "Inter_700Bold", textAlign: "center" },
-  stageCount: { color: colors.text, fontSize: 18, fontFamily: "DMSans_700Bold", textAlign: "center", marginTop: 5 },
-  stagePercent: { color: colors.textMuted, fontSize: 9, textAlign: "center", marginTop: 1, marginBottom: 6 },
-  stageTrack: { height: 5, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.8)", overflow: "hidden" },
-  stageFill: { height: "100%", minWidth: 4, borderRadius: 5, backgroundColor: colors.primary },
-  stageEmpty: { color: colors.textMuted, fontSize: 12, paddingVertical: 10 },
-  urgentCard: { flexDirection: "row", alignItems: "center", gap: 9, marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 14, backgroundColor: "#fcecef", borderWidth: 1, borderColor: "#f0b8c4" },
-  urgentIcon: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: colors.danger },
-  urgentCopy: { flex: 1 },
-  urgentTitle: { color: "#c81e45", fontSize: 13, fontFamily: "Inter_700Bold" },
-  urgentSubtitle: { color: "#c24561", fontSize: 11, marginTop: 3 },
-  upcomingCard: { ...glass, marginHorizontal: 16, marginBottom: 10, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.72)" },
-  upcomingHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 9 },
-  upcomingTitle: { color: colors.text, fontSize: 14, fontFamily: "DMSans_700Bold" },
-  upcomingCount: { color: colors.textSecondary, fontSize: 15, fontFamily: "Inter_700Bold" },
-  upcomingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 54, paddingHorizontal: 12, paddingVertical: 7 },
-  upcomingRowBorder: { borderTopWidth: 1, borderTopColor: colors.borderSoft },
-  upcomingCopy: { flex: 1, minWidth: 0 },
-  upcomingLead: { color: colors.text, fontSize: 13, fontFamily: "Inter_500Medium" },
-  upcomingType: { color: colors.textSecondary, fontSize: 11, marginTop: 2 },
-  upcomingTimeWrap: { alignItems: "center", gap: 3, marginLeft: 8 },
-  upcomingTime: { color: colors.text, fontSize: 11, fontFamily: "Inter_700Bold" },
-  upcomingEmpty: { color: colors.textMuted, fontSize: 11, paddingHorizontal: 12, paddingBottom: 10 },
-  insightsSection: { marginHorizontal: 16, marginBottom: 10 },
-  insightsTitle: { color: colors.text, fontSize: 14, fontFamily: "DMSans_700Bold", marginBottom: 8 },
-  insightsPeriod: { color: colors.textMuted, fontSize: 11, fontFamily: "Inter_500Medium" },
-  insightsRow: { flexDirection: "row", gap: 8 },
-  insightCard: { ...glass, flex: 1, minHeight: 70, padding: 10, backgroundColor: "rgba(255,255,255,0.78)" },
-  insightLabel: { color: colors.textSecondary, fontSize: 10, fontFamily: "Inter_700Bold" },
-  insightValue: { color: colors.text, fontSize: 16, fontFamily: "DMSans_700Bold", marginTop: 8 },
 });
