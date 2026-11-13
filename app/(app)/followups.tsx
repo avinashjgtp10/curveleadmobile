@@ -27,7 +27,7 @@ const FOLLOWUP_TYPES: { key: FollowupType; label: string }[] = [
 ];
 
 // Palette: soft grey-green page, white cards, deep green accent, red for overdue.
-const UI = { bg: "#f1f4f2", line: "#e4e9e6", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", green: "#0f7b5f", blue: "#2457e6", red: "#d6334f", redSoft: "#fdecef", redLine: "#f6c8d0" };
+const UI = { bg: "#f1f4f2", line: "#e4e9e6", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", green: "#0f7b5f", blue: "#2457e6", teal: "#0b6b97", formBg: "#f0f6fa", formLine: "#cfe3f1", red: "#d6334f", redSoft: "#fdecef", redLine: "#f6c8d0" };
 const AVATAR_COLORS = ["#c8294a", "#d98a0b", "#2457e6", "#0f7b5f", "#7c3aed", "#0f2a5c"];
 
 // Two menu items (~44 each) plus padding.
@@ -440,22 +440,21 @@ export default function FollowupsScreen() {
 
       <Modal visible={addOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeAdd}>
         <Pressable style={styles.sheetBackdrop} onPress={closeAdd}>
-          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8 }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
+          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top }]} onPress={() => {}}>
             <View style={styles.sheetHeader}>
-              <Pressable accessibilityLabel="Back" disabled={saving} hitSlop={10} onPress={closeAdd} style={styles.sheetBackButton}>
-                <Ionicons name="arrow-back" size={24} color={saving ? colors.textMuted : colors.text} />
+              <Text style={styles.sheetTitle}>Add follow-up</Text>
+              <Pressable accessibilityLabel="Close" disabled={saving} hitSlop={10} onPress={closeAdd}>
+                <Ionicons name="close" size={22} color={saving ? colors.textMuted : UI.ink} />
               </Pressable>
-              <Text style={styles.sheetTitle}>Add Follow-up</Text>
-              <View style={styles.sheetHeaderSpacer} />
             </View>
             <ScrollView
-              contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) }}
+              style={styles.sheetBody}
+              contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 18) }}
               keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
             >
               {addError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{addError}</Text></View> : null}
 
-              <Text style={styles.sheetSectionLabel}>Lead Name <Text style={styles.required}>*</Text></Text>
+              <Text style={[styles.sheetSectionLabel, { marginTop: 0 }]}>Lead name <Text style={styles.required}>*</Text></Text>
               {selectedLead ? (
                 <View style={styles.selectedLead}>
                   <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name} · {selectedLead.phone}</Text>
@@ -482,7 +481,7 @@ export default function FollowupsScreen() {
                 </>
               )}
 
-              <Text style={styles.sheetSectionLabel}>Follow-Up Type</Text>
+              <Text style={styles.sheetSectionLabel}>Follow-up type</Text>
               <View style={styles.typeRow}>
                 {FOLLOWUP_TYPES.map((item) => {
                   const active = followupType === item.key;
@@ -494,13 +493,16 @@ export default function FollowupsScreen() {
                 })}
               </View>
 
-              <Text style={styles.sheetSectionLabel}>Follow-Up Date &amp; Time</Text>
+              <Text style={styles.sheetSectionLabel}>Follow-up date &amp; time</Text>
               <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
 
-              <Text style={styles.sheetSectionLabel}>Follow-Up Note</Text>
-              <TextInput mode="outlined" value={followupNotes} onChangeText={setFollowupNotes} placeholder="Add a note (optional)" multiline numberOfLines={3} style={styles.sheetTextarea} outlineStyle={styles.sheetOutline} outlineColor={UI.line} activeOutlineColor={UI.green} />
+              <Text style={styles.sheetSectionLabel}>Follow-up note</Text>
+              <TextInput mode="outlined" value={followupNotes} onChangeText={setFollowupNotes} placeholder="Add a note (optional)" multiline numberOfLines={3} style={styles.sheetTextarea} outlineStyle={styles.sheetOutline} outlineColor={UI.formLine} activeOutlineColor={UI.teal} />
 
-              <Button mode="contained" buttonColor={UI.green} onPress={saveFollowup} loading={saving} disabled={saving} style={styles.sheetPrimaryButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
+              <View style={styles.sheetActions}>
+                <Button mode="outlined" textColor={UI.teal} onPress={closeAdd} disabled={saving} style={styles.sheetCancelButton} contentStyle={styles.sheetPrimaryButtonContent}>Cancel</Button>
+                <Button mode="contained" buttonColor={UI.teal} onPress={saveFollowup} loading={saving} disabled={saving} style={styles.sheetSaveButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
+              </View>
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -511,9 +513,9 @@ export default function FollowupsScreen() {
 
 const styles = StyleSheet.create({
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
-  typeChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: "#dbe3f1", backgroundColor: "#ffffff" },
-  typeChipActive: { backgroundColor: UI.green, borderColor: UI.green },
-  typeChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
+  typeChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: UI.formLine, backgroundColor: "#ffffff" },
+  typeChipActive: { backgroundColor: UI.teal, borderColor: UI.teal },
+  typeChipText: { color: UI.ink, fontSize: 13, fontWeight: "700" },
   typeChipTextActive: { color: "#ffffff" },
   screen: { flex: 1, backgroundColor: UI.bg },
   header: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingBottom: 12 },
@@ -585,23 +587,26 @@ const styles = StyleSheet.create({
 
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
   fullSheet: { height: "100%", maxHeight: "100%", borderTopLeftRadius: 0, borderTopRightRadius: 0 },
-  sheet: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: UI.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
+  sheet: { backgroundColor: UI.formBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
+  sheetBody: { flex: 1 },
   sheetHandle: { width: 34, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 10 },
-  sheetHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
+  sheetHeader: { minHeight: 56, paddingHorizontal: 16, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.formLine, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sheetBackButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", marginLeft: -8 },
   sheetHeaderSpacer: { width: 32 },
   sheetTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
-  sheetSectionLabel: { color: UI.sub, fontSize: 11, fontWeight: "700", marginTop: 12, marginBottom: 6 },
+  sheetSectionLabel: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold", marginTop: 14, marginBottom: 6 },
   required: { color: colors.danger },
   sheetError: { flexDirection: "row", alignItems: "center", gap: 8, padding: 8, marginBottom: 4, borderRadius: 8, backgroundColor: colors.dangerSoft },
   sheetErrorText: { flex: 1, color: colors.danger, fontSize: 11, fontWeight: "700" },
-  searchInput: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 10 },
+  searchInput: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.formLine, borderRadius: 10 },
   searchInputText: { fontSize: 13, minHeight: 0 },
-  suggestions: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 10, marginTop: 6, overflow: "hidden" },
-  selectedLead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 40, paddingHorizontal: 12, backgroundColor: "#d8f0e5", borderRadius: 10 },
-  selectedLeadText: { flex: 1, color: UI.green, fontSize: 13, fontWeight: "700" },
+  suggestions: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.formLine, borderRadius: 10, marginTop: 6, overflow: "hidden" },
+  selectedLead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 40, paddingHorizontal: 12, backgroundColor: "#e1eef7", borderRadius: 10 },
+  selectedLeadText: { flex: 1, color: UI.teal, fontSize: 13, fontWeight: "700" },
   sheetTextarea: { minHeight: 56, backgroundColor: "#ffffff" },
   sheetOutline: { borderRadius: 10 },
-  sheetPrimaryButton: { marginTop: 16, marginBottom: 4, borderRadius: 10 },
-  sheetPrimaryButtonContent: { height: 42 },
+  sheetActions: { flexDirection: "row", gap: 12, marginTop: 20 },
+  sheetCancelButton: { flex: 1, borderColor: UI.formLine, borderRadius: 999, backgroundColor: "#ffffff" },
+  sheetSaveButton: { flex: 1, borderRadius: 999 },
+  sheetPrimaryButtonContent: { height: 44 },
 });

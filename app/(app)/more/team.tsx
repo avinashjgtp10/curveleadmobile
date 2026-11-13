@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Appbar, Avatar, Button, Card, Checkbox, Divider, IconButton, Text, TextInput } from "react-native-paper";
+import { ActivityIndicator, Button, Checkbox, Text, TextInput } from "react-native-paper";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import axios from "axios";
 import { fetchStaff, fetchStaffPermissions, fetchStaffWhatsApp, saveStaffPermissions, saveStaffWhatsApp, setStaffPassword, StaffMember, StaffPermission } from "@/api/staff";
 import { colors, radii, spacing } from "@/theme";
+
+// Palette of the redesigned screen: pale blue page, white cards, deep teal-blue actions.
+const UI = { bg: "#eef4f8", line: "#d6e6f0", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", green: "#0f7b5f", greenSoft: "#d8f0e5", red: "#d6334f" };
 
 export default function TeamScreen() {
   const insets = useSafeAreaInsets();
@@ -171,12 +174,14 @@ export default function TeamScreen() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Team" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>Team</Text>
+      </View>
 
-      {loading ? <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View> : error ? (
+      {loading ? <View style={styles.state}><ActivityIndicator size="large" color={UI.teal} /></View> : error ? (
         <View style={styles.state}>
           <Ionicons name="people-outline" size={38} color={colors.textMuted} />
           <Text style={styles.errorText}>{error}</Text>
@@ -186,16 +191,16 @@ export default function TeamScreen() {
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(false); }} tintColor={colors.primary} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(false); }} tintColor={UI.teal} />}
         >
           <View style={styles.titleRow}>
             <View style={styles.titleCopy}>
-              <Text style={styles.title}>Team</Text>
               <Text style={styles.subtitle}>Manage your team members and lead assignment</Text>
             </View>
-            <Button mode="contained" compact icon="plus" onPress={openInvite}>
-              Add member
-            </Button>
+            <Pressable style={styles.addButton} onPress={openInvite} accessibilityRole="button" accessibilityLabel="Add member">
+              <Ionicons name="add" size={18} color="#fff" />
+              <Text style={styles.addButtonText}>Add member</Text>
+            </Pressable>
           </View>
 
           <View style={styles.statsRow}>
@@ -204,11 +209,13 @@ export default function TeamScreen() {
             <StatCard icon="people-circle-outline" value={teamCount} label="Teams" tone="warning" />
           </View>
 
-          <Card mode="outlined" style={styles.card}>
-            <Card.Content>
+          <View style={styles.card}>
+            <View>
               <View style={styles.sectionTopRow}>
-                <SectionHeading icon="people-outline" title="Team members" />
-                <Button mode="text" compact icon="plus" onPress={() => { setTeamName(""); setTeamModalOpen(true); }}>New team</Button>
+                <Text style={styles.sectionTitle}>Team members</Text>
+                <Pressable onPress={() => { setTeamName(""); setTeamModalOpen(true); }} hitSlop={8} accessibilityRole="button">
+                  <Text style={styles.newTeam}>+ New team</Text>
+                </Pressable>
               </View>
               {staff.length ? staff.map((member, index) => <React.Fragment key={member.id}>
                 <MemberRow
@@ -219,10 +226,10 @@ export default function TeamScreen() {
                   onChangePassword={() => openPasswordModal(member)}
                   onRemove={() => removeMember(member)}
                 />
-                {index < staff.length - 1 ? <Divider /> : null}
+                {index < staff.length - 1 ? <View style={styles.rowDivider} /> : null}
               </React.Fragment>) : <Text style={styles.empty}>No team members found.</Text>}
-            </Card.Content>
-          </Card>
+            </View>
+          </View>
         </ScrollView>
       )}
 
@@ -230,7 +237,7 @@ export default function TeamScreen() {
         <Pressable style={styles.modalBackdrop} onPress={() => setTeamModalOpen(false)}>
           <Pressable style={[styles.teamModal, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]} onPress={() => {}}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>New Team</Text>
+              <Text style={styles.modalTitle}>New team</Text>
               <Pressable accessibilityLabel="Close" hitSlop={10} onPress={() => setTeamModalOpen(false)}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
             </View>
             <View style={styles.teamModalBody}>
@@ -241,12 +248,12 @@ export default function TeamScreen() {
                 value={teamName}
                 onChangeText={setTeamName}
                 style={styles.teamNameInput}
-                outlineColor={colors.border}
-                activeOutlineColor={colors.primary}
+                outlineColor={UI.line}
+                activeOutlineColor={UI.teal}
               />
               <View style={styles.modalActions}>
-                <Button mode="outlined" style={styles.cancelButton} onPress={() => setTeamModalOpen(false)}>Cancel</Button>
-                <Button mode="contained" style={styles.sendButton} onPress={createTeam}>Create</Button>
+                <Button mode="outlined" textColor={UI.teal} style={styles.cancelButton} onPress={() => setTeamModalOpen(false)}>Cancel</Button>
+                <Button mode="contained" buttonColor={UI.teal} style={styles.sendButton} onPress={createTeam}>Create</Button>
               </View>
             </View>
           </Pressable>
@@ -265,16 +272,16 @@ export default function TeamScreen() {
                 mode="outlined" dense placeholder="Phone number ID" value={waMemberNumber} onChangeText={setWaMemberNumber}
                 keyboardType="number-pad" autoCorrect={false} editable={!waLoading && !waSaving}
                 right={waLoading ? <TextInput.Icon icon="loading" /> : undefined}
-                style={styles.teamNameInput} outlineColor={colors.border} activeOutlineColor={colors.primary}
+                style={styles.teamNameInput} outlineColor={UI.line} activeOutlineColor={UI.teal}
               />
               <TextInput
                 mode="outlined" dense placeholder="Access token (leave blank to keep existing)" value={waMemberToken} onChangeText={setWaMemberToken}
                 secureTextEntry autoCapitalize="none" autoCorrect={false} editable={!waSaving}
-                style={[styles.teamNameInput, { marginTop: spacing.sm }]} outlineColor={colors.border} activeOutlineColor={colors.primary}
+                style={[styles.teamNameInput, { marginTop: spacing.sm }]} outlineColor={UI.line} activeOutlineColor={UI.teal}
               />
               <View style={styles.modalActions}>
-                <Button mode="outlined" style={styles.cancelButton} onPress={() => setWaMember(null)} disabled={waSaving}>Cancel</Button>
-                <Button mode="contained" style={styles.sendButton} onPress={saveMemberWhatsapp} loading={waSaving} disabled={waSaving || waLoading}>Save</Button>
+                <Button mode="outlined" textColor={UI.teal} style={styles.cancelButton} onPress={() => setWaMember(null)} disabled={waSaving}>Cancel</Button>
+                <Button mode="contained" buttonColor={UI.teal} style={styles.sendButton} onPress={saveMemberWhatsapp} loading={waSaving} disabled={waSaving || waLoading}>Save</Button>
               </View>
             </View>
           </Pressable>
@@ -285,21 +292,21 @@ export default function TeamScreen() {
         <Pressable style={styles.modalBackdrop} onPress={() => setPermMember(null)}>
           <Pressable style={[styles.teamModal, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]} onPress={() => {}}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{permMember?.name}&apos;s Permissions</Text>
+              <Text style={styles.modalTitle}>{permMember?.name}&apos;s permissions</Text>
               <Pressable accessibilityLabel="Close" hitSlop={10} onPress={() => setPermMember(null)}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
             </View>
             <ScrollView style={styles.permissionsScroll}>
               <View style={styles.teamModalBody}>
-                {permissionsLoading ? <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} /> : null}
+                {permissionsLoading ? <ActivityIndicator color={UI.teal} style={{ marginVertical: spacing.lg }} /> : null}
                 {permissions.map((permission) => (
                   <Pressable key={permission.key} style={styles.permissionRow} onPress={() => togglePermission(permission.key)}>
                     <Text style={styles.permissionText}>{permission.label}</Text>
-                    <Checkbox status={permission.granted ? "checked" : "unchecked"} onPress={() => togglePermission(permission.key)} color={colors.primary} />
+                    <Checkbox status={permission.granted ? "checked" : "unchecked"} onPress={() => togglePermission(permission.key)} color={UI.teal} />
                   </Pressable>
                 ))}
                 <View style={styles.modalActions}>
-                  <Button mode="outlined" style={styles.cancelButton} onPress={() => setPermMember(null)} disabled={permissionsSaving}>Cancel</Button>
-                  <Button mode="contained" style={styles.sendButton} onPress={savePermissions} loading={permissionsSaving} disabled={permissionsSaving || permissionsLoading}>Save</Button>
+                  <Button mode="outlined" textColor={UI.teal} style={styles.cancelButton} onPress={() => setPermMember(null)} disabled={permissionsSaving}>Cancel</Button>
+                  <Button mode="contained" buttonColor={UI.teal} style={styles.sendButton} onPress={savePermissions} loading={permissionsSaving} disabled={permissionsSaving || permissionsLoading}>Save</Button>
                 </View>
               </View>
             </ScrollView>
@@ -317,15 +324,15 @@ export default function TeamScreen() {
             <View style={styles.teamModalBody}>
               <TextInput
                 mode="outlined" dense placeholder="New password" value={newPassword} onChangeText={setNewPassword}
-                secureTextEntry style={styles.teamNameInput} outlineColor={colors.border} activeOutlineColor={colors.primary}
+                secureTextEntry style={styles.teamNameInput} outlineColor={UI.line} activeOutlineColor={UI.teal}
               />
               <TextInput
                 mode="outlined" dense placeholder="Confirm password" value={confirmPassword} onChangeText={setConfirmPassword}
-                secureTextEntry style={[styles.teamNameInput, { marginTop: spacing.sm }]} outlineColor={colors.border} activeOutlineColor={colors.primary}
+                secureTextEntry style={[styles.teamNameInput, { marginTop: spacing.sm }]} outlineColor={UI.line} activeOutlineColor={UI.teal}
               />
               <View style={styles.modalActions}>
-                <Button mode="outlined" style={styles.cancelButton} onPress={() => setPasswordMember(null)} disabled={passwordSaving}>Cancel</Button>
-                <Button mode="contained" style={styles.sendButton} onPress={saveMemberPassword} loading={passwordSaving} disabled={passwordSaving}>Save</Button>
+                <Button mode="outlined" textColor={UI.teal} style={styles.cancelButton} onPress={() => setPasswordMember(null)} disabled={passwordSaving}>Cancel</Button>
+                <Button mode="contained" buttonColor={UI.teal} style={styles.sendButton} onPress={saveMemberPassword} loading={passwordSaving} disabled={passwordSaving}>Save</Button>
               </View>
             </View>
           </Pressable>
@@ -336,12 +343,14 @@ export default function TeamScreen() {
 }
 
 function StatCard({ icon, value, label, tone }: { icon: keyof typeof Ionicons.glyphMap; value: number; label: string; tone: "primary" | "success" | "warning" }) {
-  const toneStyles = { primary: styles.primaryTone, success: styles.successTone, warning: styles.warningTone };
-  return <Card mode="outlined" style={styles.statCard}><Card.Content style={styles.statContent}><View style={[styles.statIcon, toneStyles[tone]]}><Ionicons name={icon} size={20} color={tone === "primary" ? colors.primary : tone === "success" ? colors.success : colors.warning} /></View><View><Text style={styles.statValue}>{value}</Text><Text style={styles.statLabel}>{label}</Text></View></Card.Content></Card>;
-}
-
-function SectionHeading({ icon, title }: { icon: keyof typeof Ionicons.glyphMap; title: string }) {
-  return <View style={styles.sectionHeading}><Ionicons name={icon} size={19} color={colors.primary} /><Text style={styles.sectionTitle}>{title}</Text></View>;
+  const tint = tone === "primary" ? { bg: "#dbeaf6", fg: UI.teal } : tone === "success" ? { bg: UI.greenSoft, fg: UI.green } : { bg: "#fde9c9", fg: "#c2710c" };
+  return (
+    <View style={styles.statCard}>
+      <View style={[styles.statIcon, { backgroundColor: tint.bg }]}><Ionicons name={icon} size={20} color={tint.fg} /></View>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
 }
 
 function MemberRow({ member, menuOpen, onToggleMenu, onWhatsapp, onPermissions, onChangePassword, onRemove }: {
@@ -353,37 +362,40 @@ function MemberRow({ member, menuOpen, onToggleMenu, onWhatsapp, onPermissions, 
   return (
     <View style={[styles.memberRowWrap, menuOpen && styles.memberRowWrapRaised]}>
       <View style={styles.memberRow}>
-        <Avatar.Text size={42} label={initials || "?"} color={colors.primary} style={styles.avatar} />
+        <View style={styles.avatar}><Text style={styles.avatarText}>{initials || "?"}</Text></View>
         <View style={styles.memberInfo}>
           <Text style={styles.memberName}>{member.name}</Text>
-          <Text style={styles.memberMeta}>{member.email} {member.assigned_leads !== undefined ? `• ${member.assigned_leads} leads` : ""}</Text>
+          <Text style={styles.memberMeta} numberOfLines={1}>{member.email}</Text>
           <View style={styles.memberBadges}>
-            <View style={styles.roleBadge}><Text style={styles.roleBadgeText}>{roleLabel}</Text></View>
+            <View style={[styles.roleBadge, member.role !== "staff" && styles.roleBadgeAdmin]}><Text style={[styles.roleBadgeText, member.role !== "staff" && { color: UI.teal }]}>{roleLabel}</Text></View>
             <View style={[styles.status, member.is_active ? styles.activeStatus : styles.inactiveStatus]}>
               <Text style={[styles.statusText, member.is_active ? styles.activeStatusText : styles.inactiveStatusText]}>{member.is_active ? "Active" : "Inactive"}</Text>
             </View>
+            {member.assigned_leads !== undefined ? <View style={styles.roleBadge}><Text style={styles.roleBadgeText}>{member.assigned_leads} leads</Text></View> : null}
           </View>
         </View>
-        <IconButton icon="dots-vertical" size={18} onPress={onToggleMenu} style={styles.menuButton} />
+        <Pressable onPress={onToggleMenu} hitSlop={10} style={styles.menuButton} accessibilityRole="button" accessibilityLabel="Member actions">
+          <Ionicons name="ellipsis-vertical" size={18} color={UI.ink} />
+        </Pressable>
       </View>
       {menuOpen ? (
         <>
           <Pressable style={styles.memberMenuBackdrop} onPress={onToggleMenu} />
           <View style={styles.memberMenu}>
             <Pressable style={styles.memberMenuItem} onPress={onWhatsapp}>
-              <Ionicons name="logo-whatsapp" size={16} color={colors.textSecondary} />
+              <Ionicons name="chatbubble-outline" size={16} color={UI.sub} />
               <Text style={styles.memberMenuText}>WhatsApp number</Text>
             </Pressable>
             <Pressable style={styles.memberMenuItem} onPress={onPermissions}>
-              <Ionicons name="shield-checkmark-outline" size={16} color={colors.textSecondary} />
+              <Ionicons name="shield-checkmark-outline" size={16} color={UI.sub} />
               <Text style={styles.memberMenuText}>Permissions</Text>
             </Pressable>
             <Pressable style={styles.memberMenuItem} onPress={onChangePassword}>
-              <Ionicons name="key-outline" size={16} color={colors.textSecondary} />
+              <Ionicons name="key-outline" size={16} color={UI.sub} />
               <Text style={styles.memberMenuText}>Change password</Text>
             </Pressable>
             <Pressable style={styles.memberMenuItem} onPress={onRemove}>
-              <Ionicons name="trash-outline" size={16} color={colors.danger} />
+              <Ionicons name="trash-outline" size={16} color={UI.red} />
               <Text style={[styles.memberMenuText, styles.memberMenuDangerText]}>Remove member</Text>
             </Pressable>
           </View>
@@ -394,69 +406,69 @@ function MemberRow({ member, menuOpen, onToggleMenu, onWhatsapp, onPermissions, 
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { color: colors.text, fontWeight: "700" },
-  content: { padding: spacing.lg, gap: spacing.lg },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingBottom: 8 },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { color: UI.ink, fontSize: 18, fontFamily: "DMSans_700Bold" },
+  content: { padding: spacing.lg, gap: 14 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   titleCopy: { flex: 1 },
-  title: { color: colors.text, fontSize: 25, fontWeight: "800" },
-  subtitle: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 3 },
-  statsRow: { flexDirection: "row", gap: spacing.sm },
-  statCard: { flex: 1, borderColor: colors.borderSoft, borderRadius: radii.md },
-  statContent: { padding: spacing.sm, gap: spacing.sm, alignItems: "center" },
-  statIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  primaryTone: { backgroundColor: colors.primarySoft },
-  successTone: { backgroundColor: colors.successSoft },
-  warningTone: { backgroundColor: colors.warningSoft },
-  statValue: { color: colors.text, fontSize: 21, fontWeight: "800", textAlign: "center" },
-  statLabel: { color: colors.textSecondary, fontSize: 11, textAlign: "center" },
-  card: { borderColor: colors.borderSoft, borderRadius: radii.lg, backgroundColor: colors.surface },
-  sectionTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.xs },
-  sectionHeading: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  sectionTitle: { color: colors.text, fontSize: 16, fontWeight: "700" },
-  description: { color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: spacing.sm, marginBottom: spacing.md },
-  memberRowWrap: { paddingVertical: spacing.sm, position: "relative" },
+  subtitle: { color: UI.sub, fontSize: 12, lineHeight: 17 },
+  addButton: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: UI.teal, borderRadius: 999, paddingHorizontal: 16, height: 42 },
+  addButtonText: { color: "#ffffff", fontSize: 13, fontFamily: "Inter_700Bold" },
+  statsRow: { flexDirection: "row", gap: 10 },
+  statCard: { flex: 1, alignItems: "center", gap: 6, paddingVertical: 14, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 16 },
+  statIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  statValue: { color: UI.ink, fontSize: 20, fontFamily: "DMSans_700Bold" },
+  statLabel: { color: UI.sub, fontSize: 11 },
+  card: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 16, padding: 14 },
+  sectionTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
+  sectionTitle: { color: UI.ink, fontSize: 14, fontFamily: "DMSans_700Bold" },
+  newTeam: { color: UI.teal, fontSize: 12, fontFamily: "Inter_700Bold" },
+  rowDivider: { height: 1, backgroundColor: UI.line },
+  memberRowWrap: { paddingVertical: 12, position: "relative" },
   memberRowWrapRaised: { zIndex: 20, elevation: 20 },
-  memberRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  avatar: { backgroundColor: colors.primarySoft },
-  memberInfo: { flex: 1 },
-  memberName: { color: colors.text, fontSize: 14, fontWeight: "700" },
-  memberMeta: { color: colors.textSecondary, fontSize: 11, marginTop: 3 },
-  memberBadges: { flexDirection: "row", gap: 6, marginTop: 6 },
-  roleBadge: { borderRadius: radii.round, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: colors.surfaceMuted },
-  roleBadgeText: { fontSize: 10, fontWeight: "700", color: colors.textSecondary },
-  status: { borderRadius: radii.round, paddingHorizontal: 8, paddingVertical: 4 },
-  activeStatus: { backgroundColor: colors.successSoft },
-  inactiveStatus: { backgroundColor: colors.surfaceMuted },
-  statusText: { fontSize: 10, fontWeight: "700" },
-  activeStatusText: { color: colors.success },
-  inactiveStatusText: { color: colors.textSecondary },
-  menuButton: { margin: 0 },
+  memberRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#d7e9f5", alignItems: "center", justifyContent: "center" },
+  avatarText: { color: UI.teal, fontSize: 13, fontFamily: "Inter_700Bold" },
+  memberInfo: { flex: 1, minWidth: 0 },
+  memberName: { color: UI.ink, fontSize: 14, fontFamily: "Inter_700Bold" },
+  memberMeta: { color: UI.sub, fontSize: 11, marginTop: 2 },
+  memberBadges: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
+  roleBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: "#e9eef4" },
+  roleBadgeAdmin: { backgroundColor: "#dfe4fb" },
+  roleBadgeText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#475569" },
+  status: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  activeStatus: { backgroundColor: UI.greenSoft },
+  inactiveStatus: { backgroundColor: "#e9eef4" },
+  statusText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  activeStatusText: { color: UI.green },
+  inactiveStatusText: { color: "#475569" },
+  menuButton: { padding: 6 },
   memberMenuBackdrop: { position: "absolute", top: -1000, left: -1000, right: -1000, bottom: -1000, zIndex: 20 },
   memberMenu: {
     position: "absolute", top: 44, right: 0, zIndex: 21, elevation: 8,
-    backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft, overflow: "hidden", minWidth: 190,
-    shadowColor: "#0F172A", shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 6 },
+    backgroundColor: "#ffffff", borderRadius: 14, overflow: "hidden", minWidth: 200, paddingVertical: 4,
+    shadowColor: "#0F172A", shadowOpacity: 0.16, shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
   },
-  memberMenuItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
-  memberMenuText: { color: colors.text, fontSize: 13, fontWeight: "600" },
-  memberMenuDangerText: { color: colors.danger },
+  memberMenuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+  memberMenuText: { color: UI.ink, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  memberMenuDangerText: { color: UI.red },
   permissionsScroll: { maxHeight: 360 },
-  permissionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 6 },
-  permissionText: { flex: 1, color: colors.text, fontSize: 13 },
-  empty: { color: colors.textSecondary, paddingVertical: spacing.lg },
+  permissionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: UI.line },
+  permissionText: { flex: 1, color: UI.ink, fontSize: 13, fontFamily: "Inter_500Medium" },
+  empty: { color: UI.sub, paddingVertical: spacing.lg },
   state: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl },
-  errorText: { color: colors.textSecondary, textAlign: "center", marginTop: spacing.md, marginBottom: spacing.md },
+  errorText: { color: UI.sub, textAlign: "center", marginTop: spacing.md, marginBottom: spacing.md },
   retry: { marginTop: spacing.sm },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.52)", justifyContent: "center", padding: spacing.lg },
-  modalHeader: { minHeight: 68, paddingHorizontal: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.borderSoft, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  modalTitle: { color: colors.text, fontSize: 19, fontWeight: "800" },
+  modalHeader: { minHeight: 62, paddingHorizontal: spacing.lg, borderBottomWidth: 1, borderBottomColor: UI.line, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  modalTitle: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   modalActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
-  cancelButton: { flex: 1, borderColor: colors.border },
-  sendButton: { flex: 1 },
-  teamModal: { width: "100%", maxWidth: 385, alignSelf: "center", backgroundColor: colors.surface, borderRadius: 18, overflow: "hidden" },
+  cancelButton: { flex: 1, borderColor: UI.line, borderRadius: 999, backgroundColor: "#ffffff" },
+  sendButton: { flex: 1, borderRadius: 999 },
+  teamModal: { width: "100%", maxWidth: 385, alignSelf: "center", backgroundColor: "#ffffff", borderRadius: 20, overflow: "hidden" },
   teamModalBody: { padding: spacing.lg, paddingTop: spacing.md },
-  fieldLabel: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 7 },
+  fieldLabel: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold", marginBottom: 7 },
   teamNameInput: { height: 43, backgroundColor: colors.surface },
 });
