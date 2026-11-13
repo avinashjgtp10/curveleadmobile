@@ -14,20 +14,7 @@ import { ActivityIndicator } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Palette of the redesigned screen: lavender page, white cards, blue actions.
-const UI = { bg: "#eef1fa", line: "#e4e9f3", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", blue: "#2457e6", violet: "#6c43d9", violetSoft: "#ece6fb", violetLine: "#d9cff7" };
-// Soft tiles for "Need inspiration?": lavender, pink, green.
-const TILE_TINTS = [{ bg: "#e4dcfb", fg: "#6c43d9" }, { bg: "#fbdce3", fg: "#c8294a" }, { bg: "#d4eee3", fg: "#0f7b5f" }];
-
-const IDEAS = [
-  { caption: "Product shot", idea: "A clean product shot on a soft studio background", source: require("../../../assets/ai-samples/product-shot.png") },
-  { caption: "Studio look", idea: "A professional studio look with soft lighting", source: require("../../../assets/ai-samples/studio-look.png") },
-  { caption: "Lifestyle", idea: "A warm lifestyle scene that feels natural and friendly", source: require("../../../assets/ai-samples/lifestyle.png") },
-  { caption: "Fashion", idea: "A stylish fashion campaign look", source: require("../../../assets/ai-samples/fashion.png") },
-  { caption: "Glow", idea: "A glowing skin and beauty treatment promotion", source: require("../../../assets/ai-samples/glow.png") },
-  { caption: "Salon color", idea: "A vibrant hair colour makeover at a salon", source: require("../../../assets/ai-samples/salon-color.png") },
-  { caption: "Bridal makeup", idea: "An elegant bridal makeup package announcement", source: require("../../../assets/ai-samples/bridal-makeup.png") },
-  { caption: "Spa facial", idea: "A relaxing spa facial offer", source: require("../../../assets/ai-samples/spa-facial.png") },
-];
+const UI = { bg: "#eef1fa", line: "#e4e9f3", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", blue: "#2457e6", violet: "#2457e6", violetSoft: "#dbe5fb", violetLine: "#c9d6f5" };
 
 const QUICK_IDEAS = ["Festival sale offer", "Weekend discount", "New service launch", "Grand opening", "Gift voucher"];
 const MIN_PROMPT = 15;
@@ -117,7 +104,7 @@ function ImagePanel() {
 
   return (
     <View style={styles.stack}>
-      <LinearGradient colors={["#6c43d9", "#5b34c9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+      <LinearGradient colors={["#2457e6", "#1d4ed8"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
         <View style={styles.heroIcon}><Ionicons name="sparkles-outline" size={22} color="#fff" /></View>
         <View style={{ flex: 1 }}>
           <Text style={styles.heroTitle}>Create marketing images</Text>
@@ -170,7 +157,7 @@ function ImagePanel() {
         ) : null}
 
         <Pressable onPress={create} disabled={working} style={working && { opacity: 0.7 }}>
-          <LinearGradient colors={["#6c43d9", "#5b34c9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.createButton}>
+          <LinearGradient colors={["#2457e6", "#1d4ed8"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.createButton}>
             {working ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="sparkles-outline" size={18} color="#fff" />}
             <Text style={styles.createText}>
               {busy === "prompt" ? "Writing the prompt..." : busy === "images" ? "Creating images (up to a minute)..." : images.length ? "Create new options" : "Create images"}
@@ -243,20 +230,6 @@ function ImagePanel() {
         </View>
       ) : null}
 
-      <Text style={styles.sectionTitle}>Need inspiration?</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imageRow}>
-        {IDEAS.map((item, index) => {
-          const tint = TILE_TINTS[index % TILE_TINTS.length];
-          return (
-            <Pressable key={item.caption} onPress={() => pickIdea(item.idea)} style={styles.ideaTileWrap} accessibilityRole="button" accessibilityLabel={item.caption}>
-              <View style={[styles.ideaTile, { backgroundColor: tint.bg }]}>
-                <View style={styles.ideaTileIcon}><Ionicons name="image-outline" size={18} color={tint.fg} /></View>
-              </View>
-              <Text style={styles.ideaCaption} numberOfLines={1}>{item.caption}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
     </View>
   );
 }
@@ -350,9 +323,4 @@ const styles = StyleSheet.create({
   noteText: { color: colors.textSecondary, fontSize: 12, lineHeight: 17 },
 
   sectionTitle: { color: UI.ink, fontSize: 14, fontFamily: "DMSans_700Bold", marginTop: 4 },
-  imageRow: { gap: 10, paddingRight: 8 },
-  ideaTileWrap: { width: 104 },
-  ideaTile: { width: 104, height: 112, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  ideaTileIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.7)", alignItems: "center", justifyContent: "center" },
-  ideaCaption: { color: UI.ink, fontSize: 11, fontFamily: "Inter_600SemiBold", marginTop: 6 },
 });
