@@ -2,10 +2,9 @@ import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ActivityIndicator, TextInput } from "react-native-paper";
 import axios from "axios";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { AuthShell } from "@/components/AuthShell";
+import { AUTH_NAVY, AuthShell, authStyles as styles } from "@/components/AuthShell";
 import { requestPasswordReset } from "@/api/passwordReset";
 import { colors } from "@/theme";
 
@@ -47,56 +46,54 @@ export default function ForgotPasswordScreen() {
 
   if (sentTo) {
     return (
-      <AuthShell title="Check your email" subtitle={`If an account exists for ${sentTo}, we've sent a link to reset your password.`} icon="mail-open-outline" onBack={() => { setSentTo(""); setError(""); }}>
-        <View style={styles.tips}>
-          <View style={styles.tipRow}><Ionicons name="checkmark-circle" size={18} color={colors.success} /><Text style={styles.tipText}>Open the email and tap the reset link.</Text></View>
-          <View style={styles.tipRow}><Ionicons name="checkmark-circle" size={18} color={colors.success} /><Text style={styles.tipText}>Can't see it? Check your spam folder.</Text></View>
-          <View style={styles.tipRow}><Ionicons name="checkmark-circle" size={18} color={colors.success} /><Text style={styles.tipText}>If the link opens in a browser, copy it and paste it on the next screen.</Text></View>
+      <AuthShell title="Check your email" subtitle={`If an account exists for ${sentTo}, we've sent a link to reset your password.`} onBack={() => { setSentTo(""); setError(""); }}>
+        <View style={localStyles.tips}>
+          <View style={localStyles.tipRow}><Ionicons name="checkmark-circle" size={18} color={colors.success} /><Text style={localStyles.tipText}>Open the email and tap the reset link.</Text></View>
+          <View style={localStyles.tipRow}><Ionicons name="checkmark-circle" size={18} color={colors.success} /><Text style={localStyles.tipText}>Can't see it? Check your spam folder.</Text></View>
+          <View style={localStyles.tipRow}><Ionicons name="checkmark-circle" size={18} color={colors.success} /><Text style={localStyles.tipText}>If the link opens in a browser, copy it and paste it on the next screen.</Text></View>
         </View>
 
-        <Pressable onPress={() => router.push("/(auth)/reset-password")} style={styles.buttonWrap}>
-          <LinearGradient colors={["#38bdf8", "#0ea5e9", "#2563eb"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.button}>
-            <Ionicons name="key" size={19} color="#fff" />
-            <Text style={styles.buttonLabel}>I have my reset link</Text>
-          </LinearGradient>
+        <Pressable onPress={() => router.push("/(auth)/reset-password")} style={styles.button}>
+          <Text style={styles.buttonLabel}>I have my reset link</Text>
+          <Ionicons name="arrow-forward" size={16} color="#fff" />
         </Pressable>
 
         {error ? (
-          <View style={styles.errorBox}><Ionicons name="alert-circle" size={16} color={colors.danger} /><Text style={styles.errorText}>{error}</Text></View>
+          <View style={[styles.errorBox, { marginTop: 12 }]}><Ionicons name="alert-circle" size={16} color={colors.danger} /><Text style={styles.errorText}>{error}</Text></View>
         ) : null}
 
         <Pressable onPress={send} disabled={cooldown > 0 || loading} style={styles.linkWrap} hitSlop={8}>
-          {loading ? <ActivityIndicator size="small" color={colors.primary} /> : (
+          {loading ? <ActivityIndicator size="small" color={AUTH_NAVY} /> : (
             <Text style={[styles.link, cooldown > 0 && styles.linkMuted]}>{cooldown > 0 ? `Send again in ${cooldown}s` : "Send the email again"}</Text>
           )}
         </Pressable>
         <Pressable onPress={() => router.replace("/(auth)/login")} style={styles.linkWrap} hitSlop={8}>
-          <Text style={styles.linkPlain}>Back to log in</Text>
+          <Text style={styles.linkPlain}>Back to <Text style={styles.link}>Log in</Text></Text>
         </Pressable>
       </AuthShell>
     );
   }
 
   return (
-    <AuthShell title="Forgot password?" subtitle="Enter your email and we'll send you a link to set a new password." icon="lock-open-outline">
+    <AuthShell title="Forgot password?" subtitle="Enter your email and we'll send you a link to set a new password.">
       {error ? (
         <View style={styles.errorBox}><Ionicons name="alert-circle" size={16} color={colors.danger} /><Text style={styles.errorText}>{error}</Text></View>
       ) : null}
 
+      <Text style={styles.label}>Email address</Text>
       <TextInput
-        style={styles.field} mode="outlined" outlineStyle={styles.fieldOutline} activeOutlineColor={colors.primary}
-        placeholder="Email address" accessibilityLabel="Email" value={email}
+        style={styles.field} dense mode="outlined" outlineStyle={styles.fieldOutline} activeOutlineColor={AUTH_NAVY}
+        placeholder="you@company.com" accessibilityLabel="Email" value={email}
         onChangeText={(value) => { setEmail(value); setError(""); }}
         keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email"
         returnKeyType="send" onSubmitEditing={send} disabled={loading}
         left={<TextInput.Icon icon="email-outline" />}
       />
 
-      <Pressable onPress={send} disabled={loading} style={[styles.buttonWrap, loading && { opacity: 0.8 }]}>
-        <LinearGradient colors={["#38bdf8", "#0ea5e9", "#2563eb"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.button}>
-          {loading ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="send" size={18} color="#fff" />}
-          <Text style={styles.buttonLabel}>Send reset link</Text>
-        </LinearGradient>
+      <Pressable onPress={send} disabled={loading} style={[styles.button, loading && { opacity: 0.8 }]}>
+        {loading ? <ActivityIndicator color="#fff" size="small" /> : null}
+        <Text style={styles.buttonLabel}>Send reset link</Text>
+        {!loading ? <Ionicons name="arrow-forward" size={16} color="#fff" /> : null}
       </Pressable>
 
       <Pressable onPress={() => router.replace("/(auth)/login")} style={styles.linkWrap} hitSlop={8}>
@@ -106,19 +103,8 @@ export default function ForgotPasswordScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  errorBox: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, padding: 11, marginBottom: 14, backgroundColor: colors.dangerSoft },
-  errorText: { flex: 1, color: colors.danger, fontSize: 13, fontWeight: "600" },
-  field: { backgroundColor: "#f8fbfd", marginBottom: 14 },
-  fieldOutline: { borderRadius: 14, borderColor: "#d7e6f1" },
-  buttonWrap: { marginTop: 4 },
-  button: { height: 54, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  buttonLabel: { color: "#ffffff", fontSize: 16, fontFamily: "Inter_700Bold", letterSpacing: 0.3 },
-  linkWrap: { alignItems: "center", marginTop: 16 },
-  link: { color: colors.primary, fontSize: 13, fontWeight: "800" },
-  linkMuted: { color: colors.textMuted },
-  linkPlain: { color: colors.textSecondary, fontSize: 13 },
-  tips: { gap: 10, backgroundColor: "#f0f9ff", borderRadius: 16, padding: 14, marginBottom: 18 },
+const localStyles = StyleSheet.create({
+  tips: { gap: 10, backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1, borderColor: "#dbe3f1", padding: 14, marginBottom: 14 },
   tipRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   tipText: { flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
 });
