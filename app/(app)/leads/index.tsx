@@ -25,6 +25,7 @@ import {
 import { fetchStaff, StaffMember } from "@/api/staff";
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
 import { notifyLeadsDeleted } from "@/api/notifications";
+import { FilterDateField, formatYmd } from "@/components/FilterDateField";
 
 const PAGE_SIZE = 25;
 const FILTERS = [
@@ -71,54 +72,15 @@ function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
 
-function FilterDropdown({ value, options, open, onToggle, onSelect }: {
-  value: string; options: { value: string; label: string }[]; open: boolean; onToggle: () => void; onSelect: (value: string) => void;
-}) {
-  const selected = options.find((item) => item.value === value) || options[0];
-  // The list is capped in height, so it draws its own scroll bar: the built-in one is hidden or fades out on many phones.
-  const [viewHeight, setViewHeight] = useState(0);
-  const [contentHeight, setContentHeight] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const scrollable = viewHeight > 0 && contentHeight > viewHeight + 1;
-  const trackHeight = Math.max(0, viewHeight - 8);
-  const thumbHeight = scrollable ? Math.max(28, trackHeight * (viewHeight / contentHeight)) : 0;
-  const maxOffset = Math.max(1, contentHeight - viewHeight);
-  const thumbTop = 4 + Math.min(1, Math.max(0, offset / maxOffset)) * Math.max(0, trackHeight - thumbHeight);
+type PickerKey = "stage" | "score" | "source" | "assigned" | "dateField";
+
+// One dropdown-looking field; tapping it opens the option list.
+function FilterField({ label, value, onPress, disabled }: { label: string; value: string; onPress: () => void; disabled?: boolean }) {
   return (
-    <>
-      <Pressable style={[styles.filterDropdownField, open && styles.filterDropdownFieldActive]} onPress={onToggle}>
-        <Text style={styles.filterDropdownFieldText}>{selected?.label}</Text>
-        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
-      </Pressable>
-      {open ? (
-        <View style={styles.filterDropdownPanel}>
-          <ScrollView
-            style={styles.filterDropdownScroll} contentContainerStyle={styles.filterDropdownContent} nestedScrollEnabled
-            showsVerticalScrollIndicator={false} scrollEventThrottle={16}
-            onLayout={(event) => setViewHeight(event.nativeEvent.layout.height)}
-            onContentSizeChange={(_width, height) => setContentHeight(height)}
-            onScroll={(event) => setOffset(event.nativeEvent.contentOffset.y)}
-          >
-            {options.map((item) => {
-              const isSelected = item.value === value;
-              return (
-                <Pressable
-                  key={item.value || "all"} style={[styles.filterDropdownItem, isSelected && styles.filterDropdownItemSelected]}
-                  onPress={() => onSelect(item.value)}
-                >
-                  <Text style={[styles.filterDropdownItemText, isSelected && styles.filterDropdownItemTextSelected]}>{item.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-          {scrollable ? (
-            <View pointerEvents="none" style={styles.filterDropdownTrack}>
-              <View style={[styles.filterDropdownThumb, { height: thumbHeight, top: thumbTop }]} />
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-    </>
+    <Pressable style={[styles.filterField, disabled && { opacity: 0.6 }]} onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={`${label}: ${value}`}>
+      <Text style={styles.filterFieldText} numberOfLines={1}>{value}</Text>
+      <Ionicons name="chevron-down" size={15} color="#64748b" />
+    </Pressable>
   );
 }
 
@@ -180,11 +142,12 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
     pathname: "/(app)/leads/[id]",
     params: { id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage || "new", source: lead.source || "" },
   });
-  const avatarColor = ["#0ea5e9", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444"][(lead.name?.charCodeAt(0) || 0) % 5];
-  const score = lead.lead_score === "hot" ? { label: "Hot", icon: "flame" as const, color: "#ea580c", bg: "#ffedd5" }
-    : lead.lead_score === "warm" ? { label: "Warm", icon: "sunny" as const, color: "#ca8a04", bg: "#fef9c3" }
-    : lead.lead_score === "cold" ? { label: "Cold", icon: "snow" as const, color: "#0369a1", bg: "#e0f2fe" }
+  const avatarColor = ["#c8294a", "#d98a0b", "#0f7b5f", "#2457e6", "#7c3aed"][(lead.name?.charCodeAt(0) || 0) % 5];
+  const score = lead.lead_score === "hot" ? { label: "Hot", color: "#b91c1c", bg: "#fde1e1" }
+    : lead.lead_score === "warm" ? { label: "Warm", color: "#c2710c", bg: "#fde9c9" }
+    : lead.lead_score === "cold" ? { label: "Cold", color: "#2457e6", bg: "#dbe8fb" }
     : null;
+  const sourceLabel = lead.source ? (SOURCES.find((item) => item.value === lead.source)?.label || pretty(lead.source)) : "";
   function callNow() {
     trackContactActivity(lead.id, "call").catch(() => {});
     Linking.openURL(telUrl(lead.phone)).catch(() => Alert.alert("Unable to call", "Calling is not supported on this device."));
@@ -211,39 +174,48 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
             <LeadName name={lead.name || ""} />
             {score ? (
               <View style={[styles.scoreBadge, { backgroundColor: score.bg }]}>
-                <Ionicons name={score.icon} size={11} color={score.color} />
                 <Text style={[styles.scoreText, { color: score.color }]}>{t(score.label)}</Text>
               </View>
             ) : null}
           </View>
-          <Text style={styles.subtitle} numberOfLines={1}>{lead.phone}</Text>
+          <View style={styles.sourceLine}>
+            <Ionicons name="chatbubble-outline" size={12} color="#64748b" />
+            <Text style={styles.subtitle} numberOfLines={1}>
+              {sourceLabel ? `${t("Source")}: ` : ""}<Text style={styles.sourceStrong}>{sourceLabel || lead.phone}</Text>
+            </Text>
+          </View>
         </View>
-        <Text style={styles.timeText}>{relativeDate(lead.created_at, t)}</Text>
+        <View style={styles.timeCol}>
+          <Text style={styles.timeText}>{relativeDate(lead.created_at, t)}</Text>
+          {!selectMode ? (
+            <View ref={anchorRef} collapsable={false}>
+              <Pressable onPress={openMenu} hitSlop={10} accessibilityRole="button" accessibilityLabel="Lead actions" style={styles.moreButton}>
+                <Ionicons name="ellipsis-horizontal" size={16} color="#94a3b8" />
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
       </View>
 
       <View style={styles.metaRow}>
         <View style={[styles.stageTag, { backgroundColor: stageColors.bg }]}>
-          <View style={[styles.stageTagDot, { backgroundColor: stageColors.text }]} />
           <Text style={[styles.stageTagText, { color: stageColors.text }]} numberOfLines={1}>{stageLabel}</Text>
         </View>
-        {lead.source ? <View style={styles.sourceTag}><Text style={styles.sourceTagText} numberOfLines={1}>{pretty(lead.source)}</Text></View> : null}
-        <Text style={styles.assignedText} numberOfLines={1}>{lead.assigned_to_name || t("Unassigned")}</Text>
+        <Text style={styles.assignedText} numberOfLines={1}>
+          {lead.assigned_to_name ? `${t("Assigned to staff")}: ` : ""}<Text style={styles.sourceStrong}>{lead.assigned_to_name || t("Unassigned")}</Text>
+        </Text>
       </View>
 
       {!selectMode ? (
         <View style={styles.leadActions}>
-          <Pressable style={[styles.quickAction, { backgroundColor: "#e0f2fe" }]} onPress={callNow} hitSlop={4}>
-            <Ionicons name="call" size={16} color="#0284c7" />
-            <Text style={[styles.quickActionText, { color: "#0284c7" }]}>{t("Call")}</Text>
+          <Pressable style={[styles.quickAction, { backgroundColor: "#dbe8fb" }]} onPress={callNow} hitSlop={4}>
+            <Ionicons name="call-outline" size={16} color="#2457e6" />
+            <Text style={[styles.quickActionText, { color: "#2457e6" }]}>{t("Call")}</Text>
           </Pressable>
-          <Pressable style={[styles.quickAction, { backgroundColor: "#dcfce7" }]} onPress={openWhatsapp} hitSlop={4}>
-            <Ionicons name="logo-whatsapp" size={16} color="#16a34a" />
-            <Text style={[styles.quickActionText, { color: "#16a34a" }]}>{t("WhatsApp")}</Text>
+          <Pressable style={[styles.quickAction, { backgroundColor: "#0f7b5f" }]} onPress={openWhatsapp} hitSlop={4}>
+            <Ionicons name="logo-whatsapp" size={16} color="#ffffff" />
+            <Text style={[styles.quickActionText, { color: "#ffffff" }]}>{t("WhatsApp")}</Text>
           </Pressable>
-          <View style={{ flex: 1 }} />
-          <View ref={anchorRef} collapsable={false}>
-            <IconButton icon="dots-vertical" size={20} onPress={openMenu} style={styles.rowMenuButton} accessibilityLabel="Lead actions" />
-          </View>
           {/* A plain Modal popover: Paper's Menu swallowed taps here. Actions run after it closes,
               because Android drops navigation/Alerts fired while a Modal is still dismissing. */}
           <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={closeMenu}>
@@ -309,7 +281,11 @@ export default function LeadsScreen() {
   const [filterStage, setFilterStage] = useState("");
   const [filterSource, setFilterSource] = useState("");
   const [filterAssignedTo, setFilterAssignedTo] = useState("");
-  const [openFilterDropdown, setOpenFilterDropdown] = useState<"score" | "stage" | "source" | "assigned" | null>(null);
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  // Changes inside the sheet are held as a draft until "Apply filters".
+  const [draft, setDraft] = useState({ score: "", stage: "", source: "", assigned: "", from: "", to: "" });
+  const [picker, setPicker] = useState<PickerKey | null>(null);
 
   const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
   const [hiddenStages, setHiddenStages] = useState<string[]>([]);
@@ -322,7 +298,7 @@ export default function LeadsScreen() {
     return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
   }, [filtersSheetOpen, settingsSheetOpen, selectMode, navigation, insets.bottom]);
 
-  const activeFilterCount = [score, filterStage, filterSource, filterAssignedTo].filter(Boolean).length;
+  const activeFilterCount = [score, filterStage, filterSource, filterAssignedTo, filterDateFrom || filterDateTo].filter(Boolean).length;
 
   // `silent` re-fetches everything already on screen in one request without a spinner or losing the scroll depth.
   const load = useCallback(async (nextPage = 1, append = false, silent = false) => {
@@ -339,6 +315,9 @@ export default function LeadsScreen() {
         ...(filterStage && { stage: filterStage }),
         ...(filterSource && { source: filterSource }),
         ...(filterAssignedTo && { assigned_to: filterAssignedTo }),
+        ...((filterDateFrom || filterDateTo) && { date_field: "created_at" }),
+        ...(filterDateFrom && { date_from: filterDateFrom }),
+        ...(filterDateTo && { date_to: filterDateTo }),
         ...(hiddenStages.length && { hide_stages: hiddenStages.join(",") }),
       });
       if (id !== requestId.current) return;
@@ -356,7 +335,7 @@ export default function LeadsScreen() {
     } finally {
       if (id === requestId.current) { setLoading(false); setLoadingMore(false); setRefreshing(false); }
     }
-  }, [query, score, filterStage, filterSource, filterAssignedTo, hiddenStages]);
+  }, [query, score, filterStage, filterSource, filterAssignedTo, filterDateFrom, filterDateTo, hiddenStages]);
 
   // First load and any filter/search change. It waits for the hidden-stages preference so those stages never flash.
   useEffect(() => { if (prefsReady) load(); }, [load, prefsReady]);
@@ -395,15 +374,44 @@ export default function LeadsScreen() {
   }
 
   function openFiltersSheet() {
+    setDraft({ score, stage: filterStage, source: filterSource, assigned: filterAssignedTo, from: filterDateFrom, to: filterDateTo });
+    setPicker(null);
     setFiltersSheetOpen(true);
-    setOpenFilterDropdown(null);
     if (staff.length || staffLoading) return;
     setStaffLoading(true); setStaffError("");
     fetchStaff().then(setStaff).catch((staffErr) => setStaffError(errorMessage(staffErr, "Could not load your team."))).finally(() => setStaffLoading(false));
   }
 
   function clearFilters() {
-    setScore(""); setFilterStage(""); setFilterSource(""); setFilterAssignedTo("");
+    setScore(""); setFilterStage(""); setFilterSource(""); setFilterAssignedTo(""); setFilterDateFrom(""); setFilterDateTo("");
+  }
+
+  function applyFilters() {
+    setScore(draft.score); setFilterStage(draft.stage); setFilterSource(draft.source); setFilterAssignedTo(draft.assigned);
+    // A range typed back to front is put the right way round instead of silently returning nothing.
+    const [from, to] = draft.from && draft.to && draft.from > draft.to ? [draft.to, draft.from] : [draft.from, draft.to];
+    setFilterDateFrom(from); setFilterDateTo(to);
+    setFiltersSheetOpen(false);
+  }
+
+  const pickerOptions: Record<PickerKey, { value: string; label: string }[]> = {
+    stage: [{ value: "", label: "All stages" }, ...stages.map((item) => ({ value: item.name, label: item.name }))],
+    score: FILTERS.map((item) => ({ value: item.value, label: item.value ? item.label : "All scores" })),
+    source: [{ value: "", label: "All sources" }, ...SOURCES],
+    assigned: [{ value: "", label: "All staff" }, { value: "unassigned", label: "Unassigned" }, ...staff.map((member) => ({ value: member.id, label: member.name }))],
+    dateField: [{ value: "created_at", label: "Lead date" }],
+  };
+  const pickerTitle: Record<PickerKey, string> = { stage: "Stage", score: "Score", source: "Source", assigned: "Assigned to", dateField: "Date" };
+  const pickerValue: Record<PickerKey, string> = { stage: draft.stage, score: draft.score, source: draft.source, assigned: draft.assigned, dateField: "created_at" };
+  function labelOf(key: PickerKey) {
+    return pickerOptions[key].find((item) => item.value === pickerValue[key])?.label || pickerOptions[key][0].label;
+  }
+  function choose(key: PickerKey, value: string) {
+    if (key === "stage") setDraft((d) => ({ ...d, stage: value }));
+    else if (key === "score") setDraft((d) => ({ ...d, score: value }));
+    else if (key === "source") setDraft((d) => ({ ...d, source: value }));
+    else if (key === "assigned") setDraft((d) => ({ ...d, assigned: value }));
+    setPicker(null);
   }
 
   const sections = useMemo(() => {
@@ -551,38 +559,33 @@ export default function LeadsScreen() {
               <Text style={styles.count}>{total.toLocaleString("en-IN")} {t("total contacts")}</Text>
             </View>
           </View>
-          <IconButton icon="cog-outline" size={20} onPress={() => setSettingsSheetOpen(true)} style={styles.settingsButton} />
+          <Pressable style={styles.settingsSquare} onPress={() => setSettingsSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Lead settings">
+            <Ionicons name="settings-outline" size={18} color="#334155" />
+          </Pressable>
         </View>
       )}
       <View style={styles.searchRow}>
         <Searchbar
-          icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 14, minHeight: 48 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
+          icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 13, minHeight: 44 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
           placeholder={t("Search by name or phone…")} placeholderTextColor={colors.textMuted} onClearIconPress={() => updateSearch("")}
         />
         <Pressable
           style={[styles.filterButton, activeFilterCount > 0 && styles.filterButtonActive]} onPress={openFiltersSheet}
           accessibilityLabel={activeFilterCount ? `Filters (${activeFilterCount} active)` : "Filters"}
         >
-          <Ionicons name="options-outline" size={20} color={activeFilterCount ? "#fff" : colors.textSecondary} />
+          <Ionicons name="options-outline" size={20} color={activeFilterCount ? "#fff" : "#334155"} />
         </Pressable>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickScroll} contentContainerStyle={styles.quickRow} keyboardShouldPersistTaps="handled">
-        {FILTERS.map((item) => {
-          const active = score === item.value;
-          const icon = item.value === "hot" ? "flame" : item.value === "warm" ? "sunny" : item.value === "cold" ? "snow" : "people";
-          return (
-            <Pressable key={item.value || "all"} onPress={() => setScore(item.value)} style={[styles.quickChip, active && styles.quickChipActive]}>
-              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={13} color={active ? "#fff" : colors.textSecondary} />
-              <Text style={[styles.quickChipText, active && styles.quickChipTextActive]}>{t(item.label)}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
       {activeFilterCount > 0 ? (
         <View style={styles.activeChipsRow}>
           {score ? <Chip compact onClose={() => setScore("")} style={styles.activeChip}>Score: {FILTERS.find((f) => f.value === score)?.label || score}</Chip> : null}
           {filterStage ? <Chip compact onClose={() => setFilterStage("")} style={styles.activeChip}>Stage: {filterStage}</Chip> : null}
           {filterSource ? <Chip compact onClose={() => setFilterSource("")} style={styles.activeChip}>Source: {SOURCES.find((s) => s.value === filterSource)?.label || filterSource}</Chip> : null}
+          {filterDateFrom || filterDateTo ? (
+            <Chip compact onClose={() => { setFilterDateFrom(""); setFilterDateTo(""); }} style={styles.activeChip}>
+              Date: {filterDateFrom ? formatYmd(filterDateFrom) : "…"} – {filterDateTo ? formatYmd(filterDateTo) : "…"}
+            </Chip>
+          ) : null}
           {filterAssignedTo ? (
             <Chip compact onClose={() => setFilterAssignedTo("")} style={styles.activeChip}>
               {filterAssignedTo === "unassigned" ? "Unassigned" : `Assigned: ${staff.find((s) => s.id === filterAssignedTo)?.name || filterAssignedTo}`}
@@ -729,63 +732,82 @@ export default function LeadsScreen() {
 
       <Modal visible={filtersSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setFiltersSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setFiltersSheetOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
+          <Pressable style={[styles.filterSheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+            <View style={styles.filterHandle} />
             <View style={styles.filterSheetHeader}>
-              <Text style={[styles.sheetTitle, { marginBottom: 0 }]}>Filters</Text>
-              <Pressable style={styles.filterCloseButton} onPress={() => setFiltersSheetOpen(false)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close filters">
-                <Ionicons name="close" size={16} color={colors.textSecondary} />
+              <Text style={styles.filterTitle}>Filters</Text>
+              <Pressable onPress={() => setDraft({ score: "", stage: "", source: "", assigned: "", from: "", to: "" })} hitSlop={10} accessibilityRole="button">
+                <Text style={styles.clearAll}>Clear all</Text>
               </Pressable>
             </View>
-            <ScrollView style={styles.filterScroll} showsVerticalScrollIndicator persistentScrollbar nestedScrollEnabled>
-              <Text style={styles.filterSectionLabel}>Score</Text>
-              <FilterDropdown
-                value={score} options={FILTERS}
-                open={openFilterDropdown === "score"}
-                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "score" ? null : "score")}
-                onSelect={(value) => { setScore(value); setOpenFilterDropdown(null); }}
-              />
-
-              <Text style={styles.filterSectionLabel}>Stage</Text>
-              <FilterDropdown
-                value={filterStage} options={[{ value: "", label: "All stages" }, ...stages.map((item) => ({ value: item.name, label: item.name }))]}
-                open={openFilterDropdown === "stage"}
-                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "stage" ? null : "stage")}
-                onSelect={(value) => { setFilterStage(value); setOpenFilterDropdown(null); }}
-              />
-
-              <Text style={styles.filterSectionLabel}>Source</Text>
-              <FilterDropdown
-                value={filterSource} options={[{ value: "", label: "All sources" }, ...SOURCES]}
-                open={openFilterDropdown === "source"}
-                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "source" ? null : "source")}
-                onSelect={(value) => { setFilterSource(value); setOpenFilterDropdown(null); }}
-              />
-
-              <Text style={styles.filterSectionLabel}>Assigned To</Text>
-              {staffLoading ? (
-                <ActivityIndicator size="small" style={styles.filterStaffLoader} />
-              ) : staffError ? (
-                <Text style={styles.sheetErrorText}>{staffError}</Text>
-              ) : (
-                <FilterDropdown
-                  value={filterAssignedTo}
-                  options={[
-                    { value: "", label: "All staff" }, { value: "unassigned", label: "Unassigned" },
-                    ...staff.map((member) => ({ value: member.id, label: member.name })),
-                  ]}
-                  open={openFilterDropdown === "assigned"}
-                  onToggle={() => setOpenFilterDropdown(openFilterDropdown === "assigned" ? null : "assigned")}
-                  onSelect={(value) => { setFilterAssignedTo(value); setOpenFilterDropdown(null); }}
-                />
-              )}
+            <ScrollView style={styles.filterScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <View style={styles.filterGrid}>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>STAGE</Text>
+                  <FilterField label="Stage" value={labelOf("stage")} onPress={() => setPicker("stage")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>SCORE</Text>
+                  <FilterField label="Score" value={labelOf("score")} onPress={() => setPicker("score")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>SOURCE</Text>
+                  <FilterField label="Source" value={labelOf("source")} onPress={() => setPicker("source")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>ASSIGNED TO</Text>
+                  <FilterField label="Assigned to" value={staffLoading ? "Loading…" : labelOf("assigned")} onPress={() => setPicker("assigned")} disabled={staffLoading} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>DATE</Text>
+                  <FilterField label="Date" value={labelOf("dateField")} onPress={() => setPicker("dateField")} />
+                </View>
+                <View style={styles.filterCell} />
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabelPlain}>From</Text>
+                  <FilterDateField value={draft.from} onChange={(value) => setDraft((d) => ({ ...d, from: value }))} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabelPlain}>To</Text>
+                  <FilterDateField value={draft.to} onChange={(value) => setDraft((d) => ({ ...d, to: value }))} />
+                </View>
+              </View>
+              {staffError ? <Text style={styles.sheetErrorText}>{staffError}</Text> : null}
             </ScrollView>
             <View style={styles.filterSheetActions}>
-              <Button mode="outlined" onPress={clearFilters} style={styles.filterSheetButton}>Clear</Button>
-              <Button mode="contained" onPress={() => setFiltersSheetOpen(false)} style={styles.filterSheetButton}>Done</Button>
+              <Pressable style={styles.resetButton} onPress={() => { clearFilters(); setFiltersSheetOpen(false); }} accessibilityRole="button">
+                <Text style={styles.resetButtonText}>Reset</Text>
+              </Pressable>
+              <Pressable style={styles.applyButton} onPress={applyFilters} accessibilityRole="button">
+                <Text style={styles.applyButtonText}>Apply filters</Text>
+              </Pressable>
             </View>
           </Pressable>
         </Pressable>
+
+        {/* The option list for whichever field was tapped. */}
+        <Modal visible={picker !== null} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setPicker(null)}>
+          <Pressable style={styles.pickerBackdrop} onPress={() => setPicker(null)}>
+            <Pressable style={styles.pickerCard} onPress={() => {}}>
+              {picker ? (
+                <>
+                  <Text style={styles.pickerTitle}>{pickerTitle[picker]}</Text>
+                  <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+                    {pickerOptions[picker].map((item) => {
+                      const selected = item.value === pickerValue[picker];
+                      return (
+                        <Pressable key={item.value || "all"} style={[styles.pickerItem, selected && styles.pickerItemSelected]} onPress={() => choose(picker, item.value)}>
+                          <Text style={[styles.pickerItemText, selected && styles.pickerItemTextSelected]}>{item.label}</Text>
+                          {selected ? <Ionicons name="checkmark" size={16} color="#2457e6" /> : null}
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </>
+              ) : null}
+            </Pressable>
+          </Pressable>
+        </Modal>
       </Modal>
 
       <Modal visible={settingsSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setSettingsSheetOpen(false)}>
@@ -821,41 +843,47 @@ export default function LeadsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f4f9fc" },
+  screen: { flex: 1, backgroundColor: "#f1f4f2" },
   loadingWrap: { flex: 1, paddingHorizontal: 16 }, listContent: { paddingHorizontal: 16 },
-  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 12, marginBottom: 16 },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 12, marginBottom: 12 },
   titleRowMain: { flexDirection: "row", alignItems: "center" },
   backButton: { margin: 0, marginRight: 4 },
-  title: { color: colors.text, fontSize: 28, lineHeight: 34, fontFamily: "DMSans_700Bold", letterSpacing: -0.5 }, count: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
+  title: { color: "#0f172a", fontSize: 24, lineHeight: 30, fontFamily: "DMSans_700Bold", letterSpacing: -0.5 }, count: { color: "#64748b", fontSize: 11, marginTop: 1 },
   selectHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16, minHeight: 52 },
   selectCount: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
-  searchBox: { flex: 1, backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: "#d7e6f1", elevation: 0, shadowOpacity: 0 },
-  filterButton: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#d7e6f1", alignItems: "center", justifyContent: "center" },
-  filterButtonActive: { backgroundColor: colors.primary },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  searchBox: { flex: 1, height: 44, backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1, borderColor: "#e4e9e6", elevation: 0, shadowOpacity: 0 },
+  filterButton: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e4e9e6", alignItems: "center", justifyContent: "center" },
+  filterButtonActive: { backgroundColor: "#2457e6", borderColor: "#2457e6" },
   settingsButton: { margin: 0 },
+  settingsSquare: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e4e9e6", alignItems: "center", justifyContent: "center" },
   activeChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
   activeChip: {},
   filterScroll: { maxHeight: "70%" },
+  filterSheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: "#ffffff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "88%" },
+  filterHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: "#d5dbe5", marginBottom: 14 },
+  filterTitle: { color: "#0f172a", fontSize: 18, fontFamily: "DMSans_700Bold" },
+  clearAll: { color: "#2457e6", fontSize: 12, fontFamily: "Inter_700Bold" },
+  filterGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  filterCell: { width: "47.8%" },
+  filterLabel: { color: "#475569", fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.6, marginBottom: 5 },
+  filterLabelPlain: { color: "#64748b", fontSize: 11, fontFamily: "Inter_500Medium", marginBottom: 5 },
+  filterField: { height: 40, borderRadius: 10, borderWidth: 1, borderColor: "#dbe3f1", backgroundColor: "#ffffff", paddingHorizontal: 11, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 },
+  filterFieldText: { flex: 1, color: "#0f172a", fontSize: 13, fontFamily: "Inter_500Medium" },
+  resetButton: { flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: "#dbe3f1", backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  resetButtonText: { color: "#0f172a", fontSize: 14, fontFamily: "Inter_700Bold" },
+  applyButton: { flex: 2, height: 44, borderRadius: 10, backgroundColor: "#2457e6", alignItems: "center", justifyContent: "center" },
+  applyButtonText: { color: "#ffffff", fontSize: 14, fontFamily: "Inter_700Bold" },
+  pickerBackdrop: { flex: 1, justifyContent: "center", paddingHorizontal: 28, backgroundColor: "rgba(15,23,42,0.45)" },
+  pickerCard: { backgroundColor: "#ffffff", borderRadius: 16, paddingVertical: 10, maxHeight: "65%" },
+  pickerTitle: { color: "#475569", fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.6, textTransform: "uppercase", paddingHorizontal: 16, paddingVertical: 8 },
+  pickerScroll: { flexGrow: 0 },
+  pickerItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
+  pickerItemSelected: { backgroundColor: "#eef2fd" },
+  pickerItemText: { color: "#0f172a", fontSize: 14, fontFamily: "Inter_500Medium" },
+  pickerItemTextSelected: { color: "#2457e6", fontFamily: "Inter_700Bold" },
   sheetScroll: { maxHeight: "55%" },
-  filterSectionLabel: { color: colors.text, fontSize: 12, fontWeight: "700", marginTop: 14, marginBottom: 8 },
-  filterStaffLoader: { marginVertical: 12 },
-  filterDropdownField: { height: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  filterDropdownFieldActive: { borderColor: colors.primary, borderWidth: 2 },
-  filterDropdownFieldText: { color: colors.text, fontSize: 14, fontWeight: "600" },
-  filterDropdownPanel: {
-    marginTop: 6, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft, overflow: "hidden",
-  },
-  filterDropdownScroll: { maxHeight: 220 },
-  filterDropdownContent: { paddingVertical: 4 },
-  filterDropdownTrack: { position: "absolute", top: 0, bottom: 0, right: 3, width: 5 },
-  filterDropdownThumb: { position: "absolute", right: 0, width: 5, borderRadius: 3, backgroundColor: "#94a3b8" },
-  filterDropdownItem: { paddingHorizontal: 16, paddingVertical: 12 },
-  filterDropdownItemSelected: { backgroundColor: colors.primarySoft },
-  filterDropdownItemText: { color: colors.primary, fontSize: 14, fontWeight: "500" },
-  filterDropdownItemTextSelected: { color: colors.text, fontWeight: "700" },
-  filterSheetActions: { flexDirection: "row", gap: 10, marginTop: 14 },
-  filterSheetButton: { flex: 1 },
+  filterSheetActions: { flexDirection: "row", gap: 10, marginTop: 16 },
   // A horizontal ScrollView inside a list header otherwise grows to fill the screen height.
   quickScroll: { flexGrow: 0, flexShrink: 0 },
   quickRow: { gap: 8, paddingVertical: 10, alignItems: "center" },
@@ -863,25 +891,29 @@ const styles = StyleSheet.create({
   quickChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   quickChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
   quickChipTextActive: { color: "#ffffff" },
-  sectionHeader: { color: colors.textMuted, fontSize: 12, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 1.2, paddingVertical: 8, paddingHorizontal: 4, marginTop: 8, marginBottom: 4 },
-  leadCard: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1.5, borderColor: "#e2eef7", padding: 14, marginBottom: 10, gap: 10 },
-  leadCardSelected: { borderColor: colors.primary, backgroundColor: "#f0f9ff" },
+  sectionHeader: { color: "#5f7a6f", fontSize: 11, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 1, paddingVertical: 6, paddingHorizontal: 2, marginTop: 8, marginBottom: 2 },
+  leadCard: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: "#e4e9e6", padding: 12, marginBottom: 10, gap: 10 },
+  leadCardSelected: { borderColor: "#2457e6", backgroundColor: "#f3f6ff" },
   pressed: { opacity: 0.85 },
-  leadTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  avatarCircle: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
-  avatarLetter: { color: "#ffffff", fontSize: 19, fontWeight: "900" },
-  timeText: { flexShrink: 0, color: colors.textMuted, fontSize: 11, fontWeight: "600" },
-  scoreBadge: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2 },
-  scoreText: { fontSize: 10, fontWeight: "800" },
-  stageTag: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, maxWidth: "48%" },
+  leadTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  avatarCircle: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  avatarLetter: { color: "#ffffff", fontSize: 16, fontFamily: "Inter_700Bold" },
+  timeCol: { alignItems: "flex-end", gap: 4 },
+  moreButton: { padding: 2 },
+  sourceLine: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 },
+  sourceStrong: { color: "#0f172a", fontFamily: "Inter_700Bold" },
+  timeText: { flexShrink: 0, color: "#64748b", fontSize: 11, fontFamily: "Inter_500Medium" },
+  scoreBadge: { flexShrink: 0, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  scoreText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  stageTag: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, maxWidth: "48%" },
   stageTagDot: { width: 6, height: 6, borderRadius: 3 },
-  stageTagText: { fontSize: 11, fontWeight: "800", flexShrink: 1 },
+  stageTagText: { fontSize: 10, fontFamily: "Inter_700Bold", flexShrink: 1 },
   sourceTag: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, backgroundColor: "#eef2f6", maxWidth: 110 },
   sourceTagText: { color: colors.textSecondary, fontSize: 11, fontWeight: "700" },
-  assignedText: { flex: 1, color: colors.textMuted, fontSize: 11, textAlign: "right" },
-  leadActions: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: "#eef4f9", paddingTop: 10, marginTop: 2 },
-  quickAction: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
-  quickActionText: { fontSize: 12, fontWeight: "800" },
+  assignedText: { flex: 1, color: "#64748b", fontSize: 10.5, textAlign: "right" },
+  leadActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  quickAction: { flex: 1, height: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10 },
+  quickActionText: { fontSize: 12, fontFamily: "Inter_700Bold" },
   leadRowContent: { flexDirection: "row", alignItems: "center", minHeight: 66 },
   avatar: { backgroundColor: colors.primary, marginRight: 11 }, avatarText: { fontSize: 16, fontWeight: "800" },
   rowMenuButton: { margin: 0 },
@@ -891,10 +923,10 @@ const styles = StyleSheet.create({
   },
   popoverItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   popoverText: { color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  leadContent: { flex: 1, minWidth: 0 }, nameRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }, leadName: { flexShrink: 1, minWidth: 0, color: colors.text, fontSize: 15, lineHeight: 22, paddingRight: 2, fontFamily: "Inter_700Bold" },
+  leadContent: { flex: 1, minWidth: 0 }, nameRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }, leadName: { flexShrink: 1, minWidth: 0, color: "#0f172a", fontSize: 14, lineHeight: 22, paddingRight: 2, fontFamily: "Inter_700Bold" },
   leadNameRow: { flexShrink: 1, minWidth: 0, flexDirection: "row", alignItems: "center", overflow: "hidden" },
   leadNameEmoji: { flexShrink: 0, width: 26, fontSize: 16, lineHeight: 22, textAlign: "left" },
-  subtitle: { color: colors.textSecondary, fontSize: 13, marginTop: 2 },
+  subtitle: { flexShrink: 1, color: "#64748b", fontSize: 11 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   sourcePill: { maxWidth: 130, backgroundColor: colors.text, height: 24, borderRadius: 6 }, sourcePillText: { color: colors.surface, fontSize: 10, fontWeight: "700", lineHeight: 12 },
   stagePill: { height: 24, borderRadius: 6 }, stagePillText: { fontSize: 10, fontWeight: "800", lineHeight: 12 },
@@ -916,7 +948,6 @@ const styles = StyleSheet.create({
   sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 14 },
   filterSheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
-  filterCloseButton: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft },
   sheetErrorText: { color: colors.danger, fontSize: 12, fontWeight: "600", textAlign: "center", marginVertical: 20 },
   sheetHintText: { color: colors.textSecondary, fontSize: 12, textAlign: "center", paddingVertical: 20 },
   sheetCancel: { marginTop: 10 },

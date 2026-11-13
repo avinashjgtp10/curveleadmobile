@@ -4,10 +4,10 @@ import {
   RefreshControl, ScrollView, StyleSheet, TextInput as RNTextInput, View,
 } from "react-native";
 import {
-  ActivityIndicator, Appbar, Button, Chip, IconButton, List, RadioButton,
-  SegmentedButtons, Text, TextInput,
+  ActivityIndicator, Button, IconButton, List, RadioButton, Text, TextInput,
 } from "react-native-paper";
 import axios from "axios";
+import * as DocumentPicker from "expo-document-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,6 +18,7 @@ import { LeadDocuments } from "@/components/LeadDocuments";
 import { useStages } from "@/hooks/useStages";
 import { StaffMember, fetchStaff } from "@/api/staff";
 import { telUrl } from "@/api/phone";
+import { MAX_ATTACHMENT_BYTES, uploadLeadAttachment } from "@/api/attachments";
 import {
   ActivityLogType, ContactActivityType, FollowupType, LeadActivity, LeadDetails, LeadFollowup,
   UpdateLeadInput, createLeadFollowup, fetchLeadDetails, logLeadActivity, trackContactActivity,
@@ -25,6 +26,9 @@ import {
 } from "@/api/leads";
 
 type Tab = "overview" | "details" | "activities";
+
+// Palette of the redesigned screen: lavender page, white cards, blue actions, green WhatsApp.
+const UI = { bg: "#eef1fa", line: "#e4e9f3", field: "#dbe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", blue: "#2457e6", green: "#0f7b5f" };
 type IconName = keyof typeof Ionicons.glyphMap;
 
 const LOST_REASONS = [
@@ -39,16 +43,18 @@ const FOLLOWUP_TYPES: { key: FollowupType; label: string; icon: string }[] = [
   { key: "demo", label: "Demo", icon: "video-outline" },
 ];
 
-const ACTIVITY_TYPES: { key: ActivityLogType; label: string; icon: IconName }[] = [
-  { key: "call", label: "Call", icon: "call-outline" },
-  { key: "whatsapp", label: "WhatsApp", icon: "logo-whatsapp" },
-  { key: "visit", label: "Visit", icon: "location-outline" },
-  { key: "other", label: "Note", icon: "document-text-outline" },
-];
-
 const ACTIVITY_TYPE_LABEL: Record<ActivityLogType, string> = {
   call: "Call", whatsapp: "WhatsApp", visit: "Visit", other: "Note",
 };
+
+// The "Add activity" speed dial. Each one starts the existing log flow; Attachment uploads a file.
+const DIAL_OPTIONS: { key: ActivityLogType | "attachment"; label: string; icon: IconName }[] = [
+  { key: "call", label: "Phone Call", icon: "call-outline" },
+  { key: "whatsapp", label: "Message", icon: "chatbubble-outline" },
+  { key: "visit", label: "Meeting", icon: "calendar-outline" },
+  { key: "other", label: "Note", icon: "document-outline" },
+  { key: "attachment", label: "Attachment", icon: "attach-outline" },
+];
 
 const CALL_OUTCOMES = ["Answered", "No Answer", "Busy", "Switched Off", "Not Interested"];
 
@@ -267,7 +273,7 @@ export default function LeadDetailScreen() {
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
-  const [followupSheetOpen, setFollowupSheetOpen] = useState(false);
+  const [typePickerOpen, setTypePickerOpen] = useState(false);
   const [followupType, setFollowupType] = useState<FollowupType>("call");
   const [followupAt, setFollowupAt] = useState(defaultFollowupDate());
   const [followupNotes, setFollowupNotes] = useState("");
@@ -279,6 +285,8 @@ export default function LeadDetailScreen() {
   const [savingEmail, setSavingEmail] = useState(false);
 
   const [activityOptionsOpen, setActivityOptionsOpen] = useState(false);
+  // Bumped after an upload so the Documents list on Overview reloads.
+  const [docsVersion, setDocsVersion] = useState(0);
   const [logSheetOpen, setLogSheetOpen] = useState(false);
   const [logType, setLogType] = useState<ActivityLogType>("call");
   const [logOutcome, setLogOutcome] = useState("");
@@ -435,12 +443,6 @@ export default function LeadDetailScreen() {
     } finally { setUpdatingStatus(false); }
   }
 
-  function openFollowupSheet() {
-    setFollowupType("call"); setFollowupAt(defaultFollowupDate());
-    setFollowupNotes(""); setFollowupMeetingUrl("");
-    setFollowupSheetOpen(true);
-  }
-
   async function scheduleFollowup() {
     if (!lead) return;
     if (followupAt.getTime() < Date.now() - 60000) {
@@ -456,10 +458,32 @@ export default function LeadDetailScreen() {
         meeting_url: followupType === "demo" ? followupMeetingUrl.trim() || undefined : undefined,
       });
       setFollowups((current) => [created, ...current.map((item) => ({ ...item, is_completed: true }))]);
-      setFollowupSheetOpen(false);
+      setFollowupNotes(""); setFollowupMeetingUrl(""); setFollowupAt(defaultFollowupDate());
+      Alert.alert("Follow-up scheduled", `${FOLLOWUP_TYPES.find((item) => item.key === followupType)?.label || "Follow-up"} on ${dateTime(followupAt.toISOString())}.`);
     } catch (followupError) {
       Alert.alert("Couldn't schedule follow-up", errorMessage(followupError, "Please try again."));
     } finally { setSchedulingFollowup(false); }
+  }
+
+  async function attachFile() {
+    if (!lead) return;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+      if (asset.size && asset.size > MAX_ATTACHMENT_BYTES) { Alert.alert("File too large", "Documents can be up to 5 MB."); return; }
+      await uploadLeadAttachment(lead.id, { uri: asset.uri, name: asset.name, mimeType: asset.mimeType });
+      setDocsVersion((value) => value + 1);
+      load(true);
+      Alert.alert("Attachment added", `${asset.name} was added to this lead's documents.`);
+    } catch (attachError) {
+      Alert.alert("Couldn't upload", errorMessage(attachError, "Please try again."));
+    }
+  }
+
+  function chooseDialOption(key: ActivityLogType | "attachment") {
+    if (key === "attachment") { setActivityOptionsOpen(false); setTimeout(attachFile, 250); return; }
+    chooseActivityType(key);
   }
 
   function chooseActivityType(type: ActivityLogType) {
@@ -504,6 +528,8 @@ export default function LeadDetailScreen() {
     );
   }
 
+  // The tab bar floats over this screen (see tabBarStyleFor), so the button sits above it.
+  const fabBottom = 64 + Math.max(insets.bottom, 8) + 16;
   const stage = lead.stage || "";
   const stageColors = colorFor(stage);
   const currentStage = stages.find((item) => item.name.toLowerCase() === stage.toLowerCase());
@@ -518,84 +544,163 @@ export default function LeadDetailScreen() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => prevTab ? setTab(prevTab) : router.back()} />
-        <Appbar.Content title="Lead details" titleStyle={styles.headerTitle} />
-        <Appbar.Action icon="arrow-right" onPress={() => nextTab && setTab(nextTab)} disabled={!nextTab} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => prevTab ? setTab(prevTab) : router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="chevron-back" size={20} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>Lead details</Text>
+        <Pressable onPress={() => nextTab && setTab(nextTab)} disabled={!nextTab} hitSlop={10} style={[styles.headerButton, !nextTab && { opacity: 0.35 }]} accessibilityRole="button" accessibilityLabel="Next tab">
+          <Ionicons name="chevron-forward" size={20} color={UI.ink} />
+        </Pressable>
+      </View>
 
       <ScrollView
         ref={scrollRef} keyboardShouldPersistTaps="handled" scrollEventThrottle={16}
         onScroll={(event) => { scrollY.current = event.nativeEvent.contentOffset.y; }}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 60 + keyboardHeight }} showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} colors={[colors.primary]} />}
+        contentContainerStyle={{ paddingBottom: insets.bottom + (tab === "activities" ? 150 : 60) + keyboardHeight }} showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={UI.blue} colors={[UI.blue]} />}
       >
-        <View style={styles.nameBlock}>
-          <Text style={styles.name} numberOfLines={2}>{lead.name}</Text>
-          <Text style={styles.nameSubtitle}>Assigned to {lead.assigned_to_name || "you"} · {relativeTime(lead.updated_at || lead.created_at) || "just now"}</Text>
-        </View>
-
         {error ? <Pressable style={styles.warning} onPress={() => notFound ? router.back() : load()}><Text style={styles.warningText}>{notFound ? "This lead no longer exists — it may have been deleted. Tap to go back." : "Some details couldn't be refreshed. Tap to retry."}</Text></Pressable> : null}
 
-        <View style={styles.actionsRow}>
-          <Button compact mode="contained" icon="phone" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")}>Call</Button>
-          <Button compact mode="outlined" icon="whatsapp" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("whatsapp", `https://wa.me/${lead.phone.replace(/\D/g, "")}`, "WhatsApp could not be opened.")}>WhatsApp</Button>
-          <Button compact mode="outlined" icon="email-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={openEmailAction}>Email</Button>
-          <Button compact mode="outlined" icon="chat-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => router.push({ pathname: "/(app)/more/whatsapp", params: { leadId: lead.id, name: lead.name, phone: lead.phone, openAt: String(Date.now()) } })}>Chat</Button>
+        <View style={styles.leadCard}>
+          <View style={styles.leadHead}>
+            <View style={styles.leadAvatar}><Text style={styles.leadAvatarText}>{(lead.name?.charAt(0) || "?").toUpperCase()}</Text></View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.name} numberOfLines={2}>{lead.name}</Text>
+              <Text style={styles.nameSubtitle} numberOfLines={1}>{lead.lead_number ? `${lead.lead_number} · ` : ""}Assigned to staff: {lead.assigned_to_name || "you"}</Text>
+            </View>
+          </View>
+          <View style={styles.badgeRow}>
+            {lead.lead_score ? (
+              <View style={[styles.badge, { backgroundColor: lead.lead_score === "hot" ? "#fde1e1" : lead.lead_score === "warm" ? "#fde9c9" : "#dbe8fb" }]}>
+                <Text style={[styles.badgeText, { color: lead.lead_score === "hot" ? "#b91c1c" : lead.lead_score === "warm" ? "#c2710c" : UI.blue }]}>{lead.lead_score.toUpperCase()}</Text>
+              </View>
+            ) : null}
+            <View style={[styles.badge, { backgroundColor: stageColors.bg }]}>
+              <Text style={[styles.badgeText, { color: stageColors.text }]}>{currentStage?.name || pretty(stage)}</Text>
+            </View>
+          </View>
+          <View style={styles.actionsRow}>
+            <Pressable style={[styles.actionButton, { backgroundColor: UI.blue }]} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")} accessibilityRole="button">
+              <Ionicons name="call-outline" size={16} color="#fff" /><Text style={styles.actionLabel}>Call</Text>
+            </Pressable>
+            <Pressable style={[styles.actionButton, { backgroundColor: UI.green }]} onPress={() => contactLead("whatsapp", `https://wa.me/${lead.phone.replace(/\D/g, "")}`, "WhatsApp could not be opened.")} accessibilityRole="button">
+              <Ionicons name="logo-whatsapp" size={16} color="#fff" /><Text style={styles.actionLabel}>WhatsApp</Text>
+            </Pressable>
+            <Pressable style={[styles.actionButton, styles.actionButtonLight]} onPress={openEmailAction} accessibilityRole="button">
+              <Ionicons name="mail-outline" size={16} color={UI.blue} /><Text style={[styles.actionLabel, { color: UI.blue }]}>Email</Text>
+            </Pressable>
+          </View>
         </View>
 
-        <SegmentedButtons
-          style={styles.tabs}
-          value={tab}
-          onValueChange={(value) => setTab(value as Tab)}
-          buttons={[
-            { value: "overview", label: "Overview" },
-            { value: "details", label: "Details" },
-            { value: "activities", label: "Activities" },
-          ]}
-        />
+        <View style={styles.tabs}>
+          {([["overview", "Overview"], ["details", "Details"], ["activities", "Activities"], ["chat", "Chat"]] as const).map(([key, label]) => {
+            const active = key === tab;
+            return (
+              <Pressable
+                key={key} style={[styles.tabButton, active && styles.tabButtonActive]} accessibilityRole="tab" accessibilityState={{ selected: active }}
+                onPress={() => key === "chat"
+                  ? router.push({ pathname: "/(app)/more/whatsapp", params: { leadId: lead.id, name: lead.name, phone: lead.phone, openAt: String(Date.now()) } })
+                  : setTab(key)}
+              >
+                <Text style={[styles.tabText, active && styles.tabTextActive]}>{label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
 
         {tab === "overview" ? (
           <View style={styles.body}>
-            <FieldGroup label="Next Follow-up" required>
-              <ActionBox icon="calendar-outline" value={nextFollowup ? dateTime(nextFollowup.next_followup_at) : undefined} placeholder={detailsLoaded ? "Not scheduled" : error ? "Couldn't load" : "Loading…"} onPress={openFollowupSheet} />
-            </FieldGroup>
+            <View style={styles.card}>
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="calendar-outline" size={16} color={UI.ink} />
+                <Text style={styles.cardTitle}>Schedule Follow-up</Text>
+              </View>
+              {nextFollowup ? <Text style={styles.cardHint}>Next follow-up: {dateTime(nextFollowup.next_followup_at)}</Text> : null}
 
-            <FieldGroup label="Last Activity">
-              <StaticBox icon="checkmark-circle" iconColor={colors.success} value={lastActivity ? `${relativeTime(lastActivity.created_at)} · ${pretty(lastActivity.activity_type)}` : detailsLoaded ? "No activity yet" : error ? "Couldn't load" : "Loading…"} />
-            </FieldGroup>
+              <Text style={styles.fieldLabel}>Date &amp; Time<Text style={styles.required}> *</Text></Text>
+              <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
 
-            <FieldGroup label="Stage">
-              <ActionBox icon="pricetag-outline" chip={{ bg: stageColors.bg, text: stageColors.text, label: currentStage?.name || pretty(stage) }} onPress={openStageSheet} />
-            </FieldGroup>
+              <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Type</Text>
+              <Pressable style={styles.selectField} onPress={() => setTypePickerOpen(true)} accessibilityRole="button" accessibilityLabel="Follow-up type">
+                <Text style={styles.selectText}>{FOLLOWUP_TYPES.find((item) => item.key === followupType)?.label}</Text>
+                <Ionicons name="chevron-down" size={16} color={UI.sub} />
+              </Pressable>
 
-            <FieldGroup label="Assigned To">
-              <ActionBox icon="person-outline" value={lead.assigned_to_name || undefined} placeholder="Unassigned" onPress={openAssignSheet} />
-            </FieldGroup>
+              {followupType === "demo" ? (
+                <>
+                  <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Meeting link (optional)</Text>
+                  <RNTextInput style={styles.textField} value={followupMeetingUrl} onChangeText={setFollowupMeetingUrl} placeholder="https://meet.google.com/…" placeholderTextColor={UI.muted} autoCapitalize="none" keyboardType="url" />
+                </>
+              ) : null}
 
-            <FieldGroup label="Status">
-              <ActionBox icon="flag-outline" value={lead.lead_status || undefined} placeholder="Not set" onPress={() => setStatusSheetOpen(true)} />
-            </FieldGroup>
+              <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Notes (optional)</Text>
+              <RNTextInput style={styles.textField} value={followupNotes} onChangeText={setFollowupNotes} placeholder="e.g. Discuss pricing" placeholderTextColor={UI.muted} onFocus={() => revealInScroll(null)} />
 
-            <EditableField
-              icon="wallet-outline" label="Expected Value" value={lead.deal_value ? String(lead.deal_value) : ""}
-              keyboardType="decimal-pad" placeholder="0"
-              validate={(value) => value && !/^\d+(\.\d+)?$/.test(value.replace(/[,₹\s]/g, "")) ? "Enter a valid amount." : null}
-              onSave={(value) => saveField("deal_value", value)}
-            />
-            {lead.deal_value ? <Text style={styles.moneyHint}>{money(lead.deal_value)}</Text> : null}
-
-            <EditableField
-              icon="chatbubble-ellipses-outline" label="Interaction Notes" value={lead.notes || ""} multiline
-              placeholder="Add useful context for your team…" onSave={(value) => saveField("notes", value)}
-            />
+              <Pressable style={[styles.primaryButton, schedulingFollowup && { opacity: 0.7 }]} onPress={scheduleFollowup} disabled={schedulingFollowup} accessibilityRole="button">
+                {schedulingFollowup ? <ActivityIndicator size="small" color="#fff" /> : null}
+                <Text style={styles.primaryButtonText}>Schedule Follow-up</Text>
+              </Pressable>
+            </View>
 
             <LeadNotes leadId={lead.id} onAdded={() => load(true)} onFormOpen={revealInScroll} />
 
-            <LeadDocuments leadId={lead.id} onChanged={() => load(true)} />
+            <View style={styles.card}>
+              <View style={styles.cardHeaderSplit}>
+                <View style={styles.cardTitleRow}>
+                  <Ionicons name="document-text-outline" size={16} color={UI.ink} />
+                  <Text style={styles.cardTitle}>Lead details</Text>
+                </View>
+                <Pressable onPress={() => setTab("details")} hitSlop={10} accessibilityRole="button" accessibilityLabel="Edit lead details">
+                  <Ionicons name="pencil-outline" size={16} color={UI.sub} />
+                </Pressable>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Lead date</Text>
+                <Text style={styles.detailValue}>{dateTime(lead.lead_date || lead.created_at)}</Text>
+              </View>
+              <Pressable style={styles.detailRow} onPress={openAssignSheet} accessibilityRole="button" accessibilityLabel="Change assigned staff">
+                <Text style={styles.detailLabel}>Assigned to staff</Text>
+                <Text style={styles.detailValue}>{lead.assigned_to_name || "Unassigned"}</Text>
+              </Pressable>
+
+              <EditableField
+                icon="chatbubble-ellipses-outline" label="Notes" value={lead.notes || ""} multiline
+                placeholder="Add useful context for your team…" onSave={(value) => saveField("notes", value)}
+              />
+
+              <Text style={styles.fieldLabel}>Stage</Text>
+              <Pressable style={styles.selectField} onPress={openStageSheet} accessibilityRole="button" accessibilityLabel="Change stage">
+                <Text style={styles.selectText}>{currentStage?.name || pretty(stage)}</Text>
+                <Ionicons name="chevron-down" size={16} color={UI.sub} />
+              </Pressable>
+
+              <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Status</Text>
+              <Pressable style={styles.selectField} onPress={() => setStatusSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Change status">
+                <Text style={[styles.selectText, !lead.lead_status && { color: UI.muted }]}>{lead.lead_status || "Not set"}</Text>
+                <Ionicons name="chevron-down" size={16} color={UI.sub} />
+              </Pressable>
+
+              <View style={{ height: 14 }} />
+              <EditableField
+                icon="wallet-outline" label="Expected Value" value={lead.deal_value ? String(lead.deal_value) : ""}
+                keyboardType="decimal-pad" placeholder="0"
+                validate={(value) => value && !/^\d+(\.\d+)?$/.test(value.replace(/[,₹\s]/g, "")) ? "Enter a valid amount." : null}
+                onSave={(value) => saveField("deal_value", value)}
+              />
+              {lead.deal_value ? <Text style={styles.moneyHint}>{money(lead.deal_value)}</Text> : null}
+
+              <FieldGroup label="Last Activity">
+                <StaticBox icon="checkmark-circle" iconColor={colors.success} value={lastActivity ? `${relativeTime(lastActivity.created_at)} · ${pretty(lastActivity.activity_type)}` : detailsLoaded ? "No activity yet" : error ? "Couldn't load" : "Loading…"} />
+              </FieldGroup>
+            </View>
+
+            <LeadDocuments key={docsVersion} leadId={lead.id} onChanged={() => load(true)} />
           </View>
         ) : tab === "details" ? (
           <View style={styles.body}>
+           <View style={styles.card}>
             <EditableField icon="person-outline" label="Name" value={lead.name} required onSave={(value) => saveField("name", value)} />
             <EditableField icon="call-outline" label="Mobile Number" value={lead.phone} required keyboardType="phone-pad" onSave={(value) => saveField("phone", value)} />
             <EditableField
@@ -618,20 +723,29 @@ export default function LeadDetailScreen() {
             </View>
 
             <EditableField icon="map-outline" label="Address" value={lead.address || ""} multiline onSave={(value) => saveField("address", value)} />
+           </View>
           </View>
         ) : (
           <View style={styles.body}>
-            <Button mode="contained" icon="plus-circle" onPress={() => setActivityOptionsOpen(true)} style={styles.addActivityButton} contentStyle={styles.addActivityButtonContent}>Add Activity</Button>
-            {activities.length ? (
-              <View style={styles.timeline}>
-                {activities.map((item, index) => <ActivityItem key={item.id} item={item} last={index === activities.length - 1} />)}
-              </View>
-            ) : (
-              <EmptyState icon="pulse-outline" title="No activity yet" text="Calls, notes and stage changes will appear here." />
-            )}
+            <View style={styles.card}>
+              {activities.length ? (
+                <View style={styles.timeline}>
+                  {activities.map((item, index) => <ActivityItem key={item.id} item={item} last={index === activities.length - 1} />)}
+                </View>
+              ) : (
+                <EmptyState icon="pulse-outline" title="No activity yet" text="Calls, notes and stage changes will appear here." />
+              )}
+            </View>
           </View>
         )}
       </ScrollView>
+
+      {tab === "activities" && !keyboardHeight ? (
+        <Pressable style={[styles.addActivityFab, { bottom: fabBottom }]} onPress={() => setActivityOptionsOpen(true)} accessibilityRole="button" accessibilityLabel="Add activity">
+          <Text style={styles.addActivityFabText}>Add activity</Text>
+          <Ionicons name="add" size={20} color="#fff" />
+        </Pressable>
+      ) : null}
 
       <Modal visible={stageSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeStageSheet}>
         <Pressable style={styles.sheetBackdrop} onPress={closeStageSheet}>
@@ -747,52 +861,37 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={followupSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
-          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Schedule Follow-up</Text>
-
-            <Text style={styles.sheetSectionLabel}>Type</Text>
-            <View style={styles.chipRow}>
-              {FOLLOWUP_TYPES.map((item) => (
-                <Chip key={item.key} selected={followupType === item.key} onPress={() => setFollowupType(item.key)} mode={followupType === item.key ? "flat" : "outlined"} icon={item.icon}>
-                  {item.label}
-                </Chip>
-              ))}
-            </View>
-
-            <Text style={styles.sheetSectionLabel}>Follow-Up Date &amp; Time</Text>
-            <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
-
-            {followupType === "demo" ? (
-              <TextInput mode="outlined" label="Meeting link (optional)" value={followupMeetingUrl} onChangeText={setFollowupMeetingUrl} placeholder="https://meet.google.com/…" autoCapitalize="none" keyboardType="url" style={styles.sheetField} />
-            ) : null}
-
-            <TextInput mode="outlined" label="Notes (optional)" value={followupNotes} onChangeText={setFollowupNotes} placeholder="e.g. Discuss pricing" style={styles.sheetField} />
-
-            <Button mode="contained" onPress={scheduleFollowup} loading={schedulingFollowup} disabled={schedulingFollowup} style={styles.sheetPrimaryButton} contentStyle={styles.sheetButtonContent}>Schedule follow-up</Button>
-            <Button mode="outlined" onPress={() => setFollowupSheetOpen(false)} disabled={schedulingFollowup} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
+      <Modal visible={typePickerOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setTypePickerOpen(false)}>
+        <Pressable style={styles.pickerBackdrop} onPress={() => setTypePickerOpen(false)}>
+          <Pressable style={styles.pickerCard} onPress={() => {}}>
+            <Text style={styles.pickerTitle}>Follow-up type</Text>
+            {FOLLOWUP_TYPES.map((item) => {
+              const selected = item.key === followupType;
+              return (
+                <Pressable key={item.key} style={[styles.pickerItem, selected && styles.pickerItemSelected]} onPress={() => { setFollowupType(item.key); setTypePickerOpen(false); }}>
+                  <Text style={[styles.pickerItemText, selected && { color: UI.blue, fontWeight: "800" }]}>{item.label}</Text>
+                  {selected ? <Ionicons name="checkmark" size={16} color={UI.blue} /> : null}
+                </Pressable>
+              );
+            })}
           </Pressable>
         </Pressable>
       </Modal>
 
       <Modal visible={activityOptionsOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setActivityOptionsOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => setActivityOptionsOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Log an activity</Text>
-            <View style={styles.optionsList}>
-              {ACTIVITY_TYPES.map((item) => (
-                <List.Item
-                  key={item.key} title={item.label} titleStyle={styles.optionLabel}
-                  onPress={() => chooseActivityType(item.key)}
-                  right={() => <Ionicons name={item.icon} size={19} color={colors.textSecondary} />}
-                />
-              ))}
-            </View>
-            <Button mode="outlined" onPress={() => setActivityOptionsOpen(false)} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
-          </Pressable>
+        <Pressable style={styles.dialBackdrop} onPress={() => setActivityOptionsOpen(false)}>
+          <View style={[styles.dialColumn, { paddingBottom: fabBottom }]}>
+            {DIAL_OPTIONS.map((item) => (
+              <Pressable key={item.key} style={styles.dialRow} onPress={() => chooseDialOption(item.key)} accessibilityRole="button" accessibilityLabel={item.label}>
+                <Text style={styles.dialLabel}>{item.label}</Text>
+                <View style={styles.dialCircle}><Ionicons name={item.icon} size={22} color={UI.blue} /></View>
+              </Pressable>
+            ))}
+            <Pressable style={styles.addActivityFabOpen} onPress={() => setActivityOptionsOpen(false)} accessibilityRole="button" accessibilityLabel="Close">
+              <Text style={styles.addActivityFabText}>Add activity</Text>
+              <Ionicons name="add" size={20} color="#fff" />
+            </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
@@ -870,7 +969,7 @@ export default function LeadDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
+  screen: { flex: 1, backgroundColor: UI.bg },
   center: { flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center", paddingHorizontal: 30 },
   loadingText: { color: colors.textSecondary, fontSize: 13, marginTop: 10 },
   errorTitle: { color: colors.text, fontSize: 20, fontWeight: "900" },
@@ -878,34 +977,65 @@ const styles = StyleSheet.create({
   retry: { marginTop: 18 },
   backLink: { marginTop: 5 },
 
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 10 },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { color: UI.ink, fontSize: 15, fontWeight: "800" },
 
-  nameBlock: { alignItems: "center", paddingHorizontal: 24, paddingTop: 22, paddingBottom: 16 },
-  name: { color: colors.text, fontSize: 24, fontWeight: "800", textAlign: "center" },
-  nameSubtitle: { color: colors.textSecondary, fontSize: 13, marginTop: 6, textAlign: "center" },
+  leadCard: { marginHorizontal: 16, marginBottom: 12, padding: 14, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, gap: 12 },
+  leadHead: { flexDirection: "row", alignItems: "center", gap: 12 },
+  leadAvatar: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#d98a0b", alignItems: "center", justifyContent: "center" },
+  leadAvatarText: { color: "#ffffff", fontSize: 18, fontWeight: "800" },
+  name: { color: UI.ink, fontSize: 16, fontWeight: "800" },
+  nameSubtitle: { color: UI.sub, fontSize: 11, marginTop: 2 },
+  badgeRow: { flexDirection: "row", gap: 6 },
+  badge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  badgeText: { fontSize: 10, fontWeight: "800" },
+  card: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 14, marginBottom: 12 },
+  cardTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  cardHeaderSplit: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  cardTitle: { color: UI.ink, fontSize: 14, fontWeight: "800" },
+  cardHint: { color: UI.sub, fontSize: 11, marginTop: -6, marginBottom: 12 },
+  fieldLabelGap: { marginTop: 12 },
+  selectField: { height: 42, borderRadius: 10, borderWidth: 1, borderColor: UI.field, backgroundColor: "#ffffff", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  selectText: { color: UI.ink, fontSize: 13, fontWeight: "600" },
+  textField: { height: 42, borderRadius: 10, borderWidth: 1, borderColor: UI.field, backgroundColor: "#ffffff", paddingHorizontal: 12, color: UI.ink, fontSize: 13 },
+  primaryButton: { height: 44, borderRadius: 10, backgroundColor: UI.blue, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 16 },
+  primaryButtonText: { color: "#ffffff", fontSize: 14, fontWeight: "800" },
+  detailRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: UI.line, marginBottom: 12 },
+  detailLabel: { color: UI.sub, fontSize: 11, marginBottom: 3 },
+  detailValue: { color: UI.ink, fontSize: 14, fontWeight: "800" },
+  pickerBackdrop: { flex: 1, justifyContent: "center", paddingHorizontal: 28, backgroundColor: "rgba(15,23,42,0.45)" },
+  pickerCard: { backgroundColor: "#ffffff", borderRadius: 16, paddingVertical: 10 },
+  pickerTitle: { color: UI.sub, fontSize: 11, fontWeight: "800", letterSpacing: 0.6, textTransform: "uppercase", paddingHorizontal: 16, paddingVertical: 8 },
+  pickerItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
+  pickerItemSelected: { backgroundColor: "#eef2fd" },
+  pickerItemText: { color: UI.ink, fontSize: 14, fontWeight: "600" },
 
-  warning: { marginHorizontal: 18, marginBottom: 12, backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10 },
+  warning: { marginHorizontal: 16, marginBottom: 12, backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10 },
   warningText: { color: colors.danger, textAlign: "center", fontSize: 12, fontWeight: "600" },
 
-  actionsRow: { flexDirection: "row", paddingHorizontal: 14, gap: 6 },
-  actionButton: { flex: 1, minWidth: 0 },
-  actionButtonContent: { height: 42, paddingHorizontal: 0 },
-  actionButtonLabel: { fontSize: 11, marginHorizontal: 4 },
+  actionsRow: { flexDirection: "row", gap: 8 },
+  actionButton: { flex: 1, height: 40, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  actionButtonLight: { backgroundColor: "#eef2fd", borderWidth: 1, borderColor: "#c9d6f5" },
+  actionLabel: { color: "#ffffff", fontSize: 12, fontWeight: "800" },
 
-  tabs: { marginTop: 22, marginHorizontal: 18 },
+  tabs: { flexDirection: "row", marginHorizontal: 16, padding: 3, borderRadius: 12, backgroundColor: "#e0e6f4", gap: 2 },
+  tabButton: { flex: 1, height: 34, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  tabButtonActive: { backgroundColor: "#ffffff" },
+  tabText: { color: UI.sub, fontSize: 12, fontWeight: "700" },
+  tabTextActive: { color: UI.ink },
 
-  body: { paddingHorizontal: 20, paddingTop: 20 },
-  fieldGroup: { marginBottom: 18 },
-  fieldLabel: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 7 },
+  body: { paddingHorizontal: 16, paddingTop: 12 },
+  fieldGroup: { marginBottom: 12 },
+  fieldLabel: { color: UI.sub, fontSize: 11, fontWeight: "700", marginBottom: 6 },
   required: { color: colors.danger },
   fieldErrorText: { color: colors.danger, fontSize: 11, fontWeight: "600", marginTop: 5 },
 
-  inputArea: { minHeight: 46, flexDirection: "row", alignItems: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 12 },
+  inputArea: { minHeight: 42, flexDirection: "row", alignItems: "center", backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.field, borderRadius: 10, paddingHorizontal: 12 },
   inputAreaMultiline: { alignItems: "flex-start", paddingVertical: 12, minHeight: 84 },
   inputIcon: { marginRight: 10 },
   inputIconTop: { marginTop: 2 },
-  inputAreaText: { flex: 1, color: colors.text, fontSize: 14, fontWeight: "500", paddingVertical: 12 },
+  inputAreaText: { flex: 1, color: UI.ink, fontSize: 13, fontWeight: "500", paddingVertical: 10 },
   inputAreaTextMultiline: { paddingVertical: 0, minHeight: 60 },
   pencilButton: { margin: 0, marginLeft: 8 },
   inputActions: { flexDirection: "row", alignItems: "center", marginLeft: 8 },
@@ -914,12 +1044,20 @@ const styles = StyleSheet.create({
   chipWrap: { flex: 1, alignItems: "flex-start" },
   statusChip: { borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
   statusChipText: { fontSize: 13, fontWeight: "700" },
-  moneyHint: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginTop: -12, marginBottom: 18 },
+  moneyHint: { color: UI.sub, fontSize: 12, fontWeight: "700", marginTop: -6, marginBottom: 12 },
 
   twoUp: { flexDirection: "row", gap: 12 },
   twoUpItem: { flex: 1 },
 
-  addActivityButton: { marginBottom: 20 },
+  addActivityButton: { marginTop: 0, marginBottom: 12 },
+  addActivityFab: { position: "absolute", right: 16, height: 46, borderRadius: 23, paddingHorizontal: 20, backgroundColor: UI.blue, flexDirection: "row", alignItems: "center", gap: 8, shadowColor: UI.blue, shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 8 },
+  addActivityFabOpen: { height: 46, borderRadius: 23, paddingHorizontal: 20, backgroundColor: UI.blue, flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+  addActivityFabText: { color: "#ffffff", fontSize: 15, fontWeight: "800" },
+  dialBackdrop: { flex: 1, justifyContent: "flex-end", alignItems: "flex-end", backgroundColor: "rgba(51,60,82,0.82)" },
+  dialColumn: { alignItems: "flex-end", paddingRight: 16, gap: 14 },
+  dialRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  dialLabel: { color: "#ffffff", fontSize: 15, fontWeight: "800" },
+  dialCircle: { width: 56, height: 56, borderRadius: 28, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 5 },
   addActivityButtonContent: { height: 46 },
 
   timeline: {},

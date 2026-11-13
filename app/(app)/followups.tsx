@@ -1,9 +1,8 @@
-import { GlassBackground, glass, GradientIcon } from "@/components/Glass";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert, Dimensions, useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
+  Alert, Dimensions, Linking, useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
 } from "react-native";
-import { ActivityIndicator, Appbar, Button, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
+import { ActivityIndicator, Button, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
 import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,8 +10,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { useStages } from "@/hooks/useStages";
+import { telUrl } from "@/api/phone";
 import {
-  completeLeadFollowup, createLeadFollowup, fetchLeads, fetchTodayFollowups,
+  completeLeadFollowup, createLeadFollowup, fetchLeads, fetchTodayFollowups, trackContactActivity,
   FollowupType, LeadListItem, TodayFollowup,
 } from "@/api/leads";
 
@@ -26,18 +26,29 @@ const FOLLOWUP_TYPES: { key: FollowupType; label: string }[] = [
   { key: "demo", label: "Demo" },
 ];
 
+// Palette: soft grey-green page, white cards, deep green accent, red for overdue.
+const UI = { bg: "#f1f4f2", line: "#e4e9e6", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", green: "#0f7b5f", blue: "#2457e6", red: "#d6334f", redSoft: "#fdecef", redLine: "#f6c8d0" };
+const AVATAR_COLORS = ["#c8294a", "#d98a0b", "#2457e6", "#0f7b5f", "#7c3aed", "#0f2a5c"];
+
 // Two menu items (~44 each) plus padding.
 const POPOVER_HEIGHT = 96;
-const DAY_ITEM_WIDTH = 46;
 const DAYS_BEFORE_TODAY = 60;
 const DAYS_AFTER_TODAY = 90;
+// One request covers everything the screen groups: overdue (earlier days), today and what's coming up.
+const OVERDUE_LOOKBACK_DAYS = 60;
+
+type Filter = "all" | "overdue" | "day" | "upcoming";
 
 function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+function startOfDay(date: Date) {
+  const d = new Date(date); d.setHours(0, 0, 0, 0); return d;
+}
+
 function ymd(date: Date) {
-  const d = new Date(date); d.setHours(0, 0, 0, 0);
+  const d = startOfDay(date);
   const offset = d.getTimezoneOffset();
   return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
 }
@@ -51,8 +62,15 @@ function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
 
-function FollowupRow({ item, completing, onComplete, onPress, colorFor, findStage }: {
-  item: TodayFollowup; completing: boolean; onComplete: () => void; onPress: () => void;
+// "30 Oct · 4:00 PM", from the follow-up's real date.
+function whenLabel(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · ${date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true }).toUpperCase()}`;
+}
+
+function FollowupCard({ item, overdue, completing, onComplete, onPress, colorFor, findStage }: {
+  item: TodayFollowup; overdue: boolean; completing: boolean; onComplete: () => void; onPress: () => void;
   colorFor: (stage?: string) => { bg: string; text: string };
   findStage: (name?: string) => { name: string } | undefined;
 }) {
@@ -74,51 +92,67 @@ function FollowupRow({ item, completing, onComplete, onPress, colorFor, findStag
     setMenuOpen(false);
     setTimeout(action, 300);
   }
+  function callNow() {
+    trackContactActivity(item.lead_id, "call").catch(() => {});
+    Linking.openURL(telUrl(item.lead_phone)).catch(() => Alert.alert("Unable to call", "Calling is not supported on this device."));
+  }
+  function openWhatsapp() {
+    Linking.openURL(`https://wa.me/${(item.lead_phone || "").replace(/\D/g, "")}`).catch(() => Alert.alert("Couldn't open WhatsApp", "Make sure WhatsApp is installed on this phone."));
+  }
   const stageColors = colorFor(item.lead_stage);
   const stageLabel = findStage(item.lead_stage)?.name || pretty(item.lead_stage);
-  const time = new Date(item.next_followup_at);
-  const timeLabel = Number.isNaN(time.getTime()) ? "" : time.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  const avatarColor = AVATAR_COLORS[(item.lead_name?.charCodeAt(0) || 0) % AVATAR_COLORS.length];
   return (
-    <List.Item
-      style={styles.row}
-      title={() => (
-        <View style={styles.rowTitleLine}>
+    <Pressable style={[styles.card, overdue && styles.cardOverdue]} onPress={onPress} accessibilityRole="button">
+      <View style={styles.cardTop}>
+        <View style={[styles.avatar, { backgroundColor: avatarColor }]}><Text style={styles.avatarText}>{item.lead_name?.charAt(0)?.toUpperCase() || "?"}</Text></View>
+        <View style={styles.cardCopy}>
           <Text style={styles.rowName} numberOfLines={1}>{item.lead_name}</Text>
-          <View style={[styles.stagePill, { backgroundColor: stageColors.bg }]}><Text style={[styles.stagePillText, { color: stageColors.text }]}>{stageLabel}</Text></View>
+          <View style={[styles.stagePill, { backgroundColor: stageColors.bg }]}><Text style={[styles.stagePillText, { color: stageColors.text }]} numberOfLines={1}>{stageLabel}</Text></View>
         </View>
-      )}
-      description={() => (
-        <>
-          <Text style={styles.rowTime}>Follow-Up Time – {timeLabel}</Text>
-          {item.notes ? <Text style={styles.rowNotes} numberOfLines={2}>{item.notes}</Text> : null}
-        </>
-      )}
-      left={() => <List.Icon icon={() => <Text style={styles.avatarText}>{item.lead_name?.charAt(0)?.toUpperCase() || "?"}</Text>} style={styles.avatar} />}
-      right={() => completing ? (
-        <ActivityIndicator size="small" color={colors.primary} style={styles.doneButton} />
-      ) : (
-        <>
-          <View ref={anchorRef} collapsable={false}>
-            <IconButton icon="dots-vertical" iconColor={colors.textSecondary} size={22} style={styles.doneButton} onPress={openMenu} accessibilityLabel="Follow-up actions" />
+      </View>
+      {item.notes ? <Text style={styles.rowNotes} numberOfLines={2}>{item.notes}</Text> : null}
+      <View style={[styles.cardBottom, overdue && styles.cardBottomOverdue]}>
+        <View style={styles.whenWrap}>
+          <Ionicons name="time-outline" size={16} color={overdue ? UI.red : UI.sub} />
+          <View>
+            <Text style={[styles.whenLabel, overdue && { color: UI.red }]}>{overdue ? "Overdue since" : `${pretty(item.followup_type)} follow-up`}</Text>
+            <Text style={[styles.whenValue, overdue && { color: UI.red }]}>{whenLabel(item.next_followup_at)}</Text>
           </View>
-          <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMenuOpen(false)}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
-              <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
-                <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onPress)}>
-                  <Ionicons name="eye-outline" size={16} color={colors.text} />
-                  <Text style={styles.popoverText}>View Details</Text>
-                </Pressable>
-                <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onComplete)}>
-                  <Ionicons name="checkmark-circle-outline" size={16} color={colors.success} />
-                  <Text style={[styles.popoverText, { color: colors.success }]}>Mark Completed</Text>
-                </Pressable>
-              </View>
+        </View>
+        {completing ? (
+          <ActivityIndicator size="small" color={UI.green} />
+        ) : (
+          <View style={styles.actions}>
+            <Pressable style={[styles.actionSquare, { backgroundColor: UI.blue }]} onPress={callNow} accessibilityRole="button" accessibilityLabel="Call">
+              <Ionicons name="call-outline" size={16} color="#fff" />
             </Pressable>
-          </Modal>
-        </>
-      )}
-      onPress={onPress}
-    />
+            <Pressable style={[styles.actionSquare, { backgroundColor: UI.green }]} onPress={openWhatsapp} accessibilityRole="button" accessibilityLabel="WhatsApp">
+              <Ionicons name="logo-whatsapp" size={16} color="#fff" />
+            </Pressable>
+            <View ref={anchorRef} collapsable={false}>
+              <Pressable style={[styles.actionSquare, styles.actionSquareLight]} onPress={openMenu} accessibilityRole="button" accessibilityLabel="Follow-up actions">
+                <Ionicons name="ellipsis-vertical" size={16} color={UI.sub} />
+              </Pressable>
+            </View>
+            <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMenuOpen(false)}>
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
+                <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
+                  <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onPress)}>
+                    <Ionicons name="eye-outline" size={16} color={colors.text} />
+                    <Text style={styles.popoverText}>View Details</Text>
+                  </Pressable>
+                  <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onComplete)}>
+                    <Ionicons name="checkmark-circle-outline" size={16} color={colors.success} />
+                    <Text style={[styles.popoverText, { color: colors.success }]}>Mark Completed</Text>
+                  </Pressable>
+                </View>
+              </Pressable>
+            </Modal>
+          </View>
+        )}
+      </View>
+    </Pressable>
   );
 }
 
@@ -130,13 +164,15 @@ export default function FollowupsScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const didMountRef = useRef(false);
   const { width: screenWidth } = useWindowDimensions();
-  const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
+  // Seven days fit across the card.
+  const dayWidth = Math.floor((screenWidth - 32 - 16) / 7);
+  const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
   const [followups, setFollowups] = useState<TodayFollowup[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [completingId, setCompletingId] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(true);
+  const [filter, setFilter] = useState<Filter>("all");
 
   const [addOpen, setAddOpen] = useState(false);
 
@@ -155,20 +191,19 @@ export default function FollowupsScreen() {
   const [saving, setSaving] = useState(false);
   const [addError, setAddError] = useState("");
 
-  // Only the newest request may update the screen, so a slow reply for an earlier day can't overwrite a later one.
+  // Only the newest request may update the screen, so a slow reply can't overwrite a later one.
   const requestId = useRef(0);
   // `silent` re-fetches in the background (no spinner, and a failure keeps the list on screen).
-  const load = useCallback(async (date: Date, refresh = false, silent = false) => {
+  const load = useCallback(async (refresh = false, silent = false) => {
     const id = ++requestId.current;
     if (!silent) {
       refresh ? setRefreshing(true) : setLoading(true);
       setError("");
     }
     try {
-      const dateStr = ymd(date);
-      // Keep the selected-day list scoped to that calendar day. Overdue items
-      // from earlier days should not be counted under "Today".
-      const result = await fetchTodayFollowups({ date_from: dateStr, date_to: dateStr });
+      const from = startOfDay(new Date()); from.setDate(from.getDate() - OVERDUE_LOOKBACK_DAYS);
+      const to = startOfDay(new Date()); to.setDate(to.getDate() + DAYS_AFTER_TODAY);
+      const result = await fetchTodayFollowups({ date_from: ymd(from), date_to: ymd(to) });
       if (id !== requestId.current) return;
       setFollowups(result);
     } catch (loadError) {
@@ -179,16 +214,14 @@ export default function FollowupsScreen() {
     }
   }, []);
 
-  useEffect(() => { load(selectedDate); }, [selectedDate, load]);
+  useEffect(() => { load(); }, [load]);
 
   // The tab stays mounted, so follow-ups completed or added elsewhere (a lead's page, Appointments) would stay stale.
   // Refresh quietly whenever the tab is shown again.
-  const selectedDateRef = useRef(selectedDate);
-  selectedDateRef.current = selectedDate;
   const focusedOnce = useRef(false);
   useFocusEffect(useCallback(() => {
     if (!focusedOnce.current) { focusedOnce.current = true; return; } // the first load is handled above
-    load(selectedDateRef.current, false, true);
+    load(false, true);
   }, [load]));
 
   useEffect(() => {
@@ -209,7 +242,7 @@ export default function FollowupsScreen() {
   }, [leadQuery, addOpen]);
 
   const days = useMemo(() => {
-    const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - DAYS_BEFORE_TODAY);
+    const start = startOfDay(new Date()); start.setDate(start.getDate() - DAYS_BEFORE_TODAY);
     return Array.from({ length: DAYS_BEFORE_TODAY + DAYS_AFTER_TODAY + 1 }, (_, i) => {
       const d = new Date(start); d.setDate(d.getDate() + i); return d;
     });
@@ -218,7 +251,7 @@ export default function FollowupsScreen() {
   function scrollToDate(date: Date, animated: boolean) {
     const index = days.findIndex((d) => isSameDay(d, date));
     if (index < 0) return;
-    const x = Math.max(0, index * DAY_ITEM_WIDTH - screenWidth / 2 + DAY_ITEM_WIDTH / 2);
+    const x = Math.max(0, index * dayWidth - (screenWidth - 32) / 2 + dayWidth / 2);
     scrollRef.current?.scrollTo({ x, animated });
   }
 
@@ -272,36 +305,62 @@ export default function FollowupsScreen() {
       const when = followupAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
       Alert.alert("Follow-up scheduled", `${selectedLead.name} - ${when}`);
       // Show the day it was booked for; if that's already the day on screen, just refresh it.
-      if (isSameDay(followupAt, selectedDate)) load(selectedDate, true);
-      else setSelectedDate(new Date(followupAt.getFullYear(), followupAt.getMonth(), followupAt.getDate()));
+      load(true);
+      if (!isSameDay(followupAt, selectedDate)) setSelectedDate(startOfDay(followupAt));
     } catch (saveError) {
       setAddError(errorMessage(saveError, "Could not schedule this follow-up."));
     } finally { setSaving(false); }
   }
 
+  // Grouping is by the phone's real "today": earlier days are overdue, the picked day is its own group,
+  // and later days are upcoming.
+  const todayStart = startOfDay(new Date());
+  const byTime = (a: TodayFollowup, b: TodayFollowup) => new Date(a.next_followup_at).getTime() - new Date(b.next_followup_at).getTime();
+  const overdueList = followups.filter((item) => new Date(item.next_followup_at) < todayStart).sort(byTime);
+  const dayList = followups.filter((item) => isSameDay(new Date(item.next_followup_at), selectedDate)).sort(byTime);
+  const upcomingList = followups.filter((item) => {
+    const due = new Date(item.next_followup_at);
+    return due >= todayStart && !isSameDay(due, selectedDate) && due > selectedDate;
+  }).sort(byTime);
+  const selectedIsToday = isSameDay(selectedDate, new Date());
+  const dayTitle = selectedIsToday ? "Today" : selectedDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const dayDateLabel = selectedDate.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+
+  const sections: { key: Filter; title: string; right: string; items: TodayFollowup[]; overdue: boolean }[] = [
+    { key: "overdue", title: "Overdue", right: "Needs action", items: overdueList, overdue: true },
+    { key: "day", title: dayTitle, right: dayDateLabel, items: dayList, overdue: false },
+    { key: "upcoming", title: "Upcoming", right: "", items: upcomingList, overdue: false },
+  ];
+  const visibleSections = sections.filter((section) => (filter === "all" || filter === section.key) && section.items.length > 0);
+
+  const chips: { key: Filter; label: string; count?: number }[] = [
+    { key: "overdue", label: "Overdue", count: overdueList.length },
+    { key: "day", label: dayTitle, count: dayList.length },
+    { key: "upcoming", label: "Upcoming", count: upcomingList.length },
+  ];
+
   return (
     <View style={styles.screen}>
-      <GlassBackground />
-      <Appbar.Header style={styles.header} elevated={false}>
-        {router.canGoBack() ? <Appbar.BackAction onPress={() => router.back()} /> : null}
-        <Appbar.Content title="Follow-ups" titleStyle={styles.headerTitle} />
-        <Appbar.Action icon="plus" color={colors.primary} onPress={openAdd} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        {router.canGoBack() ? (
+          <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+            <Ionicons name="arrow-back" size={22} color={UI.ink} />
+          </Pressable>
+        ) : null}
+        <Text style={styles.headerTitle}>Follow-ups</Text>
+      </View>
 
       <View style={styles.calendar}>
         <View style={styles.monthRow}>
-          <Pressable onPress={() => jumpDays(-7)} hitSlop={8}><Ionicons name="chevron-back" size={18} color={colors.primary} /></Pressable>
+          <Pressable onPress={() => jumpDays(-7)} hitSlop={8} accessibilityLabel="Previous week"><Ionicons name="chevron-back" size={18} color={UI.green} /></Pressable>
           <Text style={styles.monthLabel}>{MONTHS[selectedDate.getMonth()]} {selectedDate.getFullYear()}</Text>
-          <Pressable onPress={() => jumpDays(7)} hitSlop={8}><Ionicons name="chevron-forward" size={18} color={colors.primary} /></Pressable>
+          <Pressable onPress={() => jumpDays(7)} hitSlop={8} accessibilityLabel="Next week"><Ionicons name="chevron-forward" size={18} color={UI.green} /></Pressable>
         </View>
-        <ScrollView
-          ref={scrollRef} horizontal showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.weekRow} decelerationRate="fast"
-        >
+        <ScrollView ref={scrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.weekRow} decelerationRate="fast">
           {days.map((day, index) => {
             const active = isSameDay(day, selectedDate);
             return (
-              <Pressable key={index} style={styles.dayColumn} onPress={() => setSelectedDate(day)}>
+              <Pressable key={index} style={[styles.dayColumn, { width: dayWidth }]} onPress={() => setSelectedDate(day)}>
                 <Text style={styles.dayLabel}>{WEEKDAYS[day.getDay()]}</Text>
                 <View style={[styles.dayNumber, active && styles.dayNumberActive]}>
                   <Text style={[styles.dayNumberText, active && styles.dayNumberTextActive]}>{day.getDate()}</Text>
@@ -311,41 +370,73 @@ export default function FollowupsScreen() {
           })}
         </ScrollView>
       </View>
-        <Pressable style={styles.todayToggle} onPress={() => setExpanded((value) => !value)}>
-          <Text style={styles.todayToggleText}>{isSameDay(selectedDate, new Date()) ? "Today" : "Selected day"} ({followups.length})</Text>
-          <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={16} color={colors.primary} />
-        </Pressable>
 
-      {expanded ? (
-        <ScrollView
-          contentContainerStyle={{ paddingBottom: insets.bottom + 100, flexGrow: followups.length ? 0 : 1 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(selectedDate, true)} tintColor={colors.primary} colors={[colors.primary]} />}
-          showsVerticalScrollIndicator={false}
-        >
-          {loading ? (
-            <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>
-          ) : error ? (
-            <View style={styles.state}>
-              <Text style={styles.errorText}>{error}</Text>
-              <Button mode="contained" onPress={() => load(selectedDate)} style={styles.retry}>Try again</Button>
-            </View>
-          ) : followups.length ? (
-            followups.map((item) => (
-              <FollowupRow
-                key={item.id} item={item} completing={completingId === item.id}
-                onComplete={() => handleComplete(item)} colorFor={colorFor} findStage={findStage}
-                onPress={() => router.push({ pathname: "/(app)/leads/[id]", params: { id: item.lead_id, name: item.lead_name, phone: item.lead_phone, stage: item.lead_stage || "new" } })}
-              />
-            ))
-          ) : (
-            <View style={styles.empty}>
-              <View style={styles.emptyIcon}><Ionicons name="paw-outline" size={32} color={colors.primary} /></View>
-              <Text style={styles.emptyTitle}>No follow-ups due on this day.</Text>
-              <Text style={styles.emptyText}>Start assigning leads and set follow-ups</Text>
-            </View>
-          )}
+      <View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipRow}>
+          {chips.map((chip) => {
+            const active = filter === chip.key;
+            const isOverdueChip = chip.key === "overdue";
+            return (
+              <Pressable
+                key={chip.key} onPress={() => setFilter(active ? "all" : chip.key)} accessibilityRole="tab" accessibilityState={{ selected: active }}
+                style={[styles.chip, isOverdueChip && styles.chipOverdue, active && (isOverdueChip ? styles.chipOverdueActive : styles.chipActive)]}
+              >
+                <Text style={[styles.chipText, isOverdueChip && { color: UI.red }, active && !isOverdueChip && styles.chipTextActive, active && isOverdueChip && { color: "#fff" }]}>{chip.label}</Text>
+                {chip.count !== undefined ? (
+                  <View style={[styles.chipCount, isOverdueChip && { backgroundColor: UI.redSoft }, active && { backgroundColor: "rgba(255,255,255,0.25)" }]}>
+                    <Text style={[styles.chipCountText, isOverdueChip && { color: UI.red }, active && { color: "#fff" }]}>{chip.count}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
         </ScrollView>
-      ) : null}
+      </View>
+
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + 100, flexGrow: 1 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={UI.green} colors={[UI.green]} />}
+        showsVerticalScrollIndicator={false}
+      >
+        {loading ? (
+          <View style={styles.state}><ActivityIndicator size="large" color={UI.green} /></View>
+        ) : error ? (
+          <View style={styles.state}>
+            <Text style={styles.errorText}>{error}</Text>
+            <Button mode="contained" onPress={() => load()} style={styles.retry}>Try again</Button>
+          </View>
+        ) : visibleSections.length ? (
+          visibleSections.map((section) => (
+            <View key={section.key}>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.sectionTitle, section.overdue && { color: UI.red }]}>{section.title}</Text>
+                <View style={[styles.sectionCount, section.overdue && { backgroundColor: UI.redSoft }]}>
+                  <Text style={[styles.sectionCountText, section.overdue && { color: UI.red }]}>{section.items.length}</Text>
+                </View>
+                <View style={{ flex: 1 }} />
+                {section.right ? <Text style={styles.sectionRight}>{section.right}</Text> : null}
+              </View>
+              {section.items.map((item) => (
+                <FollowupCard
+                  key={item.id} item={item} overdue={section.overdue} completing={completingId === item.id}
+                  onComplete={() => handleComplete(item)} colorFor={colorFor} findStage={findStage}
+                  onPress={() => router.push({ pathname: "/(app)/leads/[id]", params: { id: item.lead_id, name: item.lead_name, phone: item.lead_phone, stage: item.lead_stage || "new" } })}
+                />
+              ))}
+            </View>
+          ))
+        ) : (
+          <View style={styles.empty}>
+            <View style={styles.emptyIcon}><Ionicons name="calendar-outline" size={30} color={UI.green} /></View>
+            <Text style={styles.emptyTitle}>{filter === "all" ? "No follow-ups to show." : "Nothing in this group."}</Text>
+            <Text style={styles.emptyText}>Start assigning leads and set follow-ups</Text>
+          </View>
+        )}
+      </ScrollView>
+
+      <Pressable accessibilityLabel="Add follow-up" accessibilityRole="button" style={[styles.fab, { bottom: insets.bottom + 86 }]} onPress={openAdd}>
+        <Ionicons name="add" size={24} color="#fff" />
+      </Pressable>
 
       <Modal visible={addOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeAdd}>
         <Pressable style={styles.sheetBackdrop} onPress={closeAdd}>
@@ -407,9 +498,9 @@ export default function FollowupsScreen() {
               <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
 
               <Text style={styles.sheetSectionLabel}>Follow-Up Note</Text>
-              <TextInput mode="outlined" value={followupNotes} onChangeText={setFollowupNotes} placeholder="Add a note (optional)" multiline numberOfLines={3} style={styles.sheetTextarea} />
+              <TextInput mode="outlined" value={followupNotes} onChangeText={setFollowupNotes} placeholder="Add a note (optional)" multiline numberOfLines={3} style={styles.sheetTextarea} outlineStyle={styles.sheetOutline} outlineColor={UI.line} activeOutlineColor={UI.green} />
 
-              <Button mode="contained" onPress={saveFollowup} loading={saving} disabled={saving} style={styles.sheetPrimaryButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
+              <Button mode="contained" buttonColor={UI.green} onPress={saveFollowup} loading={saving} disabled={saving} style={styles.sheetPrimaryButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -420,46 +511,71 @@ export default function FollowupsScreen() {
 
 const styles = StyleSheet.create({
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
-  typeChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#ffffff" },
-  typeChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  typeChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: "#dbe3f1", backgroundColor: "#ffffff" },
+  typeChipActive: { backgroundColor: UI.green, borderColor: UI.green },
   typeChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
   typeChipTextActive: { color: "#ffffff" },
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: "transparent" },
-  headerTitle: { fontSize: 20, fontFamily: "DMSans_700Bold" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingBottom: 12 },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center", marginLeft: -6 },
+  headerTitle: { color: UI.ink, fontSize: 18, fontFamily: "DMSans_700Bold" },
+  fab: { position: "absolute", right: 20, width: 46, height: 46, borderRadius: 23, backgroundColor: UI.green, alignItems: "center", justifyContent: "center", shadowColor: UI.green, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
 
-  calendar: { ...glass, marginHorizontal: 16, marginBottom: 16, paddingBottom: 12 },
-  monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 14 },
-  monthLabel: { color: colors.primary, fontSize: 14, fontFamily: "Inter_700Bold" },
+  calendar: { marginHorizontal: 16, marginBottom: 12, paddingBottom: 10, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 16 },
+  monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
+  monthLabel: { color: UI.ink, fontSize: 13, fontFamily: "Inter_700Bold" },
   weekRow: { flexDirection: "row", paddingHorizontal: 8 },
-  dayColumn: { width: DAY_ITEM_WIDTH, alignItems: "center", gap: 8 },
-  dayLabel: { color: colors.textMuted, fontSize: 10, fontFamily: "Inter_700Bold" },
-  dayNumber: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
-  dayNumberActive: { backgroundColor: colors.primary },
-  dayNumberText: { color: colors.text, fontSize: 15, fontWeight: "700" },
-  dayNumberTextActive: { color: colors.surface },
-  todayToggle: { ...glass, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, marginHorizontal: 16, marginBottom: 16 },
-  todayToggleText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
+  dayColumn: { alignItems: "center", gap: 6 },
+  dayLabel: { color: UI.muted, fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  dayNumber: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  dayNumberActive: { backgroundColor: UI.green },
+  dayNumberText: { color: UI.ink, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  dayNumberTextActive: { color: "#ffffff" },
+
+  chipScroll: { flexGrow: 0 },
+  chipRow: { gap: 8, paddingHorizontal: 16, paddingBottom: 12, alignItems: "center" },
+  chip: { flexDirection: "row", alignItems: "center", gap: 6, height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
+  chipActive: { backgroundColor: UI.green, borderColor: UI.green },
+  chipOverdue: { borderColor: UI.redLine },
+  chipOverdueActive: { backgroundColor: UI.red, borderColor: UI.red },
+  chipText: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold" },
+  chipTextActive: { color: "#ffffff" },
+  chipCount: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: "#e6ece9", alignItems: "center", justifyContent: "center" },
+  chipCountText: { color: UI.sub, fontSize: 10, fontFamily: "Inter_700Bold" },
+
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, marginTop: 6, marginBottom: 8 },
+  sectionTitle: { color: UI.ink, fontSize: 14, fontFamily: "DMSans_700Bold" },
+  sectionCount: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: "#d8f0e5", alignItems: "center", justifyContent: "center" },
+  sectionCountText: { color: UI.green, fontSize: 11, fontFamily: "Inter_700Bold" },
+  sectionRight: { color: UI.sub, fontSize: 11, fontFamily: "Inter_500Medium" },
 
   state: { alignItems: "center", justifyContent: "center", paddingVertical: 60 },
   errorText: { color: colors.danger, fontSize: 13, textAlign: "center", paddingHorizontal: 30 },
   retry: { marginTop: 14 },
 
   empty: { alignItems: "center", justifyContent: "center", flex: 1, paddingVertical: 60, paddingHorizontal: 30 },
-  emptyIcon: { width: 64, height: 64, borderRadius: 20, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  emptyTitle: { color: colors.primary, fontSize: 15, fontWeight: "700", textAlign: "center" },
-  emptyText: { color: colors.primary, fontSize: 14, textAlign: "center", marginTop: 4 },
+  emptyIcon: { width: 64, height: 64, borderRadius: 20, backgroundColor: "#d8f0e5", alignItems: "center", justifyContent: "center", marginBottom: 16 },
+  emptyTitle: { color: UI.ink, fontSize: 15, fontWeight: "700", textAlign: "center" },
+  emptyText: { color: UI.sub, fontSize: 13, textAlign: "center", marginTop: 4 },
 
-  row: { ...glass, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 12 },
-  avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: colors.surface, fontSize: 16, fontWeight: "800" },
-  rowTitleLine: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
-  rowName: { flexShrink: 1, maxWidth: "100%", color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold" },
-  stagePill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  stagePillText: { fontSize: 10, fontWeight: "800" },
-  rowTime: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
-  rowNotes: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
-  doneButton: { alignSelf: "center" },
+  card: { marginHorizontal: 16, marginBottom: 10, padding: 12, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, gap: 10 },
+  cardOverdue: { borderColor: UI.redLine },
+  cardTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatar: { width: 40, height: 40, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  avatarText: { color: "#ffffff", fontSize: 16, fontFamily: "Inter_700Bold" },
+  cardCopy: { flex: 1, minWidth: 0, gap: 4, alignItems: "flex-start" },
+  rowName: { color: UI.ink, fontSize: 14, fontFamily: "Inter_700Bold", maxWidth: "100%" },
+  stagePill: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, maxWidth: "100%" },
+  stagePillText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  rowNotes: { color: UI.sub, fontSize: 12 },
+  cardBottom: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 10, borderTopWidth: 1, borderTopColor: UI.line },
+  cardBottomOverdue: { borderTopColor: UI.redLine },
+  whenWrap: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 },
+  whenLabel: { color: UI.sub, fontSize: 10, fontFamily: "Inter_500Medium" },
+  whenValue: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold", marginTop: 1 },
+  actions: { flexDirection: "row", gap: 8 },
+  actionSquare: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  actionSquareLight: { backgroundColor: "#eef1f0" },
   popover: {
     position: "absolute", minWidth: 190, paddingVertical: 6, borderRadius: 12, backgroundColor: colors.surface,
     borderWidth: 1, borderColor: colors.borderSoft, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
@@ -469,22 +585,23 @@ const styles = StyleSheet.create({
 
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
   fullSheet: { height: "100%", maxHeight: "100%", borderTopLeftRadius: 0, borderTopRightRadius: 0 },
-  sheet: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
+  sheet: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: UI.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
   sheetHandle: { width: 34, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 10 },
   sheetHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
   sheetBackButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", marginLeft: -8 },
   sheetHeaderSpacer: { width: 32 },
-  sheetTitle: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "800" },
-  sheetSectionLabel: { color: colors.text, fontSize: 11, fontWeight: "700", marginTop: 10, marginBottom: 5 },
+  sheetTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
+  sheetSectionLabel: { color: UI.sub, fontSize: 11, fontWeight: "700", marginTop: 12, marginBottom: 6 },
   required: { color: colors.danger },
   sheetError: { flexDirection: "row", alignItems: "center", gap: 8, padding: 8, marginBottom: 4, borderRadius: 8, backgroundColor: colors.dangerSoft },
   sheetErrorText: { flex: 1, color: colors.danger, fontSize: 11, fontWeight: "700" },
-  searchInput: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8 },
+  searchInput: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 10 },
   searchInputText: { fontSize: 13, minHeight: 0 },
-  suggestions: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, marginTop: 6, overflow: "hidden" },
-  selectedLead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 40, paddingHorizontal: 12, backgroundColor: colors.primarySoft, borderRadius: 8 },
-  selectedLeadText: { flex: 1, color: colors.primary, fontSize: 13, fontWeight: "700" },
-  sheetTextarea: { minHeight: 56 },
-  sheetPrimaryButton: { marginTop: 14, marginBottom: 4 },
+  suggestions: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 10, marginTop: 6, overflow: "hidden" },
+  selectedLead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 40, paddingHorizontal: 12, backgroundColor: "#d8f0e5", borderRadius: 10 },
+  selectedLeadText: { flex: 1, color: UI.green, fontSize: 13, fontWeight: "700" },
+  sheetTextarea: { minHeight: 56, backgroundColor: "#ffffff" },
+  sheetOutline: { borderRadius: 10 },
+  sheetPrimaryButton: { marginTop: 16, marginBottom: 4, borderRadius: 10 },
   sheetPrimaryButtonContent: { height: 42 },
 });

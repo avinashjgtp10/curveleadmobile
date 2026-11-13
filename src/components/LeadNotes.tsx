@@ -79,7 +79,7 @@ export function LeadNotes({ leadId, onAdded, onFormOpen }: { leadId: string; onA
           <Text style={styles.title}>Discussion Notes</Text>
         </View>
         <Pressable style={styles.addButton} onPress={openNew}>
-          <Ionicons name="add" size={15} color={colors.primary} />
+          <Ionicons name="add" size={15} color="#6d4fd6" />
           <Text style={styles.addText}>Add Note</Text>
         </Pressable>
       </View>
@@ -145,16 +145,16 @@ export function LeadNotes({ leadId, onAdded, onFormOpen }: { leadId: string; onA
 }
 
 const styles = StyleSheet.create({
-  box: { backgroundColor: "#fff", borderRadius: 18, borderWidth: 1, borderColor: "#e2eef7", padding: 14, marginTop: 6 },
+  box: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4e9f3", padding: 14, marginBottom: 12 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  title: { color: colors.text, fontSize: 15, fontWeight: "800" },
-  addButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: colors.primarySoft },
-  addText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
+  title: { color: "#0f172a", fontSize: 14, fontWeight: "800" },
+  addButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: "#e9e2fb" },
+  addText: { color: "#6d4fd6", fontSize: 12, fontWeight: "800" },
   form: { marginTop: 12, padding: 10, borderRadius: 14, backgroundColor: "#f8fbfd", borderWidth: 1, borderColor: "#e2eef7" },
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
   typeChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: "#fff", borderWidth: 1, borderColor: "#d7e6f1" },
-  typeChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  typeChipActive: { backgroundColor: "#2457e6", borderColor: "#2457e6" },
   typeChipText: { color: colors.textSecondary, fontSize: 12, fontWeight: "700" },
   typeChipTextActive: { color: "#fff" },
   inputBox: { minHeight: 100, borderRadius: 12, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#fff", paddingHorizontal: 12 },
@@ -164,10 +164,10 @@ const styles = StyleSheet.create({
   formActions: { flexDirection: "row", gap: 8, marginTop: 10 },
   cancelButton: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#fff" },
   cancelText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
-  saveButton: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.primary, minWidth: 96, alignItems: "center" },
+  saveButton: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: "#2457e6", minWidth: 96, alignItems: "center" },
   saveText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   loader: { marginVertical: 18 },
-  empty: { color: colors.textMuted, fontSize: 13, textAlign: "center", paddingVertical: 18 },
+  empty: { color: "#94a3b8", fontSize: 12, textAlign: "center", paddingVertical: 18 },
   list: { gap: 8, marginTop: 12 },
   note: { padding: 12, borderRadius: 14, backgroundColor: "#f8fbfd" },
   noteTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },

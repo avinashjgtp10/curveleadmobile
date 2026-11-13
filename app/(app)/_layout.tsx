@@ -3,8 +3,7 @@ import React, { useEffect, useRef } from "react";
 import { Redirect, router, Tabs } from "expo-router";
 // @ts-ignore - AuthContext is a TSX module and this app-level config does not enable JSX for the import check
 import { useAuth } from "@/contexts/AuthContext";
-import { Animated, Easing, Pressable, StyleSheet, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, tabBarStyleFor } from "@/theme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -50,7 +49,7 @@ const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void 
   return React.createElement(
     Pressable,
     {
-      ref, onPress, style: styles.aiButtonWrap, hitSlop: 12, accessibilityRole: "button", accessibilityLabel: "AI Tools",
+      ref, onPress, style: styles.aiButtonWrap, hitSlop: 12, accessibilityRole: "button", accessibilityLabel: "Add lead",
       onPressIn: () => springTo(0.88), onPressOut: () => springTo(1),
     },
     React.createElement(Animated.View, {
@@ -63,11 +62,12 @@ const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void 
       Animated.View,
       { style: { transform: [{ scale: press }] } },
       React.createElement(
-        LinearGradient,
-        { colors: ["#06b6d4", "#6366f1", "#d946ef"], start: { x: 0, y: 0 }, end: { x: 1, y: 1 }, style: styles.aiButton },
-        React.createElement(Ionicons, { name: "sparkles", size: 24, color: "#fff" })
+        View,
+        { style: styles.aiButton },
+        React.createElement(Ionicons, { name: "person-add", size: 24, color: "#fff" })
       )
-    )
+    ),
+    React.createElement(Text, { style: styles.aiLabel }, "Add lead")
   );
 });
 
@@ -86,7 +86,7 @@ export default function AppLayout() {
       backBehavior: "history",
       screenOptions: () => ({
         headerShown: false,
-        tabBarActiveTintColor: colors.primary,
+        tabBarActiveTintColor: "#0e8a9b",
         tabBarInactiveTintColor: colors.textMuted,
         tabBarHideOnKeyboard: true,
         tabBarLabelStyle: styles.label,
@@ -142,11 +142,11 @@ export default function AppLayout() {
           listeners: {
             tabPress: (event: any) => {
               event.preventDefault();
-              router.push("/(app)/more/ai-tools");
+              router.push("/(app)/leads/new");
             },
           },
           options: {
-            title: "AI",
+            title: "Add lead",
             // Explicitly override the shared tabBarItemStyle — its item wrapper otherwise
             // clips anything (like this button) that pokes above the tab bar's own bounds.
             tabBarItemStyle: styles.aiItem,
@@ -180,20 +180,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  iconActive: { backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.border },
+  iconActive: {},
   aiButtonWrap: { flex: 1, top: -14, alignItems: "center", justifyContent: "center", zIndex: 20, elevation: 20 },
-  aiButtonGlow: { position: "absolute", top: -6, width: 68, height: 68, borderRadius: 34, backgroundColor: "rgba(139,92,246,0.18)" },
+  aiButtonGlow: { position: "absolute", top: -9, width: 74, height: 74, borderRadius: 37, backgroundColor: "rgba(36,87,230,0.14)" },
+  aiLabel: { color: "#2457e6", fontSize: 10, fontFamily: "Inter_700Bold", marginTop: 3 },
   aiButton: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 3,
     borderColor: "#ffffff",
-    shadowColor: "#8b5cf6",
+    backgroundColor: "#2457e6",
+    shadowColor: "#2457e6",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.35,
     shadowRadius: 10,
     elevation: 20,
   },
