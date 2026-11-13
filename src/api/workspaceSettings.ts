@@ -55,10 +55,11 @@ export interface SaveAssignmentRuleInput {
   sources: string[];
   campaign_ids: string[];
   location_contains: string;
-  staff_ids?: string[];
-  assign_to_user_id?: string;
-  assign_to_team_id?: string;
-  sequence_id?: string;
+  // null clears a value on the server; undefined would be dropped from the JSON and leave the old one in place.
+  staff_ids?: string[] | null;
+  assign_to_user_id?: string | null;
+  assign_to_team_id?: string | null;
+  sequence_id?: string | null;
 }
 
 export interface Team {

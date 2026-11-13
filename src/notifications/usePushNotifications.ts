@@ -13,6 +13,10 @@ import { navigateToNotification, NotificationRouteData } from "./navigateToNotif
 import { withRetry } from "./retry";
 import { isExpoGo } from "./environment";
 
+// Register the foreground handler as soon as the app loads, not after the first screen mounts: a push that arrives
+// during start-up would otherwise fall back to iOS's default and show no banner.
+configureNotificationHandler();
+
 /** Must stay lazy — see push.ts: importing expo-notifications statically crashes Expo Go on Android. */
 function loadNotifications(): typeof NotificationsType {
   // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Appbar, Avatar, Button, Card, Checkbox, Divider, IconButton, Text, TextInput } from "react-native-paper";
 import { router } from "expo-router";
@@ -11,17 +11,18 @@ import { colors, radii, spacing } from "@/theme";
 export default function TeamScreen() {
   const insets = useSafeAreaInsets();
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const staffRef = useRef<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [teamModalOpen, setTeamModalOpen] = useState(false);
-  const [teamName, setTeamName] = useState("");
 
   const [openMenuFor, setOpenMenuFor] = useState<string | null>(null);
   const [waMember, setWaMember] = useState<StaffMember | null>(null);
   const [waMemberNumber, setWaMemberNumber] = useState("");
   const [waMemberToken, setWaMemberToken] = useState("");
   const [waLoading, setWaLoading] = useState(false);
+  const [waLoadFailed, setWaLoadFailed] = useState(false);
+  const waRequest = useRef(0);
   const [waSaving, setWaSaving] = useState(false);
   const [permMember, setPermMember] = useState<StaffMember | null>(null);
   const [permissions, setPermissions] = useState<StaffPermission[]>([]);
@@ -38,41 +39,39 @@ export default function TeamScreen() {
     try {
       setStaff(await fetchStaff());
     } catch (loadError) {
-      setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string" ? loadError.response.data.error : "Could not load your team.");
+      const message = axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string" ? loadError.response.data.error : "Could not load your team.";
+      // Keep the list we already have on a failed refresh; only show the full error screen when there is nothing to show.
+      if (staffRef.current.length) Alert.alert("Couldn't refresh", message);
+      else setError(message);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }
 
+  useEffect(() => { staffRef.current = staff; }, [staff]);
   useEffect(() => { load(); }, []);
 
   const activeCount = useMemo(() => staff.filter((member) => member.is_active).length, [staff]);
-  const teamCount = useMemo(() => new Set(staff.map((member) => member.role)).size || (staff.length ? 1 : 0), [staff]);
+  const adminCount = useMemo(() => staff.filter((member) => member.role === "admin" || member.role === "super_admin").length, [staff]);
 
   function openInvite() {
     router.push("/invite-team");
   }
 
-  function createTeam() {
-    if (!teamName.trim()) {
-      Alert.alert("Missing team name", "Enter a name for the new team.");
-      return;
-    }
-    Alert.alert("Create team", "Team creation will be available when the team endpoint is connected.");
-  }
-
   async function openWhatsappModal(member: StaffMember) {
     setOpenMenuFor(null);
-    setWaMember(member); setWaMemberNumber(""); setWaMemberToken(""); setWaLoading(true);
+    const requestId = ++waRequest.current;
+    setWaMember(member); setWaMemberNumber(""); setWaMemberToken(""); setWaLoadFailed(false); setWaLoading(true);
     try {
       // The saved Phone number ID comes from the server. (The member's own phone number is a different thing.)
       const saved = await fetchStaffWhatsApp(member.id);
-      setWaMemberNumber(saved.whatsapp_phone_number_id);
+      if (requestId === waRequest.current) setWaMemberNumber(saved.whatsapp_phone_number_id);
     } catch {
-      // The form still works for entering a new value; saving will report any problem.
+      // The form still works for entering a new value; just say the saved one couldn't be shown.
+      if (requestId === waRequest.current) setWaLoadFailed(true);
     } finally {
-      setWaLoading(false);
+      if (requestId === waRequest.current) setWaLoading(false);
     }
   }
 
@@ -84,7 +83,7 @@ export default function TeamScreen() {
     }
     setWaSaving(true);
     try {
-      await saveStaffWhatsApp(waMember.id, { whatsapp_phone_number_id: waMemberNumber.trim(), whatsapp_access_token: waMemberToken.trim() });
+      await saveStaffWhatsApp(waMember.id, { whatsapp_phone_number_id: waMemberNumber.trim(), whatsapp_access_token: waMemberToken.trim() || undefined });
       const name = waMember.name;
       setWaMember(null);
       Alert.alert("WhatsApp number saved", `${name}'s WhatsApp number was updated.`);
@@ -137,8 +136,8 @@ export default function TeamScreen() {
 
   async function saveMemberPassword() {
     if (!passwordMember || passwordSaving) return;
-    if (!newPassword || newPassword.length < 6) {
-      Alert.alert("Password too short", "Enter a password with at least 6 characters.");
+    if (!newPassword || newPassword.length < 8) {
+      Alert.alert("Password too short", "Enter a password with at least 8 characters.");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -157,16 +156,6 @@ export default function TeamScreen() {
     } finally {
       setPasswordSaving(false);
     }
-  }
-
-  function removeMember(member: StaffMember) {
-    setOpenMenuFor(null);
-    Alert.alert("Remove member?", `${member.name} will lose access to your workspace.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: () => {
-        Alert.alert("Remove member", "Member removal will be available when the staff endpoint is connected.");
-      } },
-    ]);
   }
 
   return (
@@ -201,14 +190,13 @@ export default function TeamScreen() {
           <View style={styles.statsRow}>
             <StatCard icon="people-outline" value={staff.length} label="Members" tone="primary" />
             <StatCard icon="shield-checkmark-outline" value={activeCount} label="Active" tone="success" />
-            <StatCard icon="people-circle-outline" value={teamCount} label="Teams" tone="warning" />
+            <StatCard icon="people-circle-outline" value={adminCount} label="Admins" tone="warning" />
           </View>
 
           <Card mode="outlined" style={styles.card}>
             <Card.Content>
               <View style={styles.sectionTopRow}>
                 <SectionHeading icon="people-outline" title="Team members" />
-                <Button mode="text" compact icon="plus" onPress={() => { setTeamName(""); setTeamModalOpen(true); }}>New team</Button>
               </View>
               {staff.length ? staff.map((member, index) => <React.Fragment key={member.id}>
                 <MemberRow
@@ -217,7 +205,6 @@ export default function TeamScreen() {
                   onWhatsapp={() => openWhatsappModal(member)}
                   onPermissions={() => openPermissionsModal(member)}
                   onChangePassword={() => openPasswordModal(member)}
-                  onRemove={() => removeMember(member)}
                 />
                 {index < staff.length - 1 ? <Divider /> : null}
               </React.Fragment>) : <Text style={styles.empty}>No team members found.</Text>}
@@ -225,33 +212,6 @@ export default function TeamScreen() {
           </Card>
         </ScrollView>
       )}
-
-      <Modal visible={teamModalOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setTeamModalOpen(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setTeamModalOpen(false)}>
-          <Pressable style={[styles.teamModal, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]} onPress={() => {}}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>New Team</Text>
-              <Pressable accessibilityLabel="Close" hitSlop={10} onPress={() => setTeamModalOpen(false)}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
-            </View>
-            <View style={styles.teamModalBody}>
-              <Text style={styles.fieldLabel}>Team name</Text>
-              <TextInput
-                mode="outlined"
-                dense
-                value={teamName}
-                onChangeText={setTeamName}
-                style={styles.teamNameInput}
-                outlineColor={colors.border}
-                activeOutlineColor={colors.primary}
-              />
-              <View style={styles.modalActions}>
-                <Button mode="outlined" style={styles.cancelButton} onPress={() => setTeamModalOpen(false)}>Cancel</Button>
-                <Button mode="contained" style={styles.sendButton} onPress={createTeam}>Create</Button>
-              </View>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       <Modal visible={!!waMember} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setWaMember(null)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setWaMember(null)}>
@@ -261,6 +221,7 @@ export default function TeamScreen() {
               <Pressable accessibilityLabel="Close" hitSlop={10} onPress={() => setWaMember(null)}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
             </View>
             <View style={styles.teamModalBody}>
+              {waLoadFailed ? <Text style={styles.waWarning}>Couldn&apos;t load the saved number. You can still enter a new one.</Text> : null}
               <TextInput
                 mode="outlined" dense placeholder="Phone number ID" value={waMemberNumber} onChangeText={setWaMemberNumber}
                 keyboardType="number-pad" autoCorrect={false} editable={!waLoading && !waSaving}
@@ -344,9 +305,9 @@ function SectionHeading({ icon, title }: { icon: keyof typeof Ionicons.glyphMap;
   return <View style={styles.sectionHeading}><Ionicons name={icon} size={19} color={colors.primary} /><Text style={styles.sectionTitle}>{title}</Text></View>;
 }
 
-function MemberRow({ member, menuOpen, onToggleMenu, onWhatsapp, onPermissions, onChangePassword, onRemove }: {
+function MemberRow({ member, menuOpen, onToggleMenu, onWhatsapp, onPermissions, onChangePassword }: {
   member: StaffMember; menuOpen: boolean; onToggleMenu: () => void;
-  onWhatsapp: () => void; onPermissions: () => void; onChangePassword: () => void; onRemove: () => void;
+  onWhatsapp: () => void; onPermissions: () => void; onChangePassword: () => void;
 }) {
   const initials = member.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
   const roleLabel = member.role === "super_admin" ? "Super Admin" : member.role === "admin" ? "Admin" : "Staff";
@@ -381,10 +342,6 @@ function MemberRow({ member, menuOpen, onToggleMenu, onWhatsapp, onPermissions, 
             <Pressable style={styles.memberMenuItem} onPress={onChangePassword}>
               <Ionicons name="key-outline" size={16} color={colors.textSecondary} />
               <Text style={styles.memberMenuText}>Change password</Text>
-            </Pressable>
-            <Pressable style={styles.memberMenuItem} onPress={onRemove}>
-              <Ionicons name="trash-outline" size={16} color={colors.danger} />
-              <Text style={[styles.memberMenuText, styles.memberMenuDangerText]}>Remove member</Text>
             </Pressable>
           </View>
         </>
@@ -458,5 +415,6 @@ const styles = StyleSheet.create({
   teamModal: { width: "100%", maxWidth: 385, alignSelf: "center", backgroundColor: colors.surface, borderRadius: 18, overflow: "hidden" },
   teamModalBody: { padding: spacing.lg, paddingTop: spacing.md },
   fieldLabel: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 7 },
+  waWarning: { color: colors.danger, fontSize: 12, marginBottom: spacing.sm },
   teamNameInput: { height: 43, backgroundColor: colors.surface },
 });

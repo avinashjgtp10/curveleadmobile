@@ -24,7 +24,14 @@ const TABS: { key: SettingsTab; label: string; icon: keyof typeof Ionicons.glyph
 ];
 
 function FieldLabel({ children }: { children: string }) {
-  return <Text style={styles.fieldLabel}>{children}</Text>;
+  // A trailing " *" marks a required field; draw it in red.
+  const required = children.endsWith(" *");
+  return (
+    <Text style={styles.fieldLabel}>
+      {required ? children.slice(0, -2) : children}
+      {required ? <Text style={{ color: colors.danger }}> *</Text> : null}
+    </Text>
+  );
 }
 
 function SectionLabel({ children }: { children: string }) {
@@ -139,6 +146,7 @@ function BusinessTab() {
 
   async function handleSave() {
     if (!businessName.trim()) { Alert.alert("Business name needed", "Enter your business name before saving."); return; }
+    if (dailyReport && !/^([01]\d|2[0-3]):[0-5]\d$/.test(sendTime.trim())) { Alert.alert("Check the send time", "Use 24-hour HH:MM format, e.g. 08:00."); return; }
     if (loadFailed) { Alert.alert("Can't save yet", "Your current settings didn't load. Pull them in again first."); return; }
     const changes: BusinessSettings = {
       name: businessName.trim(), email: businessEmail.trim(), phone: phone.trim(), website: website.trim(),
@@ -358,7 +366,8 @@ export default function SettingsScreen() {
         keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}
       >
         {activeTab === "profile" ? <ProfileTab /> : null}
-        {activeTab === "business" ? <BusinessTab /> : null}
+        {/* Kept mounted (hidden) so unsaved edits survive switching tabs. */}
+        <View style={activeTab === "business" ? undefined : styles.hidden}><BusinessTab /></View>
         {activeTab === "templates" ? (
           <LinkOutTab
             icon="chatbox-ellipses-outline" title="Message Templates"
@@ -393,6 +402,7 @@ const styles = StyleSheet.create({
   tabLabelActive: { color: colors.surface },
 
   content: { padding: 18, gap: 14 },
+  hidden: { display: "none" },
 
   card: {},
   cardHeaderRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 4 },

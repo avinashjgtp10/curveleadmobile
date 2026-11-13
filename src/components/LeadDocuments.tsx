@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Linking, Pressable, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Text } from "react-native-paper";
 import * as DocumentPicker from "expo-document-picker";
@@ -35,7 +35,7 @@ function dateText(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
-export function LeadDocuments({ leadId, onChanged }: { leadId: string; onChanged?: () => void }) {
+export function LeadDocuments({ leadId, onChanged, pickSignal = 0 }: { leadId: string; onChanged?: () => void; pickSignal?: number }) {
   const [files, setFiles] = useState<LeadAttachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -50,6 +50,14 @@ export function LeadDocuments({ leadId, onChanged }: { leadId: string; onChanged
   }, [leadId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // The parent bumps pickSignal (e.g. from the floating "Attachment" action) to open the file picker.
+  const handledSignal = useRef(pickSignal);
+  useEffect(() => {
+    if (pickSignal === handledSignal.current) return;
+    handledSignal.current = pickSignal;
+    pickAndUpload();
+  }, [pickSignal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function pickAndUpload() {
     if (uploading) return;

@@ -81,7 +81,7 @@ export default function MoreScreen() {
 
       <Button
         mode="outlined" icon={() => <Icons.IconLogout />} textColor={colors.danger} style={styles.logout} contentStyle={styles.logoutContent}
-        onPress={async () => { await logout(); router.replace("/(auth)/login"); }}
+        onPress={async () => { try { await logout(); } catch { /* leave the session screen either way */ } router.replace("/(auth)/login"); }}
       >
         {t("Log out")}
       </Button>
