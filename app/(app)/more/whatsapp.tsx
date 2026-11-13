@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AppState, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { Alert, AppState, BackHandler, Dimensions, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Appbar, Searchbar, Text } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
@@ -116,6 +116,7 @@ export default function WhatsAppScreen() {
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [sending, setSending] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
   const [templateLeadId, setTemplateLeadId] = useState("");
   const [sendingTemplateId, setSendingTemplateId] = useState("");
@@ -125,32 +126,23 @@ export default function WhatsAppScreen() {
   const [inboxFailed, setInboxFailed] = useState(false);
   const chatScrollRef = useRef<ScrollView>(null);
 
-  // Android doesn't reliably resize the in-page chat overlay for the keyboard, so lift the composer by hand.
-  // The lift is how far the overlay's bottom edge reaches below the top of the keyboard (measured, not the keyboard's
-  // own height), so it stays right whether or not Android already shrank the window or draws under the nav bar.
+  // Android doesn't shrink the in-page chat overlay for the keyboard, so lift the composer by hand. The overlay reaches
+  // the bottom of the display, behind the navigation bar, while the keyboard event's height stops above that bar - so
+  // measure from the keyboard's top edge to the bottom of the display, or the composer ends up one nav bar too low.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const chatOverlayRef = useRef<View>(null);
-  const topInset = useRef(insets.top);
-  topInset.current = insets.top;
   useEffect(() => {
     if (Platform.OS !== "android") return undefined;
-    const show = Keyboard.addListener("keyboardDidShow", (event) => {
-      const keyboardTop = event.endCoordinates.screenY;
-      const overlay = chatOverlayRef.current;
-      if (overlay && keyboardTop) {
-        // The keyboard's top is in screen coordinates (status bar included). When the app sits below the status bar
-        // (no top inset) the overlay's position is in window coordinates that start under it, so add its height back.
-        // When the app draws behind the status bar (top inset > 0) both already agree, so add nothing.
-        const statusBar = topInset.current > 0 ? 0 : (StatusBar.currentHeight ?? 0);
-        overlay.measureInWindow((_x, y, _width, height) => setKeyboardHeight(Math.max(0, Math.round(y + height + statusBar - keyboardTop))));
-      } else {
-        setKeyboardHeight(event.endCoordinates.height);
-      }
-      requestAnimationFrame(() => chatScrollRef.current?.scrollToEnd({ animated: false }));
+    const show = Keyboard.addListener("keyboardDidShow", ({ endCoordinates }) => {
+      const toDisplayBottom = Dimensions.get("screen").height - endCoordinates.screenY;
+      // Never trust a wildly larger number than the keyboard itself (a nav bar is well under 120).
+      setKeyboardHeight(toDisplayBottom > endCoordinates.height && toDisplayBottom - endCoordinates.height < 120 ? toDisplayBottom : endCoordinates.height);
     });
     const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
     return () => { show.remove(); hide.remove(); };
   }, []);
+  useEffect(() => {
+    if (keyboardHeight) requestAnimationFrame(() => chatScrollRef.current?.scrollToEnd({ animated: false }));
+  }, [keyboardHeight]);
 
   async function load() {
     setError("");
@@ -297,6 +289,7 @@ export default function WhatsAppScreen() {
     // A half-typed message or open attach menu belongs to the previous chat and must not carry over to this one.
     setMessage("");
     setAttachOpen(false);
+    setQuickOpen(false);
     chatBusy.current = false;
     if (!selectedId) return undefined;
     loadConversation(selectedId);
@@ -649,16 +642,7 @@ export default function WhatsAppScreen() {
         </ScrollView>
       ) : (
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
-          <View style={styles.heroCard}>
-            <View style={styles.heroIcon}><Ionicons name="logo-whatsapp" size={22} color={colors.success} /></View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.heroTitle}>WhatsApp Inbox</Text>
-              <Text style={styles.heroSubtitle}>Manage and respond to customer conversations</Text>
-            </View>
-          </View>
-
           <View style={styles.conversationCard}>
-            <Text style={styles.sectionTitle}>Conversations</Text>
             {inboxFailed ? (
               <Pressable onPress={load} style={styles.inboxWarning}>
                 <Text style={styles.inboxWarningText}>Couldn't load your chats. Tap to retry.</Text>
@@ -708,12 +692,12 @@ export default function WhatsAppScreen() {
         </ScrollView>
       )}
 
-      <View ref={chatOverlayRef} collapsable={false} style={selected ? styles.chatOverlay : styles.chatHidden}>
+      <View style={selected ? styles.chatOverlay : styles.chatHidden}>
         {selected ? (
           <KeyboardAvoidingView style={[styles.chatScreen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-            <View style={[styles.chatHeader, { paddingTop: insets.top + 8 }]}>
+            <LinearGradient colors={["#075e54", "#128c7e"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.chatHeader, { paddingTop: insets.top + 8 }]}>
               <Pressable onPress={closeChat} hitSlop={10} style={styles.chatBack}>
-                <Ionicons name="arrow-back" size={24} color={colors.text} />
+                <Ionicons name="arrow-back" size={24} color="#fff" />
               </Pressable>
               <View style={styles.chatAvatar}>
                 <Text style={styles.chatAvatarText}>{initials(selected.name)}</Text>
@@ -723,17 +707,17 @@ export default function WhatsAppScreen() {
                 <Text style={styles.chatName} numberOfLines={1}>{selected.name}</Text>
                 <Text style={styles.chatMeta} numberOfLines={1}>{selected.phone}{selectedConversation?.sent_at ? ` - ${relativeTime(selectedConversation.sent_at)}` : ""}</Text>
               </View>
-              <Pressable style={[styles.takeOverButton, manualMode && styles.takeOverButtonActive]} onPress={() => toggleTakeOver(selected.id)}>
-                <Ionicons name={manualMode ? "hand-left" : "hand-left-outline"} size={13} color={manualMode ? "#fff" : colors.textSecondary} />
+              <Pressable style={[styles.takeOverButton, manualMode && styles.takeOverButtonActive]} onPress={() => toggleTakeOver(selected.id)} accessibilityLabel={manualMode ? "Resume AI replies" : "Take over from AI"}>
+                <Ionicons name={manualMode ? "hand-left" : "hand-left-outline"} size={13} color={manualMode ? "#075e54" : "#fff"} />
                 <Text style={[styles.takeOverText, manualMode && styles.takeOverTextActive]}>{manualMode ? "Resume AI" : "Take over"}</Text>
               </Pressable>
               <Pressable hitSlop={8} style={styles.headerIcon} onPress={() => setContactInfoOpen((open) => !open)}>
-                <Ionicons name="information-circle-outline" size={24} color={colors.primary} />
+                <Ionicons name="information-circle-outline" size={24} color="#fff" />
               </Pressable>
               <Pressable hitSlop={8} style={styles.headerIcon} onPress={() => toggleStar(selected.id)}>
-                <Ionicons name={starredIds.has(selected.id) ? "star" : "star-outline"} size={22} color={starredIds.has(selected.id) ? colors.warning : colors.textMuted} />
+                <Ionicons name={starredIds.has(selected.id) ? "star" : "star-outline"} size={22} color={starredIds.has(selected.id) ? "#fde047" : "#fff"} />
               </Pressable>
-            </View>
+            </LinearGradient>
 
             {contactInfoOpen ? (
               <View style={[styles.headerInfoPopover, { top: insets.top + 64 }]}>
@@ -753,6 +737,7 @@ export default function WhatsAppScreen() {
               contentContainerStyle={styles.chatContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
             >
               {!messagesLoaded ? (
                 <View style={styles.emptyChat}><ActivityIndicator color={colors.primary} /></View>
@@ -787,7 +772,7 @@ export default function WhatsAppScreen() {
                           <Ionicons
                             name={item.status === "failed" ? "alert-circle" : item.status === "sent" || !item.status ? "checkmark" : "checkmark-done"}
                             size={14}
-                            color={item.status === "failed" ? colors.danger : item.status === "read" ? colors.primary : colors.textMuted}
+                            color={item.status === "failed" ? colors.danger : item.status === "read" ? "#53bdeb" : colors.textMuted}
                           />
                         ) : null}
                       </View>
@@ -810,10 +795,10 @@ export default function WhatsAppScreen() {
                     <Text style={styles.templateButtonText}>Template</Text>
                   </Pressable>
                 </View>
-              ) : templates.length ? (
+              ) : templates.length && quickOpen ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickReplies}>
                   {templates.map((template) => (
-                    <Pressable key={template.id} style={styles.quickChip} onPress={() => setMessage(templateTextFor(template, selected))}>
+                    <Pressable key={template.id} style={styles.quickChip} onPress={() => { setMessage(templateTextFor(template, selected)); setQuickOpen(false); }}>
                       <Ionicons name="flash-outline" size={13} color={colors.primary} />
                       <Text style={styles.quickChipText} numberOfLines={1}>{template.name}</Text>
                     </Pressable>
@@ -835,14 +820,19 @@ export default function WhatsAppScreen() {
                 </View>
               ) : null}
               <View style={styles.composerRow}>
-                <Pressable onPress={() => setAttachOpen((open) => !open)} disabled={!composerEnabled || sending} style={[styles.attachButton, (!composerEnabled || sending) && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel="Attach photo, video or document">
-                  <Ionicons name={attachOpen ? "close" : "add"} size={26} color={colors.primary} />
+                <Pressable onPress={() => { setAttachOpen((open) => !open); setQuickOpen(false); }} disabled={!composerEnabled || sending} style={[styles.attachButton, (!composerEnabled || sending) && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel="Attach photo, video or document">
+                  <Ionicons name={attachOpen ? "close" : "add"} size={28} color="#128c7e" />
                 </Pressable>
+                {templates.length && composerEnabled ? (
+                  <Pressable onPress={() => { setQuickOpen((open) => !open); setAttachOpen(false); }} style={[styles.attachButton, { width: 34 }]} accessibilityRole="button" accessibilityLabel="Saved replies">
+                    <Ionicons name={quickOpen ? "flash" : "flash-outline"} size={24} color="#128c7e" />
+                  </Pressable>
+                ) : null}
                 <View style={[styles.inputPill, !composerEnabled && styles.inputPillDisabled]}>
                   <RNTextInput
                     value={message}
                     onChangeText={setMessage}
-                    placeholder={canReply || !windowKnown ? "Type a message..." : "Waiting for customer message"}
+                    placeholder={canReply || !windowKnown ? "Type a message" : "Waiting for customer message"}
                     placeholderTextColor={colors.textMuted}
                     style={styles.inputText}
                     editable={composerEnabled}
@@ -851,7 +841,7 @@ export default function WhatsAppScreen() {
                 </View>
                 <Pressable onPress={sendMessage} disabled={!composerEnabled || !message.trim() || sending}>
                   <LinearGradient
-                    colors={composerEnabled && message.trim() ? ["#22c55e", "#0ea5e9"] : ["#cbd5e1", "#cbd5e1"]}
+                    colors={composerEnabled && message.trim() ? ["#25d366", "#128c7e"] : ["#cbd5e1", "#cbd5e1"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={styles.sendButton}
@@ -886,22 +876,22 @@ const styles = StyleSheet.create({
   heroIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: colors.successSoft, alignItems: "center", justifyContent: "center" },
   heroTitle: { color: colors.text, fontSize: 16, fontFamily: "DMSans_700Bold" },
   heroSubtitle: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
-  conversationCard: { ...glass, padding: 14, marginBottom: 14 },
+  conversationCard: { backgroundColor: "#ffffff", borderRadius: 24, padding: 14, marginBottom: 14, shadowColor: "#0f172a", shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
   sectionTitle: { color: colors.text, fontSize: 15, fontFamily: "Inter_700Bold", marginBottom: 10 },
-  searchBox: { backgroundColor: "rgba(255,255,255,0.82)", borderRadius: 12, borderWidth: 1, borderColor: colors.border, height: 44 },
+  searchBox: { backgroundColor: "#f0f2f5", borderRadius: 999, height: 44 },
   searchInput: { fontSize: 13, minHeight: 42 },
   inboxWarning: { backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10, marginBottom: 10 },
   inboxWarningText: { color: colors.danger, fontSize: 12, fontFamily: "Inter_600SemiBold" },
   deleteChatButton: { padding: 6, marginLeft: 4 },
   filterRow: { flexDirection: "row", gap: 8, marginTop: 12, marginBottom: 8 },
-  filterChip: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.7)" },
-  filterChipActive: { backgroundColor: colors.primary },
+  filterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#f0f2f5" },
+  filterChipActive: { backgroundColor: "#d9fdd3" },
   filterText: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_700Bold" },
-  filterTextActive: { color: "#fff" },
+  filterTextActive: { color: "#075e54" },
   conversationRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 4 },
-  conversationRowActive: { backgroundColor: "rgba(224,242,254,0.86)" },
-  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#fee2e2", alignItems: "center", justifyContent: "center" },
-  avatarUnread: { backgroundColor: colors.successSoft },
+  conversationRowActive: { backgroundColor: "#f0f2f5", borderRadius: 14 },
+  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#e0f2fe", alignItems: "center", justifyContent: "center" },
+  avatarUnread: { backgroundColor: "#d9fdd3" },
   avatarText: { color: colors.text, fontSize: 16, fontFamily: "Inter_700Bold" },
   rowBody: { flex: 1, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(0,0,0,0.1)", paddingBottom: 10 },
   rowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -909,7 +899,7 @@ const styles = StyleSheet.create({
   leadName: { flex: 1, color: colors.text, fontSize: 16, fontFamily: "Inter_600SemiBold" },
   leadNameUnread: { fontFamily: "Inter_700Bold" },
   timeText: { color: colors.textMuted, fontSize: 12 },
-  timeTextUnread: { color: colors.success },
+  timeTextUnread: { color: "#128c7e", fontFamily: "Inter_600SemiBold" },
   previewText: { flex: 1, color: colors.textSecondary, fontSize: 14 },
   previewEmpty: { fontStyle: "italic", color: colors.textMuted },
   mediaImage: { width: 220, height: 160, borderRadius: 12, marginBottom: 6 },
@@ -917,51 +907,51 @@ const styles = StyleSheet.create({
   docText: { flex: 1, color: colors.primary, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   emptyChat: { alignItems: "center", paddingVertical: 40, gap: 8 },
   emptyChatText: { color: colors.textMuted, fontSize: 12, textAlign: "center" },
-  unreadBadge: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: colors.success, alignItems: "center", justifyContent: "center" },
+  unreadBadge: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: "#25d366", alignItems: "center", justifyContent: "center" },
   unreadText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
-  chatOverlay: { ...StyleSheet.absoluteFill, zIndex: 50, elevation: 50, backgroundColor: "#f4f9fc" },
+  chatOverlay: { ...StyleSheet.absoluteFill, zIndex: 50, elevation: 50, backgroundColor: "#efeae2" },
   chatHidden: { display: "none" },
-  chatScreen: { flex: 1, backgroundColor: "#f4f9fc" },
-  chatHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingBottom: 10, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
+  chatScreen: { flex: 1, backgroundColor: "#efeae2" },
+  chatHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingBottom: 12 },
   chatBack: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
-  chatAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.successSoft, alignItems: "center", justifyContent: "center" },
+  chatAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#d9fdd3", alignItems: "center", justifyContent: "center" },
   chatAvatarText: { color: colors.text, fontSize: 15, fontFamily: "Inter_700Bold" },
-  onlineDot: { position: "absolute", right: 0, bottom: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: "#22c55e", borderWidth: 2, borderColor: "#fff" },
+  onlineDot: { position: "absolute", right: 0, bottom: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: "#22c55e", borderWidth: 2, borderColor: "#128c7e" },
   headerIcon: { width: 28, alignItems: "center", justifyContent: "center" },
   chatBody: { flex: 1 },
   chatContent: { padding: 16, paddingBottom: 24 },
-  chatName: { color: colors.text, fontSize: 15, fontFamily: "Inter_700Bold" },
-  chatMeta: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
-  dayPill: { alignSelf: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 5, marginVertical: 12 },
+  chatName: { color: "#fff", fontSize: 15, fontFamily: "Inter_700Bold" },
+  chatMeta: { color: "rgba(255,255,255,0.8)", fontSize: 11, marginTop: 2 },
+  dayPill: { alignSelf: "center", backgroundColor: "rgba(255,255,255,0.92)", shadowColor: "#0f172a", shadowOpacity: 0.05, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 5, marginVertical: 12 },
   dayPillText: { color: colors.textMuted, fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  messageBubbleIn: { alignSelf: "flex-start", maxWidth: "82%", backgroundColor: "#ffffff", borderRadius: 18, borderTopLeftRadius: 4, padding: 12, marginBottom: 10, shadowColor: "#0f172a", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
-  messageBubbleOut: { alignSelf: "flex-end", maxWidth: "82%", backgroundColor: "#d9f7e6", borderRadius: 18, borderTopRightRadius: 4, padding: 12, marginBottom: 12 },
-  sentMeta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: 4 },
-  messageText: { color: colors.text, fontSize: 13, lineHeight: 18 },
+  messageBubbleIn: { alignSelf: "flex-start", maxWidth: "82%", backgroundColor: "#ffffff", borderRadius: 16, borderTopLeftRadius: 4, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6, marginBottom: 8, shadowColor: "#0f172a", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  messageBubbleOut: { alignSelf: "flex-end", maxWidth: "82%", backgroundColor: "#d9fdd3", borderRadius: 16, borderTopRightRadius: 4, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6, marginBottom: 8, shadowColor: "#0f172a", shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+  sentMeta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: 2 },
+  messageText: { color: colors.text, fontSize: 15, lineHeight: 21 },
   messageTime: { color: colors.textMuted, fontSize: 10, marginTop: 4 },
-  composer: { gap: 10, paddingHorizontal: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.borderSoft, backgroundColor: "#ffffff" },
+  composer: { gap: 10, paddingHorizontal: 10, paddingTop: 8 },
   quickReplies: { gap: 8, paddingRight: 8 },
-  quickChip: { flexDirection: "row", alignItems: "center", gap: 5, maxWidth: 180, backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
-  quickChipText: { color: colors.primary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  quickChip: { flexDirection: "row", alignItems: "center", gap: 5, maxWidth: 180, backgroundColor: "#ffffff", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
+  quickChipText: { color: "#128c7e", fontSize: 12, fontFamily: "Inter_600SemiBold" },
   composerRow: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
-  inputPill: { flex: 1, minHeight: 48, maxHeight: 120, justifyContent: "center", backgroundColor: "#f4f9fc", borderRadius: 24, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16 },
-  attachButton: { width: 44, height: 48, alignItems: "center", justifyContent: "center" },
-  attachMenu: { flexDirection: "row", gap: 22, paddingHorizontal: 8, paddingVertical: 6 },
+  inputPill: { flex: 1, minHeight: 48, maxHeight: 120, justifyContent: "center", backgroundColor: "#ffffff", borderRadius: 24, paddingHorizontal: 16, shadowColor: "#0f172a", shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+  attachButton: { width: 40, height: 48, alignItems: "center", justifyContent: "center" },
+  attachMenu: { flexDirection: "row", gap: 22, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: "#ffffff", borderRadius: 20 },
   attachOption: { alignItems: "center", gap: 6 },
   attachIcon: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
   attachLabel: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
   inputPillDisabled: { backgroundColor: "#f1f5f9" },
-  inputText: { color: colors.text, fontSize: 14, paddingVertical: 10 },
+  inputText: { color: colors.text, fontSize: 16, paddingVertical: 10 },
   sendButton: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   headerInfoPopover: { position: "absolute", top: 76, right: 14, zIndex: 10, width: 250, backgroundColor: "#fff", borderRadius: 14, padding: 12, shadowColor: "#0f172a", shadowOpacity: 0.14, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 5, borderWidth: 1, borderColor: colors.borderSoft },
   infoRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, paddingVertical: 4 },
   infoLabel: { flex: 0.42, color: colors.textMuted, fontSize: 11, fontFamily: "Inter_600SemiBold" },
   infoValue: { flex: 0.58, color: colors.text, fontSize: 11, fontFamily: "Inter_700Bold", textAlign: "right" },
   infoStatus: { color: colors.success, fontSize: 11, fontFamily: "Inter_700Bold", backgroundColor: colors.successSoft, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, overflow: "hidden" },
-  takeOverButton: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#ffffff" },
-  takeOverButtonActive: { borderColor: colors.primary, backgroundColor: colors.primary },
-  takeOverText: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_700Bold" },
-  takeOverTextActive: { color: "#fff" },
+  takeOverButton: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderColor: "rgba(255,255,255,0.6)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  takeOverButtonActive: { borderColor: "#d9fdd3", backgroundColor: "#d9fdd3" },
+  takeOverText: { color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" },
+  takeOverTextActive: { color: "#075e54" },
   templatePrompt: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff7ed", borderWidth: 1, borderColor: "#fed7aa", borderRadius: 16, padding: 10 },
   templatePromptIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#ffedd5", alignItems: "center", justifyContent: "center" },
   templatePromptHint: { color: colors.textSecondary, fontSize: 11, marginTop: 1 },
