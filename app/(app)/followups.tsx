@@ -4,7 +4,7 @@ import {
 } from "react-native";
 import { ActivityIndicator, Button, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
-import { router, useFocusEffect, useNavigation } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
@@ -173,6 +173,15 @@ export default function FollowupsScreen() {
   const [error, setError] = useState("");
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  // Opened from a dashboard tile (Follow-ups, Overdue): start on that group.
+  const { filter: startFilter, filterAt } = useLocalSearchParams<{ filter?: string; filterAt?: string }>();
+  useEffect(() => {
+    if (startFilter === "overdue" || startFilter === "day" || startFilter === "upcoming") {
+      setFilter(startFilter);
+      if (startFilter === "day") setSelectedDate(startOfDay(new Date()));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startFilter, filterAt]);
 
   const [addOpen, setAddOpen] = useState(false);
 

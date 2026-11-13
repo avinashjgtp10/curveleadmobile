@@ -191,13 +191,15 @@ function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowu
 
 function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
   const { t } = useT();
-  const items = [
-    { label: "New leads", value: data.leads_today, dot: "#10b981" },
-    { label: "Follow-ups", value: data.followups_today, dot: "#f59e0b" },
-    { label: "Demos", value: data.demos_today, dot: "#7c3aed" },
-    { label: "Overdue", value: data.overdue_followups, dot: "#e11d48" },
-    { label: "Hot Leads", value: data.hot_leads, dot: "#ea580c" },
-    { label: "Critical", value: data.critical_followups, dot: "#be123c" },
+  // Each tile opens the list behind its number. The Leads and Follow-ups screens start with the matching filter.
+  const at = String(Date.now());
+  const items: { label: string; value: number; dot: string; go: () => void }[] = [
+    { label: "New leads", value: data.leads_today, dot: "#10b981", go: () => router.push({ pathname: "/(app)/leads", params: { preset: "new_today", presetAt: at } }) },
+    { label: "Follow-ups", value: data.followups_today, dot: "#f59e0b", go: () => router.push({ pathname: "/(app)/followups", params: { filter: "day", filterAt: at } }) },
+    { label: "Demos", value: data.demos_today, dot: "#7c3aed", go: () => router.push({ pathname: "/(app)/followups", params: { filter: "day", filterAt: at } }) },
+    { label: "Overdue", value: data.overdue_followups, dot: "#e11d48", go: () => router.push({ pathname: "/(app)/followups", params: { filter: "overdue", filterAt: at } }) },
+    { label: "Hot Leads", value: data.hot_leads, dot: "#ea580c", go: () => router.push({ pathname: "/(app)/leads", params: { preset: "hot", presetAt: at } }) },
+    { label: "Critical", value: data.critical_followups, dot: "#be123c", go: () => router.push({ pathname: "/(app)/followups", params: { filter: "overdue", filterAt: at } }) },
   ];
   return (
     <View style={styles.plainBlock}>
@@ -207,11 +209,11 @@ function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress:
       </View>
       <View style={styles.activityGrid}>
         {items.map((item) => (
-          <View key={item.label} style={styles.activityTile}>
+          <Pressable key={item.label} style={({ pressed }) => [styles.activityTile, pressed && { opacity: 0.7 }]} onPress={item.go} accessibilityRole="button" accessibilityLabel={`${t(item.label)}: ${fmt(item.value)}`}>
             <View style={[styles.activityDot, { backgroundColor: item.dot }]} />
             <Text style={styles.activityValue}>{fmt(item.value)}</Text>
             <Text style={styles.activityLabel} numberOfLines={1}>{t(item.label)}</Text>
-          </View>
+          </Pressable>
         ))}
       </View>
     </View>
