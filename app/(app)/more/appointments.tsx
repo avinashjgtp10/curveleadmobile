@@ -72,14 +72,13 @@ function initials(name?: string) {
   return words.length > 1 ? `${words[0][0]}${words[1][0]}`.toUpperCase() : words[0][0].toUpperCase();
 }
 
-function AppointmentRow({ item, completing, done, onView, onComplete, onReschedule, onCancel }: {
+function AppointmentRow({ item, completing, done, onView, onComplete, onReschedule }: {
   item: TodayFollowup;
   completing: boolean;
   done?: boolean;
   onView: () => void;
   onComplete: () => void;
   onReschedule: () => void;
-  onCancel: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ y: 0, right: 16 });
@@ -148,10 +147,6 @@ function AppointmentRow({ item, completing, done, onView, onComplete, onReschedu
             <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onComplete)}>
               <Ionicons name="checkmark-circle-outline" size={16} color={colors.success} />
               <Text style={[styles.popoverText, styles.popoverSuccessText]}>Mark Completed</Text>
-            </Pressable>
-            <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onCancel)}>
-              <Ionicons name="close-circle-outline" size={16} color={colors.danger} />
-              <Text style={[styles.popoverText, styles.popoverDangerText]}>Cancel Appointment</Text>
             </Pressable>
           </View>
         </Pressable>
@@ -341,10 +336,6 @@ function AppointmentsContent() {
     setSheetOpen(true);
   }
 
-  function showCancelUnavailable() {
-    Alert.alert("Cancel appointment", "Cancelling appointments will be available when the cancel endpoint is connected.");
-  }
-
   // Going back to Home (when opened from a Home tile) is handled for every More screen in more/_layout.tsx.
   function goBack() {
     router.back();
@@ -438,7 +429,6 @@ function AppointmentsContent() {
               onView={() => viewAppointment(item)}
               onComplete={() => markCompleted(item)}
               onReschedule={() => openReschedule(item)}
-              onCancel={showCancelUnavailable}
             />
           )) : (
             <View style={styles.empty}>

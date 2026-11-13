@@ -48,7 +48,7 @@ export default function FeedbackScreen() {
     setError("");
     setSending(true);
     try {
-      await sendFeedback({ type, message, rating, name: user?.name, email: user?.email });
+      await sendFeedback({ type, message: message.trim(), rating, name: user?.name, email: user?.email });
       setSent(true);
       setMessage("");
       setRating(0);
