@@ -281,6 +281,10 @@ const ALL_TOOLS: GridItem[] = APP_TOOLS.map((tool) => ({
   badges: tool.badge ? [{ text: tool.badge, bg: "#7c3aed" }] : undefined,
 }));
 
+// Everyday tools shown on the dashboard, in this order. Everything else lives in the More tab.
+const DASHBOARD_TOOLS = ["Leads", "Follow-ups", "WhatsApp", "Appointments", "Quotations", "Brochures", "Ads Manager", "Lead Automation", "AI Agent", "Reports", "Team"];
+const MORE_TILE: GridItem = { icon: "grid-outline", label: "More", bg: TOOL_TONES.gray.bg, iconColor: TOOL_TONES.gray.fg, href: "/(app)/more" };
+
 function openGridItem(item: GridItem) {
   // Features under More open inside the More tab's stack; remember they came from Home so Back returns here
   // (see more/_layout.tsx) and the More tab isn't left showing this feature.
@@ -350,11 +354,14 @@ export default function DashboardScreen() {
   const { user, tenant } = useAuth();
   // Team, Integrations and Billing are admin-only (the More menu already hides them from staff).
   const canManage = user?.role === "admin" || user?.role === "super_admin";
-  // The "Manage your business" grid shows every tool, in the order of the workspace menu: Leads first, User Guide last.
-  // The grid and the search offer every tool this person may use (Team, Integrations and Billing are admin-only).
+  // The search offers every tool this person may use (Team, Integrations and Billing are admin-only).
   const visibleTools = ALL_TOOLS.filter((item) => !item.roles || (!!user?.role && item.roles.includes(user.role)));
-  const manageItems = visibleTools;
   const searchItems = visibleTools;
+  // The grid shows the everyday tools; the rest are one tap away in More (the last tile).
+  const manageItems = [
+    ...DASHBOARD_TOOLS.map((label) => visibleTools.find((item) => item.label === label)).filter((item): item is GridItem => !!item),
+    MORE_TILE,
+  ];
   const insets = useSafeAreaInsets();
   const [period, setPeriod] = useState<DashboardPeriod>("last_7_days");
   const [periodOpen, setPeriodOpen] = useState(false);
