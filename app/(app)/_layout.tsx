@@ -1,11 +1,12 @@
 import { IconHome, IconUsers, IconCheck, IconBook, IconGrid } from "@/components/ReferenceIcons";
-import React, { useEffect, useRef } from "react";
+import React, { useRef } from "react";
 import { Redirect, router, Tabs } from "expo-router";
 // @ts-ignore - AuthContext is a TSX module and this app-level config does not enable JSX for the import check
 import { useAuth } from "@/contexts/AuthContext";
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, tabBarStyleFor } from "@/theme";
+import Svg, { Path } from "react-native-svg";
+import { colors, tabBarStyleFor, TAB_BAR_HEIGHT } from "@/theme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useT } from "@/i18n/LanguageContext";
 import { homeOrigin } from "@/navigation/homeOrigin";
@@ -26,23 +27,44 @@ function TabIcon({ icon, activeIcon, focused }: { icon: keyof typeof Ionicons.gl
   );
 }
 
+// The bar's shape: a white rounded pill with a smooth dip at the centre for the raised Add lead button.
+function NotchedBackground() {
+  const [width, setWidth] = React.useState(0);
+  const H = TAB_BAR_HEIGHT;
+  const R = 26;
+  const cx = width / 2;
+  const shape = width
+    ? `M ${R} 0 H ${cx - 54} C ${cx - 32} 0 ${cx - 38} 34 ${cx} 34 C ${cx + 38} 34 ${cx + 32} 0 ${cx + 54} 0 H ${width - R} Q ${width} 0 ${width} ${R} V ${H - R} Q ${width} ${H} ${width - R} ${H} H ${R} Q 0 ${H} 0 ${H - R} V ${R} Q 0 0 ${R} 0 Z`
+    : "";
+  return React.createElement(
+    View,
+    { style: StyleSheet.absoluteFill, pointerEvents: "none", onLayout: (event: any) => setWidth(event.nativeEvent.layout.width) },
+    width
+      ? React.createElement(
+          Svg,
+          { width, height: H + 8 },
+          // A soft shadow: the same shape, nudged down and tinted.
+          React.createElement(Path, { d: shape, fill: "rgba(15,23,42,0.08)", transform: "translate(0 4)" }),
+          React.createElement(Path, { d: shape, fill: "#ffffff", stroke: "#e4e9f3", strokeWidth: 1 })
+        )
+      : null
+  );
+}
+
+// Tab label with a short line under the active tab.
+function TabLabel({ label, focused, color }: { label: string; focused: boolean; color: string }) {
+  return React.createElement(
+    View,
+    { style: styles.labelWrap },
+    React.createElement(Text, { style: [styles.label, { color }] }, label),
+    React.createElement(View, { style: [styles.activeLine, focused && styles.activeLineOn] })
+  );
+}
+
 // Floating center action button, raised above the tab bar (mirrors the AI-agent
 // shortcut pattern seen in other business apps' bottom nav).
 const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void }>(({ onPress }, ref) => {
-  const pulse = useRef(new Animated.Value(0)).current;
   const press = useRef(new Animated.Value(1)).current;
-
-  // Slow breathing glow so the button invites a tap without being distracting.
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse]);
 
   const springTo = (toValue: number) => Animated.spring(press, { toValue, useNativeDriver: true, speed: 30, bounciness: 8 }).start();
 
@@ -52,12 +74,6 @@ const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void 
       ref, onPress, style: styles.aiButtonWrap, hitSlop: 12, accessibilityRole: "button", accessibilityLabel: "Add lead",
       onPressIn: () => springTo(0.88), onPressOut: () => springTo(1),
     },
-    React.createElement(Animated.View, {
-      style: [styles.aiButtonGlow, {
-        opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 0.15] }),
-        transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] }) }],
-      }],
-    }),
     React.createElement(
       Animated.View,
       { style: { transform: [{ scale: press }] } },
@@ -91,6 +107,7 @@ export default function AppLayout() {
         tabBarHideOnKeyboard: true,
         tabBarLabelStyle: styles.label,
         tabBarItemStyle: styles.item,
+        tabBarBackground: () => React.createElement(NotchedBackground),
         tabBarStyle: tabBarStyleFor(insets.bottom),
       }),
     },
@@ -115,6 +132,7 @@ export default function AppLayout() {
           } : null),
           options: {
             title: t(item.label),
+            tabBarLabel: ({ focused, color }: { focused: boolean; color: unknown }) => React.createElement(TabLabel, { label: t(item.label), focused, color: String(color) }),
             // Leaving the More tab resets it to the menu, so tapping More never reopens the last feature.
             ...(name === "more" ? { popToTopOnBlur: true } : null),
             tabBarIcon: ({ focused }: { focused: boolean }) =>
@@ -172,7 +190,10 @@ const styles = StyleSheet.create({
   item: { borderRadius: 16 },
   tabItemClip: { overflow: "hidden", borderRadius: 16 },
   aiItem: { overflow: "visible" },
-  label: { fontSize: 10, fontFamily: "Inter_600SemiBold", letterSpacing: 0.5, marginTop: 2 },
+  label: { fontSize: 10, fontFamily: "Inter_600SemiBold", letterSpacing: 0.3 },
+  labelWrap: { alignItems: "center", marginTop: 1 },
+  activeLine: { width: 22, height: 3, borderRadius: 2, marginTop: 3, backgroundColor: "transparent" },
+  activeLineOn: { backgroundColor: "#0e8a9b" },
   icon: {
     width: 34,
     height: 34,
@@ -181,8 +202,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   iconActive: {},
-  aiButtonWrap: { flex: 1, top: -14, alignItems: "center", justifyContent: "center", zIndex: 20, elevation: 20 },
-  aiButtonGlow: { position: "absolute", top: -9, width: 74, height: 74, borderRadius: 37, backgroundColor: "rgba(36,87,230,0.14)" },
+  aiButtonWrap: { flex: 1, top: -30, alignItems: "center", justifyContent: "center", zIndex: 20, elevation: 20 },
   aiLabel: { color: "#2457e6", fontSize: 10, fontFamily: "Inter_700Bold", marginTop: 3 },
   aiButton: {
     width: 58,

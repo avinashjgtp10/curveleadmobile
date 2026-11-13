@@ -21,24 +21,25 @@ export const colors = {
   warningSoft: "#fef3c7",
 } as const;
 
+// The bottom bar floats above the screen's edge as a rounded pill (its white shape, with a dip around the centre
+// button, is drawn by the tab layout's background).
+export const TAB_BAR_HEIGHT = 64;
+
 export const tabBarBase = {
   position: "absolute" as const,
-  height: Platform.OS === "ios" ? 88 : 70,
+  left: 14,
+  right: 14,
+  height: TAB_BAR_HEIGHT,
   paddingTop: 8,
-  paddingBottom: Platform.OS === "ios" ? 22 : 8,
-  paddingHorizontal: 8,
-  backgroundColor: colors.surface,
-  borderTopWidth: 1,
-  borderTopColor: colors.borderSoft,
-  shadowColor: colors.text,
-  shadowOffset: { width: 0, height: -6 },
-  shadowOpacity: 0.06,
-  shadowRadius: 18,
-  elevation: 12,
+  paddingBottom: 8,
+  paddingHorizontal: 4,
+  backgroundColor: "transparent",
+  borderTopWidth: 0,
+  elevation: 0,
 };
 
 export function tabBarStyleFor(insetsBottom: number) {
-  return [tabBarBase, { height: 64 + Math.max(insetsBottom, 8), paddingBottom: Math.max(insetsBottom, 8) }];
+  return { ...tabBarBase, bottom: Math.max(insetsBottom, 8) + 4 };
 }
 
 export const radii = { sm: 10, md: 14, lg: 16, xl: 24, round: 999 } as const;
