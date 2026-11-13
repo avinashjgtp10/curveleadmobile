@@ -24,7 +24,14 @@ const TABS: { key: SettingsTab; label: string; icon: keyof typeof Ionicons.glyph
 ];
 
 function FieldLabel({ children }: { children: string }) {
-  return <Text style={styles.fieldLabel}>{children}</Text>;
+  // A trailing " *" marks a required field; draw it in red.
+  const required = children.endsWith(" *");
+  return (
+    <Text style={styles.fieldLabel}>
+      {required ? children.slice(0, -2) : children}
+      {required ? <Text style={{ color: colors.danger }}> *</Text> : null}
+    </Text>
+  );
 }
 
 function SectionLabel({ children }: { children: string }) {

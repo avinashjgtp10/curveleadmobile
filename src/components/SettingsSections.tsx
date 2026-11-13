@@ -37,7 +37,10 @@ function Box({ children }: { children: React.ReactNode }) {
 function Label({ children, hint }: { children: string; hint?: string }) {
   return (
     <View style={{ marginTop: 12, marginBottom: 6 }}>
-      <Text style={styles.label}>{children}</Text>
+      <Text style={styles.label}>
+        {children.endsWith(" *") ? children.slice(0, -2) : children}
+        {children.endsWith(" *") ? <Text style={{ color: colors.danger }}> *</Text> : null}
+      </Text>
       {hint ? <Text style={styles.hint}>{hint}</Text> : null}
     </View>
   );
