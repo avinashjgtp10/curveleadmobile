@@ -634,9 +634,9 @@ export default function DashboardScreen() {
             </View>
 
             <TodayActivityCard data={data} onPress={() => router.push("/(app)/leads")} />
+            <AttentionCard count={attentionCount} onPress={() => router.push("/(app)/followups")} />
             <PipelineCard stages={data.pipeline || []} onPress={() => router.push("/(app)/leads")} />
             {team?.length ? <TeamPerformanceCard team={team} onPress={() => router.push("/(app)/more/reports")} /> : null}
-            <AttentionCard count={attentionCount} onPress={() => router.push("/(app)/followups")} />
             <UpcomingFollowupsCard followups={upcomingFollowups} onPress={() => router.push("/(app)/followups")} />
 
             <ToolGrid title="Manage your business" items={manageItems} onOpen={openGridItem} />
