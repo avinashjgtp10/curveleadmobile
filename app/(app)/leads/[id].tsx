@@ -19,6 +19,7 @@ import { ActivitySheetType, LeadActivitySheet } from "@/components/LeadActivityS
 import { useStages } from "@/hooks/useStages";
 import { StaffMember, fetchStaff } from "@/api/staff";
 import { telUrl } from "@/api/phone";
+import { openLeadWhatsapp } from "@/api/openWhatsapp";
 import {
   ContactActivityType, FollowupType, LeadActivity, LeadDetails, LeadFollowup,
   UpdateLeadInput, createLeadFollowup, fetchLeadDetails, trackContactActivity,
@@ -501,7 +502,7 @@ export default function LeadDetailScreen() {
 
         <View style={styles.actionsRow}>
           <Button compact mode="contained" icon="phone" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")}>Call</Button>
-          <Button compact mode="outlined" icon="whatsapp" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => contactLead("whatsapp", `https://wa.me/${lead.phone.replace(/\D/g, "")}`, "WhatsApp could not be opened.")}>WhatsApp</Button>
+          <Button compact mode="outlined" icon="whatsapp" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => openLeadWhatsapp(lead)}>WhatsApp</Button>
           <Button compact mode="outlined" icon="email-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={openEmailAction}>Email</Button>
           <Button compact mode="outlined" icon="chat-outline" style={styles.actionButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionButtonLabel} onPress={() => router.push({ pathname: "/(app)/more/whatsapp", params: { leadId: lead.id, name: lead.name, phone: lead.phone, openAt: String(Date.now()) } })}>Chat</Button>
         </View>
