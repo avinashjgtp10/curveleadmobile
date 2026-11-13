@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AppState, BackHandler, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { Alert, AppState, BackHandler, Dimensions, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Searchbar, Text } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
@@ -114,7 +114,6 @@ export default function WhatsAppScreen() {
   const [pickSearch, setPickSearch] = useState("");
   const [templateSheetOpen, setTemplateSheetOpen] = useState(false);
   const [templateSheetSearch, setTemplateSheetSearch] = useState("");
-  const [quickOpen, setQuickOpen] = useState(false);
   const [savedCategory, setSavedCategory] = useState("all");
   const [leads, setLeads] = useState<LeadListItem[]>([]);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -126,6 +125,7 @@ export default function WhatsAppScreen() {
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [sending, setSending] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
   const [templateLeadId, setTemplateLeadId] = useState("");
   const [sendingTemplateId, setSendingTemplateId] = useState("");
@@ -135,32 +135,23 @@ export default function WhatsAppScreen() {
   const [inboxFailed, setInboxFailed] = useState(false);
   const chatScrollRef = useRef<ScrollView>(null);
 
-  // Android doesn't reliably resize the in-page chat overlay for the keyboard, so lift the composer by hand.
-  // The lift is how far the overlay's bottom edge reaches below the top of the keyboard (measured, not the keyboard's
-  // own height), so it stays right whether or not Android already shrank the window or draws under the nav bar.
+  // Android doesn't shrink the in-page chat overlay for the keyboard, so lift the composer by hand. The overlay reaches
+  // the bottom of the display, behind the navigation bar, while the keyboard event's height stops above that bar - so
+  // measure from the keyboard's top edge to the bottom of the display, or the composer ends up one nav bar too low.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const chatOverlayRef = useRef<View>(null);
-  const topInset = useRef(insets.top);
-  topInset.current = insets.top;
   useEffect(() => {
     if (Platform.OS !== "android") return undefined;
-    const show = Keyboard.addListener("keyboardDidShow", (event) => {
-      const keyboardTop = event.endCoordinates.screenY;
-      const overlay = chatOverlayRef.current;
-      if (overlay && keyboardTop) {
-        // The keyboard's top is in screen coordinates (status bar included). When the app sits below the status bar
-        // (no top inset) the overlay's position is in window coordinates that start under it, so add its height back.
-        // When the app draws behind the status bar (top inset > 0) both already agree, so add nothing.
-        const statusBar = topInset.current > 0 ? 0 : (StatusBar.currentHeight ?? 0);
-        overlay.measureInWindow((_x, y, _width, height) => setKeyboardHeight(Math.max(0, Math.round(y + height + statusBar - keyboardTop))));
-      } else {
-        setKeyboardHeight(event.endCoordinates.height);
-      }
-      requestAnimationFrame(() => chatScrollRef.current?.scrollToEnd({ animated: false }));
+    const show = Keyboard.addListener("keyboardDidShow", ({ endCoordinates }) => {
+      const toDisplayBottom = Dimensions.get("screen").height - endCoordinates.screenY;
+      // Never trust a wildly larger number than the keyboard itself (a nav bar is well under 120).
+      setKeyboardHeight(toDisplayBottom > endCoordinates.height && toDisplayBottom - endCoordinates.height < 120 ? toDisplayBottom : endCoordinates.height);
     });
     const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
     return () => { show.remove(); hide.remove(); };
   }, []);
+  useEffect(() => {
+    if (keyboardHeight) requestAnimationFrame(() => chatScrollRef.current?.scrollToEnd({ animated: false }));
+  }, [keyboardHeight]);
 
   async function load() {
     setError("");
@@ -307,6 +298,7 @@ export default function WhatsAppScreen() {
     // A half-typed message or open attach menu belongs to the previous chat and must not carry over to this one.
     setMessage("");
     setAttachOpen(false);
+    setQuickOpen(false);
     chatBusy.current = false;
     if (!selectedId) return undefined;
     loadConversation(selectedId);
@@ -705,7 +697,6 @@ export default function WhatsAppScreen() {
           </View>
 
           <View style={styles.conversationCard}>
-            <Text style={styles.sectionTitle}>Conversations</Text>
             {inboxFailed ? (
               <Pressable onPress={load} style={styles.inboxWarning}>
                 <Text style={styles.inboxWarningText}>Couldn't load your chats. Tap to retry.</Text>
@@ -828,7 +819,7 @@ export default function WhatsAppScreen() {
         </Pressable>
       </Modal>
 
-      <View ref={chatOverlayRef} collapsable={false} style={selected ? styles.chatOverlay : styles.chatHidden}>
+      <View style={selected ? styles.chatOverlay : styles.chatHidden}>
         {selected ? (
           <KeyboardAvoidingView style={[styles.chatScreen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
             <View style={[styles.chatHeader, { paddingTop: insets.top + 8 }]}>
@@ -852,7 +843,7 @@ export default function WhatsAppScreen() {
 
             <View style={styles.modeRow}>
               <View style={styles.modePill}><Text style={styles.modePillText}>{manualMode ? "Human took over" : "AI is replying"}</Text></View>
-              <Pressable onPress={() => toggleTakeOver(selected.id)} hitSlop={8} accessibilityRole="button">
+              <Pressable onPress={() => toggleTakeOver(selected.id)} hitSlop={8} accessibilityRole="button" accessibilityLabel={manualMode ? "Resume AI replies" : "Take over from AI"}>
                 <Text style={styles.modeLink}>{manualMode ? "Resume" : "Take over"}</Text>
               </Pressable>
             </View>
@@ -875,6 +866,7 @@ export default function WhatsAppScreen() {
               contentContainerStyle={styles.chatContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
             >
               {!messagesLoaded ? (
                 <View style={styles.emptyChat}><ActivityIndicator color={colors.primary} /></View>
@@ -909,7 +901,7 @@ export default function WhatsAppScreen() {
                           <Ionicons
                             name={item.status === "failed" ? "alert-circle" : item.status === "sent" || !item.status ? "checkmark" : "checkmark-done"}
                             size={14}
-                            color={item.status === "failed" ? colors.danger : item.status === "read" ? colors.primary : colors.textMuted}
+                            color={item.status === "failed" ? colors.danger : item.status === "read" ? "#53bdeb" : colors.textMuted}
                           />
                         ) : null}
                       </View>
@@ -1102,9 +1094,9 @@ const styles = StyleSheet.create({
   quickChip: { flexDirection: "row", alignItems: "center", gap: 5, maxWidth: 180, backgroundColor: UI.tealSoft, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
   quickChipText: { color: UI.teal, fontSize: 12, fontFamily: "Inter_600SemiBold" },
   composerRow: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
-  inputPill: { flex: 1, minHeight: 48, maxHeight: 120, justifyContent: "center", backgroundColor: "#f4f9fc", borderRadius: 24, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16 },
-  attachButton: { width: 44, height: 48, alignItems: "center", justifyContent: "center" },
-  attachMenu: { flexDirection: "row", gap: 22, paddingHorizontal: 8, paddingVertical: 6 },
+  inputPill: { flex: 1, minHeight: 48, maxHeight: 120, justifyContent: "center", backgroundColor: "#ffffff", borderRadius: 24, paddingHorizontal: 16, shadowColor: "#0f172a", shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+  attachButton: { width: 40, height: 48, alignItems: "center", justifyContent: "center" },
+  attachMenu: { flexDirection: "row", gap: 22, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: "#ffffff", borderRadius: 20 },
   attachOption: { alignItems: "center", gap: 6 },
   attachIcon: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
   attachLabel: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
@@ -1115,10 +1107,10 @@ const styles = StyleSheet.create({
   infoLabel: { flex: 0.42, color: colors.textMuted, fontSize: 11, fontFamily: "Inter_600SemiBold" },
   infoValue: { flex: 0.58, color: colors.text, fontSize: 11, fontFamily: "Inter_700Bold", textAlign: "right" },
   infoStatus: { color: colors.success, fontSize: 11, fontFamily: "Inter_700Bold", backgroundColor: colors.successSoft, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, overflow: "hidden" },
-  takeOverButton: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#ffffff" },
-  takeOverButtonActive: { borderColor: colors.primary, backgroundColor: colors.primary },
-  takeOverText: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_700Bold" },
-  takeOverTextActive: { color: "#fff" },
+  takeOverButton: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderColor: "rgba(255,255,255,0.6)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  takeOverButtonActive: { borderColor: "#d9fdd3", backgroundColor: "#d9fdd3" },
+  takeOverText: { color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" },
+  takeOverTextActive: { color: "#075e54" },
   templatePrompt: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff7ed", borderWidth: 1, borderColor: "#fed7aa", borderRadius: 16, padding: 10 },
   templatePromptIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#ffedd5", alignItems: "center", justifyContent: "center" },
   templatePromptHint: { color: colors.textSecondary, fontSize: 11, marginTop: 1 },

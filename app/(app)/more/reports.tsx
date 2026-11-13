@@ -438,14 +438,14 @@ export default function ReportsScreen() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={styles.tableWrap}>
                     <TableHeader columns={[
-                      { label: "Campaign", width: 160 }, { label: "Source", width: 90 }, { label: "Spent", width: 85, align: "right" },
+                      { label: "Campaign", width: 180 }, { label: "Source", width: 120 }, { label: "Spent", width: 100, align: "right" },
                       { label: "Leads", width: 60, align: "right" }, { label: "CPL", width: 65, align: "right" }, { label: "Won", width: 55, align: "right" },
                     ]} />
                     {byCampaign.map((c, i) => (
                       <View key={i} style={styles.tableRow}>
-                        <Text style={[styles.tableCell, { width: 160, fontWeight: "700" }]} numberOfLines={1}>{c.name}</Text>
-                        <Text style={[styles.tableCell, { width: 90 }]} numberOfLines={1}>{pretty(c.source)}</Text>
-                        <Text style={[styles.tableCell, { width: 85, textAlign: "right" }]}>{money(c.actual_spend)}</Text>
+                        <Text style={[styles.tableCell, { width: 180, paddingRight: 20, fontWeight: "700" }]} numberOfLines={1}>{c.name}</Text>
+                        <Text style={[styles.tableCell, { width: 120 }]} numberOfLines={1}>{pretty(c.source)}</Text>
+                        <Text style={[styles.tableCell, { width: 100, textAlign: "right" }]}>{money(c.actual_spend)}</Text>
                         <Text style={[styles.tableCell, { width: 60, textAlign: "right" }]}>{c.total_leads || 0}</Text>
                         <Text style={[styles.tableCell, { width: 65, textAlign: "right", color: colors.primary, fontWeight: "700" }]}>{money(Math.round(c.cpl || 0))}</Text>
                         <Text style={[styles.tableCell, { width: 55, textAlign: "right", color: colors.success }]}>{c.won || 0}</Text>

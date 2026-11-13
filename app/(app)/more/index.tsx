@@ -210,7 +210,7 @@ export default function MoreScreen() {
 
         <Pressable
           style={styles.logout} accessibilityRole="button" accessibilityLabel="Log out"
-          onPress={async () => { await logout(); router.replace("/(auth)/login"); }}
+          onPress={async () => { try { await logout(); } catch { /* leave the session screen either way */ } router.replace("/(auth)/login"); }}
         >
           <Ionicons name="log-out-outline" size={18} color={UI.red} />
           <Text style={styles.logoutText}>{t("Log out")}</Text>

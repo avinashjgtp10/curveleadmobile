@@ -251,7 +251,7 @@ export default function FollowupsScreen() {
   function scrollToDate(date: Date, animated: boolean) {
     const index = days.findIndex((d) => isSameDay(d, date));
     if (index < 0) return;
-    const x = Math.max(0, index * dayWidth - (screenWidth - 32) / 2 + dayWidth / 2);
+    const x = Math.max(0, 8 + index * dayWidth - (screenWidth - 32) / 2 + dayWidth / 2);
     scrollRef.current?.scrollTo({ x, animated });
   }
 
@@ -303,10 +303,14 @@ export default function FollowupsScreen() {
       });
       setAddOpen(false);
       const when = followupAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
-      Alert.alert("Follow-up scheduled", `${selectedLead.name} - ${when}`);
+      // Android drops Alerts fired while a Modal is still dismissing.
+      const leadName = selectedLead.name;
+      setTimeout(() => Alert.alert("Follow-up scheduled", `${leadName} - ${when}`), 300);
       // Show the day it was booked for; if that's already the day on screen, just refresh it.
       load(true);
-      if (!isSameDay(followupAt, selectedDate)) setSelectedDate(startOfDay(followupAt));
+      // Days outside the date strip can't be highlighted, so stay on the current day for those.
+      const bookedDay = startOfDay(followupAt);
+      if (!isSameDay(followupAt, selectedDate) && bookedDay >= days[0] && bookedDay <= days[days.length - 1]) setSelectedDate(bookedDay);
     } catch (saveError) {
       setAddError(errorMessage(saveError, "Could not schedule this follow-up."));
     } finally { setSaving(false); }
@@ -458,7 +462,7 @@ export default function FollowupsScreen() {
               {selectedLead ? (
                 <View style={styles.selectedLead}>
                   <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name} · {selectedLead.phone}</Text>
-                  <Pressable onPress={() => setSelectedLead(null)} hitSlop={8}><Ionicons name="close" size={16} color={colors.textSecondary} /></Pressable>
+                  <Pressable onPress={() => { setSelectedLead(null); setLeadQuery(""); }} hitSlop={8}><Ionicons name="close" size={16} color={colors.textSecondary} /></Pressable>
                 </View>
               ) : (
                 <>

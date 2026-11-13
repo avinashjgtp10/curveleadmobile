@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert, BackHandler, KeyboardAvoidingView, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet,
   TextInput as RNTextInput, View,
@@ -74,15 +74,21 @@ export default function BrochuresScreen() {
   // Messages under each field, set when Upload is pressed and cleared as soon as that field is fixed.
   const [fieldErrors, setFieldErrors] = useState({ file: "", name: "" });
 
+  const hasData = useRef(false);
+  // `silent` refreshes in place: no spinner, and a failure keeps the list on screen but says so.
   const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    setError("");
-    try { setBrochures(await fetchBrochures()); }
-    catch (loadError) { setError(errorMessage(loadError, "Could not load brochures.")); }
+    if (!silent) { setLoading(true); setError(""); }
+    try { setBrochures(await fetchBrochures()); setError(""); hasData.current = true; }
+    catch (loadError) {
+      const message = errorMessage(loadError, "Could not load brochures.");
+      if (hasData.current) Alert.alert("Couldn't refresh brochures", message);
+      else setError(message);
+    }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  // Coming back to the screen refreshes quietly once the list is on screen, instead of replacing it with a spinner.
+  useFocusEffect(useCallback(() => { load(hasData.current); }, [load]));
 
   // The upload form is a full page: hide the tab bar and let the phone's back button close it.
   useEffect(() => {

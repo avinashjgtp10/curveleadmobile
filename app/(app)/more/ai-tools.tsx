@@ -77,6 +77,12 @@ function ImagePanel() {
           return;
         }
       }
+      if (!generationEnabled) {
+        // Known from an earlier attempt: a hand-edited prompt can't be turned into images either.
+        setPromptOpen(true);
+        setError("One-tap image creation isn't switched on for your workspace yet. Copy the prompt below and use it in any AI image tool.");
+        return;
+      }
       if (finalPrompt.trim().length < MIN_PROMPT) {
         setError("Add a little more detail so the AI can create a good image.");
         return;
@@ -99,6 +105,12 @@ function ImagePanel() {
 
   async function sharePrompt() {
     try { await Share.share({ message: prompt }); } catch { /* the person closed the share sheet */ }
+  }
+
+  // Only hosted images can be shared by link; inline (base64) ones are too large to send as text.
+  async function shareImage() {
+    const uri = images[selected];
+    try { await Share.share(Platform.OS === "ios" ? { url: uri } : { message: uri }); } catch { /* the person closed the share sheet */ }
   }
 
   const working = busy !== "";
@@ -187,6 +199,12 @@ function ImagePanel() {
                 </Pressable>
               ))}
             </View>
+          ) : null}
+          {/^https?:\/\//.test(images[selected] || "") ? (
+            <Pressable style={[styles.smallButton, { alignSelf: "flex-start" }]} onPress={shareImage}>
+              <Ionicons name="share-outline" size={15} color={colors.primary} />
+              <Text style={styles.smallButtonText}>Share image</Text>
+            </Pressable>
           ) : null}
         </View>
       ) : null}

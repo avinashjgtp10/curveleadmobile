@@ -19,11 +19,13 @@ const SECTIONS = [
 
 export default function ContentScreen() {
   const insets = useSafeAreaInsets();
-  const [counts, setCounts] = useState<(number | null)[]>([null, null, null]);
+  // undefined = still loading, null = could not be loaded.
+  const [counts, setCounts] = useState<(number | null | undefined)[]>([undefined, undefined, undefined]);
   useFocusEffect(useCallback(() => {
     let active = true;
     Promise.allSettled([fetchTemplates(), fetchBrochures(), fetchQuotations()]).then(results => {
-      if (active) setCounts(results.map(result => result.status === "fulfilled" ? result.value.length : null));
+      // A failed refresh keeps the last known count instead of blanking it.
+      if (active) setCounts(current => results.map((result, i) => result.status === "fulfilled" ? result.value.length : (typeof current[i] === "number" ? current[i] : null)));
     });
     return () => { active = false; };
   }, []));
@@ -40,7 +42,7 @@ export default function ContentScreen() {
       </GlassPressable>)}
       <View style={[glass, { padding: 16, marginTop: 4 }]}>
         <Text style={styles.statsTitle}>LIBRARY STATS</Text>
-        <View style={{ flexDirection: "row", gap: 12 }}>{SECTIONS.map((item, i) => <View key={item.title} style={{ flex: 1, alignItems: "center" }}><Text accessibilityLabel={`${item.title}: ${counts[i] ?? "unavailable"}`} style={styles.count}>{counts[i] ?? "—"}</Text><Text style={styles.countLabel}>{item.title}</Text></View>)}</View>
+        <View style={{ flexDirection: "row", gap: 12 }}>{SECTIONS.map((item, i) => <View key={item.title} style={{ flex: 1, alignItems: "center" }}><Text accessibilityLabel={`${item.title}: ${counts[i] === undefined ? "loading" : counts[i] ?? "unavailable"}`} style={styles.count}>{counts[i] === undefined ? "…" : counts[i] ?? "—"}</Text><Text style={styles.countLabel}>{item.title}</Text></View>)}</View>
       </View>
     </ScrollView>
   </View>;

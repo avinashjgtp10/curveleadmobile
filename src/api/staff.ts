@@ -38,8 +38,10 @@ export async function fetchStaffWhatsApp(staffId: string) {
   return { whatsapp_phone_number_id: data.whatsapp_phone_number_id || "" };
 }
 
-export async function saveStaffWhatsApp(staffId: string, input: { whatsapp_phone_number_id: string; whatsapp_access_token: string }) {
-  await apiClient.put(`/staff/${staffId}/whatsapp-number`, input);
+export async function saveStaffWhatsApp(staffId: string, input: { whatsapp_phone_number_id: string; whatsapp_access_token?: string }) {
+  // A blank token means "keep the current one", so leave it out rather than overwrite it with an empty string.
+  const { whatsapp_access_token: token, ...rest } = input;
+  await apiClient.put(`/staff/${staffId}/whatsapp-number`, token ? { ...rest, whatsapp_access_token: token } : rest);
 }
 
 // Emails the person a link to set their own password (the same call the web Team page makes).

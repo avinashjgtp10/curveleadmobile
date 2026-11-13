@@ -7,7 +7,6 @@ import {
   ActivityIndicator, Button, IconButton, List, RadioButton, Text, TextInput,
 } from "react-native-paper";
 import axios from "axios";
-import * as DocumentPicker from "expo-document-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,13 +14,14 @@ import { colors } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { LeadNotes } from "@/components/LeadNotes";
 import { LeadDocuments } from "@/components/LeadDocuments";
+import { ActivitySheetType, LeadActivitySheet } from "@/components/LeadActivitySheet";
 import { useStages } from "@/hooks/useStages";
 import { StaffMember, fetchStaff } from "@/api/staff";
 import { telUrl } from "@/api/phone";
-import { MAX_ATTACHMENT_BYTES, uploadLeadAttachment } from "@/api/attachments";
+import { openLeadWhatsapp } from "@/api/openWhatsapp";
 import {
-  ActivityLogType, ContactActivityType, FollowupType, LeadActivity, LeadDetails, LeadFollowup,
-  UpdateLeadInput, createLeadFollowup, fetchLeadDetails, logLeadActivity, trackContactActivity,
+  ContactActivityType, FollowupType, LeadActivity, LeadDetails, LeadFollowup,
+  UpdateLeadInput, createLeadFollowup, fetchLeadDetails, trackContactActivity,
   updateLeadDetails, updateLeadStage, updateLeadStatus,
 } from "@/api/leads";
 
@@ -43,20 +43,14 @@ const FOLLOWUP_TYPES: { key: FollowupType; label: string; icon: string }[] = [
   { key: "demo", label: "Demo", icon: "video-outline" },
 ];
 
-const ACTIVITY_TYPE_LABEL: Record<ActivityLogType, string> = {
-  call: "Call", whatsapp: "WhatsApp", visit: "Visit", other: "Note",
-};
-
-// The "Add activity" speed dial. Each one starts the existing log flow; Attachment uploads a file.
-const DIAL_OPTIONS: { key: ActivityLogType | "attachment"; label: string; icon: IconName }[] = [
+// The "Add activity" speed dial. Each choice opens the matching form (Attachment opens the file picker).
+const DIAL_OPTIONS: { key: ActivitySheetType | "attachment"; label: string; icon: IconName }[] = [
   { key: "call", label: "Phone Call", icon: "call-outline" },
-  { key: "whatsapp", label: "Message", icon: "chatbubble-outline" },
-  { key: "visit", label: "Meeting", icon: "calendar-outline" },
-  { key: "other", label: "Note", icon: "document-outline" },
+  { key: "message", label: "Message", icon: "chatbubble-outline" },
+  { key: "meeting", label: "Meeting", icon: "calendar-outline" },
+  { key: "note", label: "Note", icon: "document-outline" },
   { key: "attachment", label: "Attachment", icon: "attach-outline" },
 ];
-
-const CALL_OUTCOMES = ["Answered", "No Answer", "Busy", "Switched Off", "Not Interested"];
 
 const ACTIVITY_ICON: Record<string, IconName> = {
   call: "call", whatsapp: "logo-whatsapp", visit: "location", email: "mail",
@@ -284,17 +278,10 @@ export default function LeadDetailScreen() {
   const [emailError, setEmailError] = useState("");
   const [savingEmail, setSavingEmail] = useState(false);
 
-  const [activityOptionsOpen, setActivityOptionsOpen] = useState(false);
-  // Bumped after an upload so the Documents list on Overview reloads.
-  const [docsVersion, setDocsVersion] = useState(0);
-  const [logSheetOpen, setLogSheetOpen] = useState(false);
-  const [logType, setLogType] = useState<ActivityLogType>("call");
-  const [logOutcome, setLogOutcome] = useState("");
-  const [logNotes, setLogNotes] = useState("");
-  const [logShowFollowup, setLogShowFollowup] = useState(false);
-  const [logFollowupAt, setLogFollowupAt] = useState(defaultFollowupDate());
-  const [loggingActivity, setLoggingActivity] = useState(false);
-  const [logError, setLogError] = useState("");
+  const [fabOpen, setFabOpen] = useState(false);
+  const [attachSignal, setAttachSignal] = useState(0);
+  const [activitySheet, setActivitySheet] = useState<ActivitySheetType | null>(null);
+  const [notesSignal, setNotesSignal] = useState(0);
 
   const load = useCallback(async (refresh = false) => {
     if (!id) { setError("This lead link is invalid."); setLoading(false); return; }
@@ -465,52 +452,17 @@ export default function LeadDetailScreen() {
     } finally { setSchedulingFollowup(false); }
   }
 
-  async function attachFile() {
-    if (!lead) return;
-    try {
-      const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
-      if (result.canceled || !result.assets?.length) return;
-      const asset = result.assets[0];
-      if (asset.size && asset.size > MAX_ATTACHMENT_BYTES) { Alert.alert("File too large", "Documents can be up to 5 MB."); return; }
-      await uploadLeadAttachment(lead.id, { uri: asset.uri, name: asset.name, mimeType: asset.mimeType });
-      setDocsVersion((value) => value + 1);
-      load(true);
-      Alert.alert("Attachment added", `${asset.name} was added to this lead's documents.`);
-    } catch (attachError) {
-      Alert.alert("Couldn't upload", errorMessage(attachError, "Please try again."));
-    }
+  function chooseDialOption(key: ActivitySheetType | "attachment") {
+    setFabOpen(false);
+    // Wait for the menu to close first: Android drops sheets opened while a Modal is still dismissing.
+    if (key === "attachment") { setTimeout(addAttachment, 250); return; }
+    setTimeout(() => setActivitySheet(key), 180);
   }
 
-  function chooseDialOption(key: ActivityLogType | "attachment") {
-    if (key === "attachment") { setActivityOptionsOpen(false); setTimeout(attachFile, 250); return; }
-    chooseActivityType(key);
-  }
-
-  function chooseActivityType(type: ActivityLogType) {
-    setActivityOptionsOpen(false);
-    setLogType(type); setLogOutcome(""); setLogNotes("");
-    setLogShowFollowup(false); setLogFollowupAt(defaultFollowupDate());
-    setLogError("");
-    setTimeout(() => setLogSheetOpen(true), 180);
-  }
-
-  async function saveActivityLog() {
-    if (!lead) return;
-    if (logType === "call" && !logOutcome) { setLogError("Select a call outcome."); return; }
-    setLoggingActivity(true); setLogError("");
-    try {
-      const defaultNotes = logType === "call" ? logOutcome : `${ACTIVITY_TYPE_LABEL[logType]} logged`;
-      await logLeadActivity(lead.id, {
-        notes: logNotes.trim() || defaultNotes,
-        followup_type: logType,
-        outcome: logType === "call" ? logOutcome : undefined,
-        next_followup_at: logShowFollowup ? logFollowupAt.toISOString() : undefined,
-      });
-      setLogSheetOpen(false);
-      load(true);
-    } catch (logActivityError) {
-      setLogError(errorMessage(logActivityError, "Could not log this activity."));
-    } finally { setLoggingActivity(false); }
+  function addAttachment() {
+    setTab("overview");
+    // Give the Documents section time to mount before asking it to open the picker.
+    setTimeout(() => setAttachSignal((value) => value + 1), 150);
   }
 
   if (loading && !lead) {
@@ -584,7 +536,7 @@ export default function LeadDetailScreen() {
             <Pressable style={[styles.actionButton, { backgroundColor: UI.blue }]} onPress={() => contactLead("call", telUrl(lead.phone), "Calling is not supported on this device.")} accessibilityRole="button">
               <Ionicons name="call-outline" size={16} color="#fff" /><Text style={styles.actionLabel}>Call</Text>
             </Pressable>
-            <Pressable style={[styles.actionButton, { backgroundColor: UI.green }]} onPress={() => contactLead("whatsapp", `https://wa.me/${lead.phone.replace(/\D/g, "")}`, "WhatsApp could not be opened.")} accessibilityRole="button">
+            <Pressable style={[styles.actionButton, { backgroundColor: UI.green }]} onPress={() => openLeadWhatsapp(lead)} accessibilityRole="button">
               <Ionicons name="logo-whatsapp" size={16} color="#fff" /><Text style={styles.actionLabel}>WhatsApp</Text>
             </Pressable>
             <Pressable style={[styles.actionButton, styles.actionButtonLight]} onPress={openEmailAction} accessibilityRole="button">
@@ -643,7 +595,7 @@ export default function LeadDetailScreen() {
               </Pressable>
             </View>
 
-            <LeadNotes leadId={lead.id} onAdded={() => load(true)} onFormOpen={revealInScroll} />
+            <LeadNotes leadId={lead.id} refreshSignal={notesSignal} onAdded={() => load(true)} onFormOpen={revealInScroll} />
 
             <View style={styles.card}>
               <View style={styles.cardHeaderSplit}>
@@ -696,7 +648,7 @@ export default function LeadDetailScreen() {
               </FieldGroup>
             </View>
 
-            <LeadDocuments key={docsVersion} leadId={lead.id} onChanged={() => load(true)} />
+            <LeadDocuments pickSignal={attachSignal} leadId={lead.id} onChanged={() => load(true)} />
           </View>
         ) : tab === "details" ? (
           <View style={styles.body}>
@@ -741,7 +693,7 @@ export default function LeadDetailScreen() {
       </ScrollView>
 
       {tab === "activities" && !keyboardHeight ? (
-        <Pressable style={[styles.addActivityFab, { bottom: fabBottom }]} onPress={() => setActivityOptionsOpen(true)} accessibilityRole="button" accessibilityLabel="Add activity">
+        <Pressable style={[styles.addActivityFab, { bottom: fabBottom }]} onPress={() => setFabOpen(true)} accessibilityRole="button" accessibilityLabel="Add activity">
           <Text style={styles.addActivityFabText}>Add activity</Text>
           <Ionicons name="add" size={20} color="#fff" />
         </Pressable>
@@ -878,8 +830,8 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={activityOptionsOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setActivityOptionsOpen(false)}>
-        <Pressable style={styles.dialBackdrop} onPress={() => setActivityOptionsOpen(false)}>
+      <Modal visible={fabOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setFabOpen(false)}>
+        <Pressable style={styles.dialBackdrop} onPress={() => setFabOpen(false)}>
           <View style={[styles.dialColumn, { paddingBottom: fabBottom }]}>
             {DIAL_OPTIONS.map((item) => (
               <Pressable key={item.key} style={styles.dialRow} onPress={() => chooseDialOption(item.key)} accessibilityRole="button" accessibilityLabel={item.label}>
@@ -887,7 +839,7 @@ export default function LeadDetailScreen() {
                 <View style={styles.dialCircle}><Ionicons name={item.icon} size={22} color={UI.blue} /></View>
               </Pressable>
             ))}
-            <Pressable style={styles.addActivityFabOpen} onPress={() => setActivityOptionsOpen(false)} accessibilityRole="button" accessibilityLabel="Close">
+            <Pressable style={styles.addActivityFabOpen} onPress={() => setFabOpen(false)} accessibilityRole="button" accessibilityLabel="Close">
               <Text style={styles.addActivityFabText}>Add activity</Text>
               <Ionicons name="add" size={20} color="#fff" />
             </Pressable>
@@ -921,49 +873,13 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={logSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !loggingActivity && setLogSheetOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => !loggingActivity && setLogSheetOpen(false)}>
-          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Log {ACTIVITY_TYPE_LABEL[logType]} Activity</Text>
-
-            {logError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{logError}</Text></View> : null}
-
-            {logType === "call" ? (
-              <>
-                <Text style={styles.sheetSectionLabel}>Call Outcome <Text style={styles.required}>*</Text></Text>
-                <RadioButton.Group value={logOutcome} onValueChange={setLogOutcome}>
-                  <View style={styles.radioList}>
-                    {CALL_OUTCOMES.map((option) => (
-                      <RadioButton.Item key={option} label={option} value={option} labelStyle={styles.radioLabel} style={styles.radioRow} />
-                    ))}
-                  </View>
-                </RadioButton.Group>
-              </>
-            ) : null}
-
-            <TextInput mode="outlined" label="Note" value={logNotes} onChangeText={setLogNotes} placeholder="Type a summary here…" style={styles.sheetField} />
-
-            <List.Item
-              title="Schedule next follow-up" titleStyle={styles.followupToggleText}
-              onPress={() => setLogShowFollowup((value) => !value)} style={styles.followupToggle}
-              left={() => <List.Icon icon={logShowFollowup ? "checkbox-marked" : "checkbox-blank-outline"} color={colors.primary} />}
-            />
-
-            {logShowFollowup ? (
-              <>
-                <Text style={styles.sheetSectionLabel}>Follow-Up Date &amp; Time</Text>
-                <DateTimeField value={logFollowupAt} onChange={setLogFollowupAt} minimumDate={new Date()} />
-              </>
-            ) : null}
-
-            <View style={styles.logActions}>
-              <Button mode="contained" onPress={saveActivityLog} loading={loggingActivity} disabled={loggingActivity} style={styles.logSaveButton} contentStyle={styles.sheetButtonContent}>Save Activity</Button>
-              <Button mode="text" onPress={() => setLogSheetOpen(false)} disabled={loggingActivity} style={styles.logCancelButton} contentStyle={styles.sheetButtonContent}>Cancel</Button>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <LeadActivitySheet
+        type={activitySheet}
+        leadId={lead.id}
+        leadName={lead.name}
+        onClose={() => setActivitySheet(null)}
+        onSaved={(type) => { if (type === "note") setNotesSignal((value) => value + 1); load(true); }}
+      />
     </View>
   );
 }
@@ -1096,17 +1012,10 @@ const styles = StyleSheet.create({
 
   chipRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
 
-  optionsList: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
-  optionLabel: { color: colors.text, fontSize: 15, fontWeight: "700" },
 
   radioList: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border },
   radioRow: { paddingVertical: 0 },
   radioLabel: { color: colors.text, fontSize: 14, fontWeight: "600" },
 
-  followupToggle: { marginTop: 16, paddingHorizontal: 0 },
-  followupToggleText: { color: colors.text, fontSize: 13, fontWeight: "700" },
 
-  logActions: { flexDirection: "row", gap: 10, marginTop: 20 },
-  logSaveButton: { flex: 1 },
-  logCancelButton: { flex: 1 },
 });

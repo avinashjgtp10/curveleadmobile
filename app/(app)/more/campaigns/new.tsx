@@ -98,7 +98,8 @@ export default function NewCampaignScreen() {
   async function save() {
     const next: typeof fieldErrors = {};
     if (!name.trim()) next.name = "Campaign name is required";
-    if (!metaManaged && endDate && endDate.getTime() < startDate.getTime()) next.end_date = "End date must be after the start date";
+    // Compare calendar days: the start defaults to "now", so exact times would reject ending on the start day.
+    if (!metaManaged && endDate && toDateInput(endDate) < toDateInput(startDate)) next.end_date = "End date must be after the start date";
     setFieldErrors(next);
     if (Object.keys(next).length) return;
 
@@ -204,12 +205,12 @@ export default function NewCampaignScreen() {
           <View style={styles.dateRow}>
             <View style={styles.dateFieldWrap}>
               <Text style={styles.miniLabel}>Starts</Text>
-              <DateTimeField value={startDate} onChange={setStartDate} mode="date" />
+              <DateTimeField value={startDate} onChange={(date) => { setStartDate(date); setFieldErrors((c) => ({ ...c, end_date: undefined })); }} mode="date" />
             </View>
             <View style={styles.dateFieldWrap}>
               <Text style={styles.miniLabel}>Ends</Text>
               {endDate ? (
-                <DateTimeField value={endDate} onChange={setEndDate} mode="date" />
+                <DateTimeField value={endDate} onChange={(date) => { setEndDate(date); setFieldErrors((c) => ({ ...c, end_date: undefined })); }} mode="date" />
               ) : (
                 <Pressable style={styles.noEnd} onPress={() => setEndDate(new Date(startDate.getTime() + 30 * 86400000))}>
                   <Ionicons name="infinite-outline" size={18} color={colors.textSecondary} />
