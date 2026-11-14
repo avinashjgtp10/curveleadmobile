@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Image, KeyboardAvoidingView, Linking, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput as RNTextInput, View,
@@ -18,6 +18,24 @@ type LoginMode = "password" | "otp";
 const OTP_UNAVAILABLE = "Email OTP isn't available right now. Please log in with your password instead.";
 function otpUnavailable(error: unknown) {
   return axios.isAxiosError(error) && error.response?.status === 404;
+}
+
+/** Milliseconds the server wants us to wait after a 429 (0 when the error isn't a rate limit). */
+function lockoutMs(error: unknown) {
+  if (!axios.isAxiosError(error) || error.response?.status !== 429) return 0;
+  const retryAfter = Number(error.response.headers?.["retry-after"]);
+  if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter * 1000;
+  const text = String(error.response.data?.error ?? "");
+  const minutes = text.match(/(\d+)\s*minute/i);
+  const seconds = text.match(/(\d+)\s*second/i);
+  if (minutes) return Number(minutes[1]) * 60_000;
+  if (seconds) return Number(seconds[1]) * 1000;
+  return 60_000;
+}
+
+function formatWait(ms: number) {
+  const total = Math.ceil(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -65,6 +83,31 @@ export default function LoginScreen() {
   // Inline messages are set only when the button is pressed, and a field's message clears as soon as
   // that field is edited. Nothing is checked while typing.
   const [fieldErrors, setFieldErrors] = useState({ email: "", password: "", otp: "" });
+
+  // After the server refuses with 429, the button counts down instead of inviting more attempts that would only extend the wait.
+  const [lockedUntil, setLockedUntil] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const lockRemaining = Math.max(0, lockedUntil - now);
+  useEffect(() => {
+    if (!lockedUntil) return undefined;
+    const timer = setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      if (current >= lockedUntil) {
+        setLockedUntil(0);
+        setError("");
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockedUntil]);
+
+  function applyLockout(error: unknown) {
+    const wait = lockoutMs(error);
+    if (wait > 0) {
+      setNow(Date.now());
+      setLockedUntil(Date.now() + wait);
+    }
+  }
 
   function clearFieldError(field: "email" | "password" | "otp") {
     setFieldErrors((current) => (current[field] ? { ...current, [field]: "" } : current));
@@ -121,6 +164,7 @@ export default function LoginScreen() {
       setNotice("OTP sent to your email.");
       setTimeout(() => otpInputRef.current?.focus(), 100);
     } catch (requestError) {
+      applyLockout(requestError);
       setError(otpUnavailable(requestError) ? OTP_UNAVAILABLE : getErrorMessage(requestError, "Could not send OTP."));
     } finally {
       setLoading(false);
@@ -128,6 +172,7 @@ export default function LoginScreen() {
   }
 
   async function handleSubmit() {
+    if (lockRemaining > 0) return;
     if (mode === "otp" && !otpSent) {
       await handleRequestOtp();
       return;
@@ -152,6 +197,7 @@ export default function LoginScreen() {
       else await verifyOtp(email.trim(), otp);
       router.replace("/(app)");
     } catch (loginError) {
+      applyLockout(loginError);
       setError(mode === "otp" && otpUnavailable(loginError) ? OTP_UNAVAILABLE : getErrorMessage(loginError, mode === "password" ? "Login failed." : "Invalid or expired OTP."));
     } finally {
       setLoading(false);
@@ -242,7 +288,7 @@ export default function LoginScreen() {
             <View>
               <View style={styles.otpLabelRow}>
                 <Text style={styles.label}>One-time code <Text style={styles.required}>*</Text></Text>
-                <Pressable onPress={handleRequestOtp} disabled={loading || !email.trim()} hitSlop={10}>
+                <Pressable onPress={handleRequestOtp} disabled={loading || !email.trim() || lockRemaining > 0} hitSlop={10}>
                   <Text style={[styles.forgotLink, (loading || !email.trim()) && styles.mutedLink]}>{otpSent ? "Resend OTP" : "Send OTP"}</Text>
                 </Pressable>
               </View>
@@ -264,10 +310,10 @@ export default function LoginScreen() {
             </View>
           )}
 
-          <Pressable onPress={handleSubmit} disabled={loading} style={[styles.button, loading && { opacity: 0.8 }]}>
+          <Pressable onPress={handleSubmit} disabled={loading || lockRemaining > 0} style={[styles.button, (loading || lockRemaining > 0) && { opacity: 0.6 }]}>
             {loading ? <ActivityIndicator color="#fff" size="small" /> : null}
-            <Text style={styles.buttonLabel}>{buttonText}</Text>
-            {!loading ? <Ionicons name="arrow-forward" size={16} color="#fff" /> : null}
+            <Text style={styles.buttonLabel}>{lockRemaining > 0 ? `Try again in ${formatWait(lockRemaining)}` : buttonText}</Text>
+            {!loading && lockRemaining === 0 ?<Ionicons name="arrow-forward" size={16} color="#fff" /> : null}
           </Pressable>
 
           <View style={styles.dividerRow}>
