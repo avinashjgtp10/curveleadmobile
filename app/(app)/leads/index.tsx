@@ -29,6 +29,8 @@ import { notifyLeadsDeleted } from "@/api/notifications";
 import { FilterDateField, formatYmd, toYmd } from "@/components/FilterDateField";
 
 const PAGE_SIZE = 25;
+// With a status, follow-up or reply-window filter on, this many leads are fetched at once and filtered on the phone.
+const LOCAL_FILTER_LIMIT = 500;
 const FILTERS = [
   { value: "", label: "All leads" },
   { value: "hot", label: "Hot" },
@@ -73,7 +75,43 @@ function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
 
-type PickerKey = "stage" | "score" | "source" | "assigned" | "dateField";
+type PickerKey = "stage" | "status" | "score" | "health" | "sla" | "source" | "assigned" | "dateField";
+
+const HEALTH_OPTIONS = [
+  { value: "", label: "All" },
+  { value: "overdue", label: "Overdue" },
+  { value: "today", label: "Due today" },
+  { value: "upcoming", label: "Upcoming" },
+  { value: "none", label: "No follow-up" },
+];
+const SLA_OPTIONS = [
+  { value: "", label: "All" },
+  { value: "open", label: "Reply window open" },
+  { value: "closed", label: "Reply window closed" },
+  { value: "none", label: "No customer message" },
+];
+
+// These three filters are worked out on the phone from each lead's own fields.
+function followupHealthOf(lead: LeadListItem) {
+  if (!lead.next_followup_at) return "none";
+  const due = new Date(lead.next_followup_at);
+  if (Number.isNaN(due.getTime())) return "none";
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(startOfToday); endOfToday.setDate(endOfToday.getDate() + 1);
+  if (due < startOfToday) return "overdue";
+  if (due < endOfToday) return "today";
+  return "upcoming";
+}
+function replyWindowOf(lead: LeadListItem) {
+  if (!lead.last_incoming_message) return "none";
+  return lead.is_24h_window_active ? "open" : "closed";
+}
+function matchesLocalFilters(lead: LeadListItem, filters: { status: string; health: string; sla: string }) {
+  if (filters.status && (lead.lead_status || "").toLowerCase() !== filters.status.toLowerCase()) return false;
+  if (filters.health && followupHealthOf(lead) !== filters.health) return false;
+  if (filters.sla && replyWindowOf(lead) !== filters.sla) return false;
+  return true;
+}
 
 // One dropdown-looking field; tapping it opens the option list.
 function FilterField({ label, value, onPress, disabled }: { label: string; value: string; onPress: () => void; disabled?: boolean }) {
@@ -285,7 +323,10 @@ export default function LeadsScreen() {
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
   // Changes inside the sheet are held as a draft until "Apply filters".
-  const [draft, setDraft] = useState({ score: "", stage: "", source: "", assigned: "", from: "", to: "" });
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterHealth, setFilterHealth] = useState("");
+  const [filterSla, setFilterSla] = useState("");
+  const [draft, setDraft] = useState({ score: "", stage: "", status: "", health: "", sla: "", source: "", assigned: "", from: "", to: "" });
   const [picker, setPicker] = useState<PickerKey | null>(null);
 
   const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
@@ -310,7 +351,7 @@ export default function LeadsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset, presetAt]);
 
-  const activeFilterCount = [score, filterStage, filterSource, filterAssignedTo, filterDateFrom || filterDateTo].filter(Boolean).length;
+  const activeFilterCount = [score, filterStage, filterStatus, filterHealth, filterSla, filterSource, filterAssignedTo, filterDateFrom || filterDateTo].filter(Boolean).length;
 
   // `silent` re-fetches everything already on screen in one request without a spinner or losing the scroll depth.
   const load = useCallback(async (nextPage = 1, append = false, silent = false) => {
@@ -319,9 +360,11 @@ export default function LeadsScreen() {
     else if (!silent) setLoading(true);
     setError("");
     try {
+      const localFilters = { status: filterStatus, health: filterHealth, sla: filterSla };
+      const localActive = !!(filterStatus || filterHealth || filterSla);
       const loadedPages = silent ? Math.max(1, pageRef.current) : 1;
       const result = await fetchLeads({
-        page: nextPage, limit: PAGE_SIZE * loadedPages,
+        page: localActive ? 1 : nextPage, limit: localActive ? LOCAL_FILTER_LIMIT : PAGE_SIZE * loadedPages,
         ...(query && { search: query }),
         ...(score && { score }),
         ...(filterStage && { stage: filterStage }),
@@ -333,6 +376,12 @@ export default function LeadsScreen() {
         ...(hiddenStages.length && { hide_stages: hiddenStages.join(",") }),
       });
       if (id !== requestId.current) return;
+      if (localActive) {
+        const matching = result.leads.filter((lead) => matchesLocalFilters(lead, localFilters));
+        setLeads(matching);
+        pageRef.current = 1; setPage(1); setPages(1); setTotal(matching.length);
+        return;
+      }
       setLeads((current) => append ? [...current, ...result.leads.filter((lead) => !current.some((item) => item.id === lead.id))] : result.leads);
       // A silent refresh asks for several pages at once, so page numbers are worked out in PAGE_SIZE units.
       const shownPages = silent ? Math.max(1, Math.ceil(result.leads.length / PAGE_SIZE)) : result.pagination.page;
@@ -347,7 +396,7 @@ export default function LeadsScreen() {
     } finally {
       if (id === requestId.current) { setLoading(false); setLoadingMore(false); setRefreshing(false); }
     }
-  }, [query, score, filterStage, filterSource, filterAssignedTo, filterDateFrom, filterDateTo, hiddenStages]);
+  }, [query, score, filterStage, filterStatus, filterHealth, filterSla, filterSource, filterAssignedTo, filterDateFrom, filterDateTo, hiddenStages]);
 
   // First load and any filter/search change. It waits for the hidden-stages preference so those stages never flash.
   useEffect(() => { if (prefsReady) load(); }, [load, prefsReady]);
@@ -386,7 +435,7 @@ export default function LeadsScreen() {
   }
 
   function openFiltersSheet() {
-    setDraft({ score, stage: filterStage, source: filterSource, assigned: filterAssignedTo, from: filterDateFrom, to: filterDateTo });
+    setDraft({ score, stage: filterStage, status: filterStatus, health: filterHealth, sla: filterSla, source: filterSource, assigned: filterAssignedTo, from: filterDateFrom, to: filterDateTo });
     setPicker(null);
     setFiltersSheetOpen(true);
     if (staff.length || staffLoading) return;
@@ -395,11 +444,11 @@ export default function LeadsScreen() {
   }
 
   function clearFilters() {
-    setScore(""); setFilterStage(""); setFilterSource(""); setFilterAssignedTo(""); setFilterDateFrom(""); setFilterDateTo("");
+    setScore(""); setFilterStage(""); setFilterStatus(""); setFilterHealth(""); setFilterSla(""); setFilterSource(""); setFilterAssignedTo(""); setFilterDateFrom(""); setFilterDateTo("");
   }
 
   function applyFilters() {
-    setScore(draft.score); setFilterStage(draft.stage); setFilterSource(draft.source); setFilterAssignedTo(draft.assigned);
+    setScore(draft.score); setFilterStage(draft.stage); setFilterStatus(draft.status); setFilterHealth(draft.health); setFilterSla(draft.sla); setFilterSource(draft.source); setFilterAssignedTo(draft.assigned);
     // A range typed back to front is put the right way round instead of silently returning nothing.
     const [from, to] = draft.from && draft.to && draft.from > draft.to ? [draft.to, draft.from] : [draft.from, draft.to];
     setFilterDateFrom(from); setFilterDateTo(to);
@@ -408,19 +457,25 @@ export default function LeadsScreen() {
 
   const pickerOptions: Record<PickerKey, { value: string; label: string }[]> = {
     stage: [{ value: "", label: "All stages" }, ...stages.map((item) => ({ value: item.name, label: item.name }))],
+    status: [{ value: "", label: "All statuses" }, ...Array.from(new Set(stages.flatMap((stage) => (stage.statuses || []).map((status) => status.name)))).map((name) => ({ value: name, label: name }))],
     score: FILTERS.map((item) => ({ value: item.value, label: item.value ? item.label : "All scores" })),
+    health: HEALTH_OPTIONS,
+    sla: SLA_OPTIONS,
     source: [{ value: "", label: "All sources" }, ...SOURCES],
     assigned: [{ value: "", label: "All staff" }, { value: "unassigned", label: "Unassigned" }, ...staff.map((member) => ({ value: member.id, label: member.name }))],
     dateField: [{ value: "created_at", label: "Lead date" }],
   };
-  const pickerTitle: Record<PickerKey, string> = { stage: "Stage", score: "Score", source: "Source", assigned: "Assigned to", dateField: "Date" };
-  const pickerValue: Record<PickerKey, string> = { stage: draft.stage, score: draft.score, source: draft.source, assigned: draft.assigned, dateField: "created_at" };
+  const pickerTitle: Record<PickerKey, string> = { stage: "Stage", status: "Status", score: "Score", health: "Follow-up health", sla: "Response SLA", source: "Source", assigned: "Assigned to", dateField: "Date" };
+  const pickerValue: Record<PickerKey, string> = { stage: draft.stage, status: draft.status, score: draft.score, health: draft.health, sla: draft.sla, source: draft.source, assigned: draft.assigned, dateField: "created_at" };
   function labelOf(key: PickerKey) {
     return pickerOptions[key].find((item) => item.value === pickerValue[key])?.label || pickerOptions[key][0].label;
   }
   function choose(key: PickerKey, value: string) {
     if (key === "stage") setDraft((d) => ({ ...d, stage: value }));
+    else if (key === "status") setDraft((d) => ({ ...d, status: value }));
     else if (key === "score") setDraft((d) => ({ ...d, score: value }));
+    else if (key === "health") setDraft((d) => ({ ...d, health: value }));
+    else if (key === "sla") setDraft((d) => ({ ...d, sla: value }));
     else if (key === "source") setDraft((d) => ({ ...d, source: value }));
     else if (key === "assigned") setDraft((d) => ({ ...d, assigned: value }));
     setPicker(null);
@@ -592,6 +647,9 @@ export default function LeadsScreen() {
         <View style={styles.activeChipsRow}>
           {score ? <Chip compact onClose={() => setScore("")} style={styles.activeChip}>Score: {FILTERS.find((f) => f.value === score)?.label || score}</Chip> : null}
           {filterStage ? <Chip compact onClose={() => setFilterStage("")} style={styles.activeChip}>Stage: {filterStage}</Chip> : null}
+          {filterStatus ? <Chip compact onClose={() => setFilterStatus("")} style={styles.activeChip}>Status: {filterStatus}</Chip> : null}
+          {filterHealth ? <Chip compact onClose={() => setFilterHealth("")} style={styles.activeChip}>Follow-up: {HEALTH_OPTIONS.find((o) => o.value === filterHealth)?.label || filterHealth}</Chip> : null}
+          {filterSla ? <Chip compact onClose={() => setFilterSla("")} style={styles.activeChip}>Reply: {SLA_OPTIONS.find((o) => o.value === filterSla)?.label || filterSla}</Chip> : null}
           {filterSource ? <Chip compact onClose={() => setFilterSource("")} style={styles.activeChip}>Source: {SOURCES.find((s) => s.value === filterSource)?.label || filterSource}</Chip> : null}
           {filterDateFrom || filterDateTo ? (
             <Chip compact onClose={() => { setFilterDateFrom(""); setFilterDateTo(""); }} style={styles.activeChip}>
@@ -748,7 +806,7 @@ export default function LeadsScreen() {
             <View style={styles.filterHandle} />
             <View style={styles.filterSheetHeader}>
               <Text style={styles.filterTitle}>Filters</Text>
-              <Pressable onPress={() => setDraft({ score: "", stage: "", source: "", assigned: "", from: "", to: "" })} hitSlop={10} accessibilityRole="button">
+              <Pressable onPress={() => setDraft({ score: "", stage: "", status: "", health: "", sla: "", source: "", assigned: "", from: "", to: "" })} hitSlop={10} accessibilityRole="button">
                 <Text style={styles.clearAll}>Clear all</Text>
               </Pressable>
             </View>
@@ -759,8 +817,20 @@ export default function LeadsScreen() {
                   <FilterField label="Stage" value={labelOf("stage")} onPress={() => setPicker("stage")} />
                 </View>
                 <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>STATUS</Text>
+                  <FilterField label="Status" value={labelOf("status")} onPress={() => setPicker("status")} />
+                </View>
+                <View style={styles.filterCell}>
                   <Text style={styles.filterLabel}>SCORE</Text>
                   <FilterField label="Score" value={labelOf("score")} onPress={() => setPicker("score")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>FOLLOW-UP HEALTH</Text>
+                  <FilterField label="Follow-up health" value={labelOf("health")} onPress={() => setPicker("health")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>RESPONSE SLA</Text>
+                  <FilterField label="Response SLA" value={labelOf("sla")} onPress={() => setPicker("sla")} />
                 </View>
                 <View style={styles.filterCell}>
                   <Text style={styles.filterLabel}>SOURCE</Text>
@@ -774,7 +844,6 @@ export default function LeadsScreen() {
                   <Text style={styles.filterLabel}>DATE</Text>
                   <FilterField label="Date" value={labelOf("dateField")} onPress={() => setPicker("dateField")} />
                 </View>
-                <View style={styles.filterCell} />
                 <View style={styles.filterCell}>
                   <Text style={styles.filterLabelPlain}>From</Text>
                   <FilterDateField value={draft.from} onChange={(value) => setDraft((d) => ({ ...d, from: value }))} />
