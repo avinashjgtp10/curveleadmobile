@@ -75,13 +75,14 @@ function initials(name?: string) {
   return words.length > 1 ? `${words[0][0]}${words[1][0]}`.toUpperCase() : words[0][0].toUpperCase();
 }
 
-function AppointmentRow({ item, completing, done, onView, onComplete, onReschedule }: {
+function AppointmentRow({ item, completing, done, onView, onComplete, onReschedule, onCancel }: {
   item: TodayFollowup;
   completing: boolean;
   done?: boolean;
   onView: () => void;
   onComplete: () => void;
   onReschedule: () => void;
+  onCancel: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ y: 0, right: 16 });
@@ -151,6 +152,10 @@ function AppointmentRow({ item, completing, done, onView, onComplete, onReschedu
               <Ionicons name="checkmark-circle-outline" size={16} color={UI.green} />
               <Text style={[styles.popoverText, styles.popoverSuccessText]}>Mark Completed</Text>
             </Pressable>
+            <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onCancel)}>
+              <Ionicons name="close-circle-outline" size={16} color={UI.red} />
+              <Text style={[styles.popoverText, styles.popoverDangerText]}>Cancel Appointment</Text>
+            </Pressable>
           </View>
         </Pressable>
       </Modal>
@@ -194,9 +199,12 @@ function AppointmentsContent() {
     return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
   }, [sheetOpen, navigation, insets.bottom]);
 
-  const load = useCallback(async (refresh = false) => {
-    refresh ? setRefreshing(true) : setLoading(true);
-    setError("");
+  // `silent` re-syncs in the background: no spinner, and a failure keeps the list on screen without an alert.
+  const load = useCallback(async (refresh = false, silent = false) => {
+    if (!silent) {
+      refresh ? setRefreshing(true) : setLoading(true);
+      setError("");
+    }
     try {
       const future = new Date(); future.setDate(future.getDate() + 730);
       const rows = await fetchTodayFollowups({ date_from: "1970-01-01", date_to: ymd(future) });
@@ -204,6 +212,7 @@ function AppointmentsContent() {
       hasData.current = true;
     } catch {
       // A failed refresh must not hide a list that is already on screen.
+      if (silent) return;
       if (refresh && hasData.current) Alert.alert("Couldn't refresh", "Showing the last loaded appointments.");
       else setError("Could not load appointments.");
     } finally {
@@ -297,7 +306,7 @@ function AppointmentsContent() {
       setFilterOpen(false);
       setSheetOpen(false);
       setReschedulingAppointment(null);
-      load(true);
+      load(true, true);
     } catch {
       setFormError(reschedulingAppointment ? "Could not reschedule this appointment." : "Could not schedule this appointment.");
     } finally {
@@ -334,11 +343,32 @@ function AppointmentsContent() {
       stage: item.lead_stage,
       created_at: new Date().toISOString(),
     });
-    setAppointmentAt(Number.isNaN(existingDate.getTime()) ? defaultFollowupDate() : existingDate);
+    // An overdue appointment's old time can't be saved again, so start from a fresh future time.
+    setAppointmentAt(Number.isNaN(existingDate.getTime()) || existingDate.getTime() < Date.now() ? defaultFollowupDate() : existingDate);
     setAppointmentType(followupTypeOrDefault(item.followup_type));
     setNotes(item.notes || "");
     setFormError("");
     setSheetOpen(true);
+  }
+
+  function confirmCancel(item: TodayFollowup) {
+    Alert.alert("Cancel appointment?", `Cancel the appointment with ${item.lead_name}?`, [
+      { text: "Keep", style: "cancel" },
+      {
+        text: "Cancel appointment", style: "destructive",
+        onPress: async () => {
+          setCompletingId(item.id);
+          try {
+            await completeLeadFollowup(item.id, "Cancelled");
+            setAppointments((current) => current.filter((appointment) => appointment.id !== item.id));
+          } catch {
+            Alert.alert("Couldn't cancel appointment", "Please try again.");
+          } finally {
+            setCompletingId(null);
+          }
+        },
+      },
+    ]);
   }
 
   function openFilters() {
@@ -428,6 +458,7 @@ function AppointmentsContent() {
               onView={() => viewAppointment(item)}
               onComplete={() => markCompleted(item)}
               onReschedule={() => openReschedule(item)}
+              onCancel={() => confirmCancel(item)}
             />
           )) : (
             <View style={styles.empty}>
