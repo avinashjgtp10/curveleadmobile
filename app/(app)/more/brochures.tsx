@@ -6,7 +6,7 @@ import {
 import { ActivityIndicator, Button, Text } from "react-native-paper";
 import axios from "axios";
 import * as DocumentPicker from "expo-document-picker";
-import { router, useFocusEffect, useNavigation } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
@@ -122,6 +122,10 @@ export default function BrochuresScreen() {
 
   const totalViews = brochures.reduce((sum, item) => sum + (item.views || 0), 0);
   const totalShares = brochures.reduce((sum, item) => sum + (item.times_shared || 0), 0);
+
+  // The Content Library's "Upload" shortcut opens the uploader straight away.
+  const { action } = useLocalSearchParams<{ action?: string }>();
+  useEffect(() => { if (action === "new") { router.setParams({ action: undefined }); openUpload(); } }, [action]);
 
   function openUpload() {
     setPickedFile(null);

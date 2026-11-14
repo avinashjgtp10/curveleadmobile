@@ -369,6 +369,8 @@ export default function DashboardScreen() {
   const [periodOpen, setPeriodOpen] = useState(false);
   const periodLabel = PERIOD_OPTIONS.find((item) => item.key === period)?.label || "Last 7 days";
   const [data, setData] = useState<DashboardSummary | null>(null);
+  const dataRef = useRef<DashboardSummary | null>(null);
+  dataRef.current = data;
   const [upcomingFollowups, setUpcomingFollowups] = useState<TodayFollowup[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
   // Keep the number on the app icon equal to the unread count the bell shows.
@@ -465,7 +467,8 @@ export default function DashboardScreen() {
       setError(message);
       setFailedLoads((count) => count + 1);
       // With numbers already on screen the error banner is hidden, so tell the person the refresh didn't work.
-      if (refresh) Alert.alert("Couldn't refresh", message);
+      // With no numbers on screen the "Couldn't load dashboard" state already shows the error, so an alert on top would just repeat it.
+      if (refresh && dataRef.current) Alert.alert("Couldn't refresh", message);
     } finally { setLoading(false); setRefreshing(false); }
   }, [period]);
 

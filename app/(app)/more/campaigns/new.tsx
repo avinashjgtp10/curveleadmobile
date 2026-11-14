@@ -16,22 +16,22 @@ import {
 } from "@/api/campaigns";
 
 // The Add lead form's palette: pale blue page, white fields with soft blue borders, deep teal-blue actions.
-const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", red: "#d6334f" };
+const UI = { bg: "#f4f6f5", line: "#d5e0dc", ink: "#0f1f1a", sub: "#4a6a61", muted: "#8a9a94", teal: "#0f7b67", tealSoft: "#d9efe8", blue: "#1d4fd8", blueSoft: "#dde9f8", red: "#d6334f" };
 
 const SOURCES: { value: CampaignSource; label: string; icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }[] = [
-  { value: "meta_ads", label: "Meta Ads", icon: "logo-facebook", color: "#1877f2", bg: "#dbeafe" },
-  { value: "google_ads", label: "Google Ads", icon: "logo-google", color: "#ea4335", bg: "#fee2e2" },
-  { value: "instagram", label: "Instagram", icon: "logo-instagram", color: "#c026d3", bg: "#fae8ff" },
-  { value: "whatsapp", label: "WhatsApp", icon: "logo-whatsapp", color: "#16a34a", bg: "#dcfce7" },
-  { value: "organic", label: "Organic", icon: "leaf-outline", color: "#15803d", bg: "#dcfce7" },
-  { value: "referral", label: "Referral", icon: "people-outline", color: "#d97706", bg: "#fef3c7" },
-  { value: "other", label: "Other", icon: "megaphone-outline", color: "#4f46e5", bg: "#e0e7ff" },
+  { value: "meta_ads", label: "Meta Ads", icon: "logo-facebook", color: "#1d5fa8", bg: "#dde9f8" },
+  { value: "google_ads", label: "Google Ads", icon: "logo-google", color: "#0f6b57", bg: "#d9efe8" },
+  { value: "instagram", label: "Instagram", icon: "logo-instagram", color: "#8a3a86", bg: "#f3e3f1" },
+  { value: "whatsapp", label: "WhatsApp", icon: "logo-whatsapp", color: "#0f6b57", bg: "#d9efe8" },
+  { value: "organic", label: "Organic", icon: "leaf-outline", color: "#0f6b57", bg: "#d9efe8" },
+  { value: "referral", label: "Referral", icon: "people-outline", color: "#8a5a12", bg: "#fbe8c8" },
+  { value: "other", label: "Other", icon: "megaphone-outline", color: "#4b3a9c", bg: "#e6e1f8" },
 ];
 
 const STATUSES: { value: CampaignStatus; label: string; color: string; bg: string }[] = [
-  { value: "active", label: "Active", color: "#15803d", bg: "#dcfce7" },
-  { value: "draft", label: "Draft", color: "#0369a1", bg: "#e0f2fe" },
-  { value: "paused", label: "Paused", color: "#b45309", bg: "#fef3c7" },
+  { value: "active", label: "Active", color: "#0f7b67", bg: "#d9efe8" },
+  { value: "draft", label: "Draft", color: "#1d5fa8", bg: "#dde9f8" },
+  { value: "paused", label: "Paused", color: "#8a5a12", bg: "#fbe8c8" },
   { value: "completed", label: "Completed", color: "#64748b", bg: "#eef2f6" },
 ];
 
@@ -65,6 +65,7 @@ export default function NewCampaignScreen() {
   const keyboardHeight = useKeyboardHeight();
   const [name, setName] = useState("");
   const [source, setSource] = useState<CampaignSource>("meta_ads");
+  const [sourceOpen, setSourceOpen] = useState(false);
   const [budget, setBudget] = useState("");
   const [startDate, setStartDate] = useState<Date>(new Date());
   const [endDate, setEndDate] = useState<Date | null>(null);
@@ -170,17 +171,31 @@ export default function NewCampaignScreen() {
           {fieldErrors.name ? <Text style={styles.fieldError}>{fieldErrors.name}</Text> : null}
 
           <Text style={styles.label}>Where do the leads come from?</Text>
-          <View style={styles.sourceGrid}>
-            {SOURCES.map((item) => {
-              const active = source === item.value;
-              return (
-                <Pressable key={item.value} onPress={() => setSource(item.value)} style={[styles.sourceTile, active && { borderColor: item.color, backgroundColor: item.bg }]}>
-                  <Ionicons name={item.icon} size={22} color={active ? item.color : colors.textMuted} />
-                  <Text style={[styles.sourceText, active && { color: item.color }]} numberOfLines={1}>{item.label}</Text>
+          {(() => {
+            const current = SOURCES.find((item) => item.value === source) || SOURCES[0];
+            return (
+              <View>
+                <Pressable onPress={() => setSourceOpen((open) => !open)} style={[styles.sourceField, sourceOpen && styles.sourceFieldOpen]} accessibilityRole="button" accessibilityLabel="Choose source">
+                  <Text style={styles.sourceFieldText}>{current.label}</Text>
+                  <Ionicons name={sourceOpen ? "chevron-up" : "chevron-down"} size={20} color={sourceOpen ? UI.blue : UI.sub} />
                 </Pressable>
-              );
-            })}
-          </View>
+                {sourceOpen ? (
+                  <View style={styles.sourceMenu}>
+                    {SOURCES.map((item) => {
+                      const active = source === item.value;
+                      return (
+                        <Pressable key={item.value} onPress={() => { setSource(item.value); setSourceOpen(false); }} style={[styles.sourceOption, active && styles.sourceOptionActive]}>
+                          <View style={[styles.sourceOptionIcon, { backgroundColor: item.bg }]}><Ionicons name={item.icon} size={18} color={item.color} /></View>
+                          <Text style={styles.sourceOptionText}>{item.label}</Text>
+                          {active ? <Ionicons name="checkmark" size={20} color={UI.blue} /> : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })()}
 
           {metaManaged ? (
             <View style={styles.metaNote}>
@@ -245,12 +260,12 @@ export default function NewCampaignScreen() {
           </View>
 
           <View style={styles.priorityCard}>
-            <View style={styles.priorityIcon}><Ionicons name="star" size={18} color={UI.teal} /></View>
+            <View style={styles.priorityIcon}><Ionicons name="star" size={18} color="#1d5fa8" /></View>
             <View style={{ flex: 1 }}>
               <Text style={styles.priorityTitle}>Priority campaign</Text>
               <Text style={styles.priorityHint}>Leads skip automated messages and go straight to your salesperson.</Text>
             </View>
-            <Switch value={isPriority} onValueChange={setIsPriority} color={UI.teal} />
+            <Switch value={isPriority} onValueChange={setIsPriority} color={UI.teal} trackColor={{ true: UI.teal, false: "#c9d3cf" }} />
           </View>
         </ScrollView>
       )}
@@ -279,7 +294,7 @@ export default function NewCampaignScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: UI.bg },
-  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: UI.bg, borderBottomWidth: 0 },
   headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
   headerTitle: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   content: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
@@ -304,9 +319,14 @@ const styles = StyleSheet.create({
   budgetRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   currency: { color: UI.sub, fontSize: 15, fontWeight: "800" },
 
-  sourceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  sourceTile: { width: "30.5%", alignItems: "center", gap: 6, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: UI.line, backgroundColor: "#ffffff" },
-  sourceText: { color: UI.sub, fontSize: 12, fontWeight: "800" },
+  sourceField: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14 },
+  sourceFieldOpen: { borderColor: UI.blue, borderWidth: 1.5 },
+  sourceFieldText: { color: UI.ink, fontSize: 14, fontWeight: "800" },
+  sourceMenu: { marginTop: 8, borderRadius: 14, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", overflow: "hidden" },
+  sourceOption: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  sourceOptionActive: { backgroundColor: "#edf3ff" },
+  sourceOptionIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  sourceOptionText: { flex: 1, color: UI.ink, fontSize: 14, fontWeight: "800" },
 
   dateRow: { flexDirection: "row", gap: 10 },
   dateFieldWrap: { flex: 1 },
@@ -319,13 +339,13 @@ const styles = StyleSheet.create({
   statusText: { color: UI.ink, fontSize: 13, fontWeight: "800" },
 
   priorityCard: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 22, padding: 14, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
-  priorityIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center" },
+  priorityIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: UI.blueSoft, alignItems: "center", justifyContent: "center" },
   priorityTitle: { color: UI.ink, fontSize: 13, fontWeight: "800" },
   priorityHint: { color: UI.sub, fontSize: 12, lineHeight: 17, marginTop: 2 },
 
   bottomBar: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: UI.bg, borderTopWidth: 1, borderTopColor: UI.line },
   cancelButton: { width: 110, height: 44, borderRadius: 999, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
-  cancelText: { color: UI.teal, fontSize: 14, fontWeight: "800" },
-  saveButton: { flex: 1, height: 44, borderRadius: 999, backgroundColor: UI.teal, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  cancelText: { color: UI.ink, fontSize: 14, fontWeight: "800" },
+  saveButton: { flex: 1, height: 44, borderRadius: 999, backgroundColor: UI.blue, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   saveText: { color: "#ffffff", fontSize: 14, fontWeight: "800" },
 });

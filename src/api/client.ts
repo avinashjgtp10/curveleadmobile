@@ -100,7 +100,9 @@ apiClient.interceptors.response.use(
         data: { error: timedOut ? TIMEOUT_MESSAGE : OFFLINE_MESSAGE, network: true },
       };
     }
-    if (error.response?.status === 429 && !error.response.data?.rate_limited) {
+    // A login/OTP lockout is about that person's sign-in attempts, not the app's read traffic, so it must not hold back reads after they get in.
+    const isAuthCall = String(error.config?.url ?? "").includes("/auth/");
+    if (error.response?.status === 429 && !error.response.data?.rate_limited && !isAuthCall) {
       blockedUntil = Date.now() + blockedForMs(error.response.headers);
     }
     if (error.response?.status === 401) {

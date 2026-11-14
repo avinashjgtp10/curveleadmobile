@@ -9,6 +9,14 @@ import { FALLBACK_NOTIFICATION_GROUPS, NotificationGroup, fetchNotificationGroup
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NOTIFICATION_PREFS_CACHE_KEY, NotificationPermission, getNotificationPermission, requestNotificationPermission } from "@/notifications/push";
+import { PushStatus, getPushStatus, registerDevice } from "@/notifications/pushStatus";
+
+const PUSH_STATE_LABEL: Record<PushStatus["state"], string> = {
+  registered: "This phone is registered for push alerts.",
+  failed: "Registration failed - push alerts can't reach this phone.",
+  denied: "Permission is off - push alerts can't reach this phone.",
+  unsupported: "Not supported here (needs the installed app on a real phone).",
+};
 
 // Same palette as Reports: pale blue page, white cards with soft blue borders, deep teal-blue actions.
 const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7" };
@@ -36,6 +44,21 @@ export default function NotificationSettingsScreen() {
   const [busy, setBusy] = useState(false);
   // When the saved settings couldn't be loaded, saving would overwrite them with only what was toggled here.
   const [loadFailed, setLoadFailed] = useState(false);
+
+  const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
+  const [registering, setRegistering] = useState(false);
+
+  useEffect(() => { getPushStatus().then(setPushStatus); }, []);
+
+  async function reRegister() {
+    setRegistering(true);
+    try {
+      setPushStatus(await registerDevice(true));
+      setPermission(await getNotificationPermission());
+    } finally {
+      setRegistering(false);
+    }
+  }
 
   const refreshPermission = useCallback(async () => setPermission(await getNotificationPermission()), []);
 
@@ -131,6 +154,14 @@ export default function NotificationSettingsScreen() {
           </View>
         ) : null}
 
+        <View style={styles.pushCard}>
+          <Text style={styles.phoneTitle}>{pushStatus ? PUSH_STATE_LABEL[pushStatus.state] : "Push registration hasn't run yet on this phone."}</Text>
+          {pushStatus?.detail && pushStatus.state !== "registered" ? <Text style={styles.phoneHint}>{pushStatus.detail}</Text> : null}
+          <Pressable onPress={reRegister} disabled={registering} hitSlop={6}>
+            <Text style={styles.phoneAction}>{registering ? "Registering..." : "Re-register this phone"}</Text>
+          </Pressable>
+        </View>
+
         <Text style={styles.sectionTitle}>NOTIFY ME ABOUT</Text>
 
         {loadFailed && !loading ? (
@@ -194,6 +225,7 @@ const styles = StyleSheet.create({
   content: { padding: 16, gap: 12 },
   loading: { paddingVertical: 40, alignItems: "center" },
   phoneCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 14 },
+  pushCard: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 12 },
   phoneIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
   phoneTitle: { fontSize: 14, fontWeight: "800" },
   phoneHint: { color: UI.sub, fontSize: 12, lineHeight: 17, marginTop: 2 },
