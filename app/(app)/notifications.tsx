@@ -1,15 +1,13 @@
-import { GlassBackground, glass } from "@/components/Glass";
 import { SvgCalendar } from "@/components/ReferenceIcons";
 import { AppNotification, fetchNotifications, markAllNotificationsRead, markNotificationRead } from "@/api/notifications";
 import { useT } from "@/i18n/LanguageContext";
 import { navigateToNotification } from "@/notifications/navigateToNotification";
-import { colors } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { ActivityIndicator, Appbar, Button } from "react-native-paper";
+import { ActivityIndicator, Button } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Translate = (text: string, vars?: Record<string, string | number>) => string;
@@ -118,127 +116,93 @@ export default function NotificationsScreen() {
 
   return (
     <View style={styles.screen}>
-      <GlassBackground />
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction color={colors.text} onPress={() => router.back()} />
-        <Appbar.Content title={t("Notifications")} titleStyle={styles.headerTitle} />
-        <Pressable style={styles.bellWrap} hitSlop={8} onPress={() => router.push("/(app)/more/notification-settings" as never)} accessibilityRole="button" accessibilityLabel={t("Notification settings")}>
-          <Ionicons name={unreadCount ? "notifications" : "notifications-outline"} size={26} color={colors.text} />
-          {unreadCount ? <Text style={styles.headerBadge}>{unreadCount > 99 ? "99+" : unreadCount}</Text> : null}
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel={t("Back")}>
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
         </Pressable>
-      </Appbar.Header>
-
-      <View style={styles.panel}>
-        <View style={styles.panelHeader}>
-          <Text style={styles.panelTitle}>{t("Notifications")}</Text>
-          <Pressable style={styles.markReadButton} onPress={handleMarkAllRead} disabled={!unreadCount}>
-            <Ionicons name="checkmark-done" size={15} color={unreadCount ? colors.primary : colors.textMuted} />
-            <Text style={[styles.markReadText, !unreadCount && styles.disabledText]}>{t("Mark all read")}</Text>
-          </Pressable>
-        </View>
-
-        {loading ? (
-          <View style={styles.state}>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={styles.stateText}>{t("Loading notifications...")}</Text>
-          </View>
-        ) : error ? (
-          <View style={styles.state}>
-            <Text style={styles.stateTitle}>{t("Could not load notifications")}</Text>
-            <Text style={styles.stateText}>{error}</Text>
-            <Button mode="contained" onPress={() => load()} style={styles.retry}>{t("Try again")}</Button>
-          </View>
-        ) : (
-          <ScrollView
-            contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 22 }]}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} colors={[colors.primary]} />}
-            showsVerticalScrollIndicator={false}
-          >
-            {items.map((item) => {
-              const unread = !item.read_at;
-              return (
-                <Pressable key={item.id} style={[styles.notificationItem, unread && styles.unreadItem]} onPress={() => handlePress(item)}>
-                  <View style={styles.iconWrap}><SvgCalendar color="#f59e0b" /></View>
-                  <View style={styles.notificationCopy}>
-                    <Text style={styles.notificationTitle} numberOfLines={2}>{translateText(item.title, t)}</Text>
-                    {item.message ? <Text style={styles.notificationDate}>{formatDate(item.message, locale) === item.message ? translateText(item.message, t) : formatDate(item.message, locale)}</Text> : null}
-                    <Text style={styles.notificationTime}>{relativeTime(item.created_at || item.message, t)}</Text>
-                  </View>
-                  {unread ? <View style={styles.unreadDot} /> : null}
-                </Pressable>
-              );
-            })}
-            {!items.length ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="notifications-outline" size={34} color={colors.textMuted} />
-                <Text style={styles.stateTitle}>{t("No notifications yet")}</Text>
-                <Text style={styles.stateText}>{t("Follow-up reminders and lead updates will appear here.")}</Text>
-              </View>
-            ) : null}
-          </ScrollView>
-        )}
+        <Text style={styles.headerTitle}>{t("Notifications")}</Text>
+        <Pressable style={styles.headerButton} hitSlop={8} onPress={() => router.push("/(app)/more/notification-settings" as never)} accessibilityRole="button" accessibilityLabel={t("Notification settings")}>
+          <Ionicons name="settings-outline" size={21} color={UI.ink} />
+        </Pressable>
       </View>
+
+      {loading ? (
+        <View style={styles.state}>
+          <ActivityIndicator color={UI.teal} />
+          <Text style={styles.stateText}>{t("Loading notifications...")}</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.state}>
+          <Text style={styles.stateTitle}>{t("Could not load notifications")}</Text>
+          <Text style={styles.stateText}>{error}</Text>
+          <Button mode="contained" onPress={() => load()} style={styles.retry} buttonColor={UI.teal}>{t("Try again")}</Button>
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={UI.teal} colors={[UI.teal]} />}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.topRow}>
+            <Text style={styles.subtitle}>{unreadCount ? t("{n} unread", { n: unreadCount }) : t("You're all caught up")}</Text>
+            <Pressable style={styles.markReadButton} onPress={handleMarkAllRead} disabled={!unreadCount}>
+              <Ionicons name="checkmark-done" size={15} color={unreadCount ? UI.teal : UI.muted} />
+              <Text style={[styles.markReadText, !unreadCount && styles.disabledText]}>{t("Mark all read")}</Text>
+            </Pressable>
+          </View>
+
+          {items.map((item) => {
+            const unread = !item.read_at;
+            return (
+              <Pressable key={item.id} style={[styles.card, unread && styles.cardUnread]} onPress={() => handlePress(item)}>
+                <View style={styles.iconWrap}><SvgCalendar color="#f59e0b" /></View>
+                <View style={styles.notificationCopy}>
+                  <Text style={styles.notificationTitle} numberOfLines={2}>{translateText(item.title, t)}</Text>
+                  {item.message ? <Text style={styles.notificationDate}>{formatDate(item.message, locale) === item.message ? translateText(item.message, t) : formatDate(item.message, locale)}</Text> : null}
+                  <Text style={styles.notificationTime}>{relativeTime(item.created_at || item.message, t)}</Text>
+                </View>
+                {unread ? <View style={styles.unreadDot} /> : null}
+              </Pressable>
+            );
+          })}
+          {!items.length ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="notifications-outline" size={34} color={UI.muted} />
+              <Text style={styles.stateTitle}>{t("No notifications yet")}</Text>
+              <Text style={styles.stateText}>{t("Follow-up reminders and lead updates will appear here.")}</Text>
+            </View>
+          ) : null}
+        </ScrollView>
+      )}
     </View>
   );
 }
 
+// Same palette as Reports: pale blue page, white cards with soft blue borders, deep teal-blue actions.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7" };
+
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { height: 80, paddingHorizontal: 6, backgroundColor: "transparent" },
-  headerTitle: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" },
-  bellWrap: { width: 44, height: 44, alignItems: "center", justifyContent: "center", marginRight: 6 },
-  headerBadge: {
-    position: "absolute",
-    top: 2,
-    right: 0,
-    minWidth: 20,
-    height: 22,
-    paddingHorizontal: 6,
-    borderRadius: 11,
-    overflow: "hidden",
-    backgroundColor: colors.danger,
-    color: "#fff",
-    fontSize: 11,
-    lineHeight: 22,
-    textAlign: "center",
-    fontFamily: "Inter_700Bold",
-  },
-  panel: { ...glass, flex: 1, marginHorizontal: 16, marginBottom: 12, overflow: "hidden" },
-  panelHeader: {
-    minHeight: 48,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSoft,
-  },
-  panelTitle: { color: colors.text, fontSize: 15, fontFamily: "Inter_700Bold" },
-  markReadButton: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 8 },
-  markReadText: { color: colors.primary, fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  disabledText: { color: colors.textMuted },
-  listContent: { flexGrow: 1 },
-  notificationItem: {
-    minHeight: 98,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSoft,
-    backgroundColor: "rgba(255,255,255,0.55)",
-  },
-  unreadItem: { backgroundColor: "rgba(240,249,255,0.92)" },
-  iconWrap: { width: 20, paddingTop: 3, alignItems: "center" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: UI.bg },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 18, fontFamily: "DMSans_700Bold" },
+  content: { padding: 16, flexGrow: 1 },
+  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 },
+  subtitle: { flex: 1, color: UI.sub, fontSize: 13 },
+  markReadButton: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
+  markReadText: { color: UI.teal, fontSize: 12, fontWeight: "700" },
+  disabledText: { color: UI.muted },
+  card: { flexDirection: "row", alignItems: "flex-start", gap: 12, padding: 14, marginBottom: 10, backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line },
+  cardUnread: { borderColor: UI.teal, backgroundColor: "#f7fbfe" },
+  iconWrap: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#fff4e0", alignItems: "center", justifyContent: "center" },
   notificationCopy: { flex: 1 },
-  notificationTitle: { color: colors.text, fontSize: 15, lineHeight: 20, fontFamily: "Inter_700Bold" },
-  notificationDate: { color: colors.textSecondary, fontSize: 13, lineHeight: 18, fontFamily: "Inter_500Medium" },
-  notificationTime: { color: colors.textMuted, fontSize: 11, lineHeight: 16, fontFamily: "Inter_500Medium" },
-  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#3b82f6", marginTop: 12 },
-  state: { flex: 1, minHeight: 320, alignItems: "center", justifyContent: "center", padding: 24 },
-  stateTitle: { color: colors.text, fontSize: 16, fontFamily: "Inter_700Bold", marginTop: 10, textAlign: "center" },
-  stateText: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 8, textAlign: "center" },
+  notificationTitle: { color: UI.ink, fontSize: 14, lineHeight: 20, fontWeight: "700" },
+  notificationDate: { color: UI.sub, fontSize: 13, lineHeight: 18, marginTop: 2 },
+  notificationTime: { color: UI.muted, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: UI.teal, marginTop: 6 },
+  state: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
+  stateTitle: { color: UI.ink, fontSize: 16, fontWeight: "700", marginTop: 10, textAlign: "center" },
+  stateText: { color: UI.sub, fontSize: 13, lineHeight: 19, marginTop: 8, textAlign: "center" },
   retry: { marginTop: 16 },
   emptyState: { flex: 1, minHeight: 360, alignItems: "center", justifyContent: "center", padding: 28 },
 });
