@@ -70,6 +70,10 @@ export async function fetchLeads(params?: {
   source?: string;
   assigned_to?: string;
   hide_stages?: string;
+  /** Which date the range below applies to; the list already accepts these (the dashboard fallback uses them too). */
+  date_field?: string;
+  date_from?: string;
+  date_to?: string;
   page?: number;
   limit?: number;
 }) {

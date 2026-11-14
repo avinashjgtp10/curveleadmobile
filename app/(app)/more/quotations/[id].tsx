@@ -1,7 +1,8 @@
 import React, { useCallback, useRef, useState } from "react";
-import { Alert, Linking, ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Appbar, Button, Card, Text } from "react-native-paper";
+import { Alert, Linking, ScrollView, StyleSheet, View, Pressable } from "react-native";
+import { ActivityIndicator, Button, Card, Text } from "react-native-paper";
 import axios from "axios";
+import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
@@ -11,6 +12,9 @@ import {
   rejectQuotation, sendQuotation,
 } from "@/api/quotations";
 
+
+// The add forms' palette: pale blue page, white cards with soft blue borders, deep teal-blue actions.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", red: "#d6334f", redSoft: "#fdecef", amber: "#c2710c", amberSoft: "#fde9c9", green: "#0f7b5f", greenSoft: "#d8f0e5", track: "#e4ecf3" };
 const STATUS_COLORS: Record<QuotationStatus, { bg: string; text: string; label: string }> = {
   draft: { bg: "#E5E5E5", text: "#666565", label: "Draft" },
   sent: { bg: "#D2E1FF", text: "#1D61E7", label: "Sent" },
@@ -108,17 +112,17 @@ export default function QuotationDetailScreen() {
 
   function openPdf() {
     if (!quotation) return;
-    Linking.openURL(`${API_BASE_URL}/quotations/pdf/${quotation.id}`);
+    Linking.openURL(`${API_BASE_URL}/quotations/pdf/${quotation.id}`).catch(() => Alert.alert("Couldn't open PDF", "Please try again in a moment."));
   }
 
   if (loading && !quotation) {
-    return <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>;
+    return <View style={styles.state}><ActivityIndicator size="large" color={UI.teal} /></View>;
   }
   if (!quotation) {
     return (
       <View style={styles.state}>
         <Text style={styles.errorText}>{error || "Quotation not found."}</Text>
-        <Button mode="contained" onPress={load} style={styles.retry}>Try again</Button>
+        <Button mode="contained" buttonColor={UI.teal} onPress={load} style={styles.retry}>Try again</Button>
       </View>
     );
   }
@@ -127,11 +131,15 @@ export default function QuotationDetailScreen() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title={quotation.quote_number} titleStyle={styles.headerTitle} />
-        <Appbar.Action icon="trash-can-outline" color={colors.danger} onPress={handleDelete} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle} numberOfLines={1}>{quotation.quote_number}</Text>
+        <Pressable onPress={handleDelete} hitSlop={10} style={styles.headerButton} accessibilityRole="button">
+          <Ionicons name="trash-outline" size={20} color={UI.red} />
+        </Pressable>
+      </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
         <View style={styles.topRow}>
@@ -170,16 +178,16 @@ export default function QuotationDetailScreen() {
         {quotation.notes ? <><Text style={styles.sectionLabel}>Notes</Text><Text style={styles.sectionText}>{quotation.notes}</Text></> : null}
         {quotation.status === "rejected" && quotation.rejection_reason ? <><Text style={styles.sectionLabel}>Rejection reason</Text><Text style={styles.sectionText}>{quotation.rejection_reason}</Text></> : null}
 
-        <Button mode="outlined" icon="file-document-outline" onPress={openPdf} style={styles.pdfButton} contentStyle={styles.pdfButtonContent}>View PDF</Button>
+        <Button mode="outlined" textColor={UI.teal} icon="file-document-outline" onPress={openPdf} style={styles.pdfButton} contentStyle={styles.pdfButtonContent}>View PDF</Button>
 
         <View style={styles.actions}>
           {quotation.status === "draft" ? (
-            <Button mode="contained" icon="whatsapp" onPress={handleSend} loading={busy} disabled={busy} contentStyle={styles.actionButtonContent}>Send via WhatsApp</Button>
+            <Button mode="contained" buttonColor={UI.teal} icon="whatsapp" onPress={handleSend} loading={busy} disabled={busy} contentStyle={styles.actionButtonContent}>Send via WhatsApp</Button>
           ) : null}
           {quotation.status === "sent" ? (
             <View style={styles.actionRow}>
-              <Button mode="contained" buttonColor={colors.success} onPress={handleAccept} loading={busy} disabled={busy} style={styles.actionRowButton} contentStyle={styles.actionButtonContent}>Mark Accepted</Button>
-              <Button mode="outlined" textColor={colors.danger} style={[styles.actionRowButton, styles.rejectButton]} onPress={handleReject} disabled={busy} contentStyle={styles.actionButtonContent}>Mark Rejected</Button>
+              <Button mode="contained" buttonColor={UI.green} onPress={handleAccept} loading={busy} disabled={busy} style={styles.actionRowButton} contentStyle={styles.actionButtonContent}>Mark Accepted</Button>
+              <Button mode="outlined" textColor={UI.red} style={[styles.actionRowButton, styles.rejectButton]} onPress={handleReject} disabled={busy} contentStyle={styles.actionButtonContent}>Mark Rejected</Button>
             </View>
           ) : null}
         </View>
@@ -189,41 +197,42 @@ export default function QuotationDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  state: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30, backgroundColor: colors.background },
-  errorText: { color: colors.danger, fontSize: 13, textAlign: "center" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  state: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30, backgroundColor: UI.bg },
+  errorText: { color: UI.red, fontSize: 13, textAlign: "center" },
   retry: { marginTop: 14 },
 
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   content: { padding: 18 },
 
   topRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
-  leadName: { color: colors.text, fontSize: 20, fontWeight: "800" },
-  title: { color: colors.textSecondary, fontSize: 13, marginTop: 3 },
+  leadName: { color: UI.ink, fontSize: 20, fontWeight: "800" },
+  title: { color: UI.sub, fontSize: 13, marginTop: 3 },
   statusPill: { borderRadius: 4, paddingHorizontal: 10, paddingVertical: 5 },
   statusPillText: { fontSize: 11, fontWeight: "800" },
 
   itemsCard: { marginTop: 18 },
   itemsCardContent: { paddingHorizontal: 0, paddingVertical: 0 },
-  itemRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
+  itemRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: UI.line },
   noBorder: { borderBottomWidth: 0 },
   itemCopy: { flex: 1 },
-  itemName: { color: colors.text, fontSize: 14, fontWeight: "700" },
-  itemQty: { color: colors.textSecondary, fontSize: 11, marginTop: 3 },
-  itemTotal: { color: colors.text, fontSize: 14, fontWeight: "700" },
+  itemName: { color: UI.ink, fontSize: 14, fontWeight: "700" },
+  itemQty: { color: UI.sub, fontSize: 11, marginTop: 3 },
+  itemTotal: { color: UI.ink, fontSize: 14, fontWeight: "700" },
 
   summaryCard: { marginTop: 14 },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 5 },
-  summaryLabel: { color: colors.textSecondary, fontSize: 12 },
-  summaryValue: { color: colors.text, fontSize: 12, fontWeight: "700" },
-  summaryTotalRow: { borderTopWidth: 1, borderTopColor: colors.borderSoft, marginTop: 6, paddingTop: 10 },
-  summaryTotalLabel: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  summaryTotalValue: { color: colors.primary, fontSize: 16, fontWeight: "800" },
+  summaryLabel: { color: UI.sub, fontSize: 12 },
+  summaryValue: { color: UI.ink, fontSize: 12, fontWeight: "700" },
+  summaryTotalRow: { borderTopWidth: 1, borderTopColor: UI.line, marginTop: 6, paddingTop: 10 },
+  summaryTotalLabel: { color: UI.ink, fontSize: 14, fontWeight: "800" },
+  summaryTotalValue: { color: UI.teal, fontSize: 16, fontWeight: "800" },
 
-  metaLine: { color: colors.textSecondary, fontSize: 12, marginTop: 14 },
-  sectionLabel: { color: colors.text, fontSize: 12, fontWeight: "800", marginTop: 16 },
-  sectionText: { color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 5 },
+  metaLine: { color: UI.sub, fontSize: 12, marginTop: 14 },
+  sectionLabel: { color: UI.ink, fontSize: 12, fontWeight: "800", marginTop: 16 },
+  sectionText: { color: UI.sub, fontSize: 12, lineHeight: 18, marginTop: 5 },
 
   pdfButton: { marginTop: 22 },
   pdfButtonContent: { height: 46 },
@@ -232,5 +241,5 @@ const styles = StyleSheet.create({
   actionButtonContent: { height: 50 },
   actionRow: { flexDirection: "row", gap: 10 },
   actionRowButton: { flex: 1 },
-  rejectButton: { borderColor: colors.danger },
+  rejectButton: { borderColor: UI.red },
 });

@@ -28,7 +28,8 @@ export interface ImagePromptInput {
 export async function buildImagePrompt(input: ImagePromptInput) {
   const { data } = await apiClient.post<{ prompt: string; generation_enabled?: boolean }>(
     "/whatsapp/broadcast/templates/image-prompt",
-    input
+    input,
+    { timeout: 45000 }
   );
   return { prompt: data.prompt || "", generationEnabled: !!data.generation_enabled };
 }

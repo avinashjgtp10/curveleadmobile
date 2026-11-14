@@ -3,9 +3,8 @@ import {
   Alert, KeyboardAvoidingView, Platform, Pressable,
   ScrollView, StyleSheet, TextInput as RNTextInput, View,
 } from "react-native";
-import { ActivityIndicator, Appbar, Switch, Text } from "react-native-paper";
+import { ActivityIndicator, Switch, Text } from "react-native-paper";
 import axios from "axios";
-import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,20 +15,23 @@ import {
   CampaignSource, CampaignStatus, createCampaign, fetchCampaign, SaveCampaignInput, updateCampaign,
 } from "@/api/campaigns";
 
+// The Add lead form's palette: pale blue page, white fields with soft blue borders, deep teal-blue actions.
+const UI = { bg: "#f4f6f5", line: "#d5e0dc", ink: "#0f1f1a", sub: "#4a6a61", muted: "#8a9a94", teal: "#0f7b67", tealSoft: "#d9efe8", blue: "#1d4fd8", blueSoft: "#dde9f8", red: "#d6334f" };
+
 const SOURCES: { value: CampaignSource; label: string; icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }[] = [
-  { value: "meta_ads", label: "Meta Ads", icon: "logo-facebook", color: "#1877f2", bg: "#dbeafe" },
-  { value: "google_ads", label: "Google Ads", icon: "logo-google", color: "#ea4335", bg: "#fee2e2" },
-  { value: "instagram", label: "Instagram", icon: "logo-instagram", color: "#c026d3", bg: "#fae8ff" },
-  { value: "whatsapp", label: "WhatsApp", icon: "logo-whatsapp", color: "#16a34a", bg: "#dcfce7" },
-  { value: "organic", label: "Organic", icon: "leaf-outline", color: "#15803d", bg: "#dcfce7" },
-  { value: "referral", label: "Referral", icon: "people-outline", color: "#d97706", bg: "#fef3c7" },
-  { value: "other", label: "Other", icon: "megaphone-outline", color: "#4f46e5", bg: "#e0e7ff" },
+  { value: "meta_ads", label: "Meta Ads", icon: "logo-facebook", color: "#1d5fa8", bg: "#dde9f8" },
+  { value: "google_ads", label: "Google Ads", icon: "logo-google", color: "#0f6b57", bg: "#d9efe8" },
+  { value: "instagram", label: "Instagram", icon: "logo-instagram", color: "#8a3a86", bg: "#f3e3f1" },
+  { value: "whatsapp", label: "WhatsApp", icon: "logo-whatsapp", color: "#0f6b57", bg: "#d9efe8" },
+  { value: "organic", label: "Organic", icon: "leaf-outline", color: "#0f6b57", bg: "#d9efe8" },
+  { value: "referral", label: "Referral", icon: "people-outline", color: "#8a5a12", bg: "#fbe8c8" },
+  { value: "other", label: "Other", icon: "megaphone-outline", color: "#4b3a9c", bg: "#e6e1f8" },
 ];
 
 const STATUSES: { value: CampaignStatus; label: string; color: string; bg: string }[] = [
-  { value: "active", label: "Active", color: "#15803d", bg: "#dcfce7" },
-  { value: "draft", label: "Draft", color: "#0369a1", bg: "#e0f2fe" },
-  { value: "paused", label: "Paused", color: "#b45309", bg: "#fef3c7" },
+  { value: "active", label: "Active", color: "#0f7b67", bg: "#d9efe8" },
+  { value: "draft", label: "Draft", color: "#1d5fa8", bg: "#dde9f8" },
+  { value: "paused", label: "Paused", color: "#8a5a12", bg: "#fbe8c8" },
   { value: "completed", label: "Completed", color: "#64748b", bg: "#eef2f6" },
 ];
 
@@ -63,6 +65,7 @@ export default function NewCampaignScreen() {
   const keyboardHeight = useKeyboardHeight();
   const [name, setName] = useState("");
   const [source, setSource] = useState<CampaignSource>("meta_ads");
+  const [sourceOpen, setSourceOpen] = useState(false);
   const [budget, setBudget] = useState("");
   const [startDate, setStartDate] = useState<Date>(new Date());
   const [endDate, setEndDate] = useState<Date | null>(null);
@@ -98,7 +101,8 @@ export default function NewCampaignScreen() {
   async function save() {
     const next: typeof fieldErrors = {};
     if (!name.trim()) next.name = "Campaign name is required";
-    if (!metaManaged && endDate && endDate.getTime() < startDate.getTime()) next.end_date = "End date must be after the start date";
+    // Compare calendar days: the start defaults to "now", so exact times would reject ending on the start day.
+    if (!metaManaged && endDate && toDateInput(endDate) < toDateInput(startDate)) next.end_date = "End date must be after the start date";
     setFieldErrors(next);
     if (Object.keys(next).length) return;
 
@@ -134,13 +138,15 @@ export default function NewCampaignScreen() {
 
   return (
     <KeyboardAvoidingView style={[styles.screen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={close} />
-        <Appbar.Content title={isEditing ? "Edit Campaign" : "New Campaign"} titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <Pressable onPress={close} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>{isEditing ? "Edit campaign" : "New campaign"}</Text>
+      </View>
 
       {loading ? (
-        <View style={styles.loadingState}><ActivityIndicator color={colors.primary} /></View>
+        <View style={styles.loadingState}><ActivityIndicator color={UI.teal} /></View>
       ) : (
         <ScrollView
           style={{ flex: 1 }}
@@ -159,23 +165,37 @@ export default function NewCampaignScreen() {
             <RNTextInput
               style={styles.inputText} value={name}
               onChangeText={(value) => { setName(value); if (value.trim()) setFieldErrors((c) => ({ ...c, name: undefined })); }}
-              placeholder="e.g. Salon lead gen - city test" placeholderTextColor={colors.textMuted}
+              placeholder="e.g. Salon lead gen - city test" placeholderTextColor={UI.muted}
             />
           </View>
           {fieldErrors.name ? <Text style={styles.fieldError}>{fieldErrors.name}</Text> : null}
 
           <Text style={styles.label}>Where do the leads come from?</Text>
-          <View style={styles.sourceGrid}>
-            {SOURCES.map((item) => {
-              const active = source === item.value;
-              return (
-                <Pressable key={item.value} onPress={() => setSource(item.value)} style={[styles.sourceTile, active && { borderColor: item.color, backgroundColor: item.bg }]}>
-                  <Ionicons name={item.icon} size={22} color={active ? item.color : colors.textMuted} />
-                  <Text style={[styles.sourceText, active && { color: item.color }]} numberOfLines={1}>{item.label}</Text>
+          {(() => {
+            const current = SOURCES.find((item) => item.value === source) || SOURCES[0];
+            return (
+              <View>
+                <Pressable onPress={() => setSourceOpen((open) => !open)} style={[styles.sourceField, sourceOpen && styles.sourceFieldOpen]} accessibilityRole="button" accessibilityLabel="Choose source">
+                  <Text style={styles.sourceFieldText}>{current.label}</Text>
+                  <Ionicons name={sourceOpen ? "chevron-up" : "chevron-down"} size={20} color={sourceOpen ? UI.blue : UI.sub} />
                 </Pressable>
-              );
-            })}
-          </View>
+                {sourceOpen ? (
+                  <View style={styles.sourceMenu}>
+                    {SOURCES.map((item) => {
+                      const active = source === item.value;
+                      return (
+                        <Pressable key={item.value} onPress={() => { setSource(item.value); setSourceOpen(false); }} style={[styles.sourceOption, active && styles.sourceOptionActive]}>
+                          <View style={[styles.sourceOptionIcon, { backgroundColor: item.bg }]}><Ionicons name={item.icon} size={18} color={item.color} /></View>
+                          <Text style={styles.sourceOptionText}>{item.label}</Text>
+                          {active ? <Ionicons name="checkmark" size={20} color={UI.blue} /> : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })()}
 
           {metaManaged ? (
             <View style={styles.metaNote}>
@@ -195,7 +215,7 @@ export default function NewCampaignScreen() {
                   const [whole, ...decimals] = value.replace(/[^\d.]/g, "").split(".");
                   setBudget(decimals.length ? `${whole}.${decimals.join("")}` : whole);
                 }}
-                placeholder="0" placeholderTextColor={colors.textMuted} keyboardType="numeric"
+                placeholder="0" placeholderTextColor={UI.muted} keyboardType="numeric"
               />
             </View>
           </View>
@@ -204,12 +224,12 @@ export default function NewCampaignScreen() {
           <View style={styles.dateRow}>
             <View style={styles.dateFieldWrap}>
               <Text style={styles.miniLabel}>Starts</Text>
-              <DateTimeField value={startDate} onChange={setStartDate} mode="date" />
+              <DateTimeField value={startDate} onChange={(date) => { setStartDate(date); setFieldErrors((c) => ({ ...c, end_date: undefined })); }} mode="date" />
             </View>
             <View style={styles.dateFieldWrap}>
               <Text style={styles.miniLabel}>Ends</Text>
               {endDate ? (
-                <DateTimeField value={endDate} onChange={setEndDate} mode="date" />
+                <DateTimeField value={endDate} onChange={(date) => { setEndDate(date); setFieldErrors((c) => ({ ...c, end_date: undefined })); }} mode="date" />
               ) : (
                 <Pressable style={styles.noEnd} onPress={() => setEndDate(new Date(startDate.getTime() + 30 * 86400000))}>
                   <Ionicons name="infinite-outline" size={18} color={colors.textSecondary} />
@@ -240,32 +260,30 @@ export default function NewCampaignScreen() {
           </View>
 
           <View style={styles.priorityCard}>
-            <View style={styles.priorityIcon}><Ionicons name="star" size={18} color="#7c3aed" /></View>
+            <View style={styles.priorityIcon}><Ionicons name="star" size={18} color="#1d5fa8" /></View>
             <View style={{ flex: 1 }}>
               <Text style={styles.priorityTitle}>Priority campaign</Text>
               <Text style={styles.priorityHint}>Leads skip automated messages and go straight to your salesperson.</Text>
             </View>
-            <Switch value={isPriority} onValueChange={setIsPriority} color={colors.primary} />
+            <Switch value={isPriority} onValueChange={setIsPriority} color={UI.teal} trackColor={{ true: UI.teal, false: "#c9d3cf" }} />
           </View>
         </ScrollView>
       )}
 
       <View style={[styles.bottomBar, { paddingBottom: keyboardHeight ? 12 : Math.max(insets.bottom, 12) }]}>
-        <Pressable onPress={close} disabled={saving} style={styles.cancelButton}>
+        <Pressable onPress={close} disabled={saving} style={styles.cancelButton} accessibilityRole="button">
           <Text style={styles.cancelText}>Cancel</Text>
         </Pressable>
-        <Pressable onPress={save} disabled={saving || loading || loadFailed} style={[styles.saveWrap, (saving || loading || loadFailed) && styles.disabled]}>
-          <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.saveButton}>
-            {saving ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="checkmark" size={20} color="#fff" />}
-            <Text style={styles.saveText}>{isEditing ? "Save changes" : "Create campaign"}</Text>
-          </LinearGradient>
+        <Pressable onPress={save} disabled={saving || loading || loadFailed} style={[styles.saveButton, (saving || loading || loadFailed) && styles.disabled]} accessibilityRole="button">
+          {saving ? <ActivityIndicator size="small" color="#fff" /> : null}
+          <Text style={styles.saveText}>{isEditing ? "Save changes" : "Create campaign"}</Text>
         </Pressable>
       </View>
 
       {saving ? (
         <View style={styles.savingOverlay} pointerEvents="auto">
           <View style={styles.savingCard}>
-            <ActivityIndicator size="large" color={colors.primary} />
+            <ActivityIndicator size="large" color={UI.teal} />
             <Text style={styles.savingText}>{isEditing ? "Saving changes..." : "Creating campaign..."}</Text>
           </View>
         </View>
@@ -275,54 +293,59 @@ export default function NewCampaignScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#ffffff" },
-  header: { backgroundColor: "#ffffff" },
-  headerTitle: { fontSize: 17, fontWeight: "800", color: colors.text },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: UI.bg, borderBottomWidth: 0 },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   content: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
   loadingState: { flex: 1, alignItems: "center", justifyContent: "center" },
   disabled: { opacity: 0.6 },
   lockedSection: { opacity: 0.5 },
-  metaNote: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f1f5f9", borderRadius: 12, padding: 12, marginTop: 16 },
-  metaNoteText: { flex: 1, color: colors.textSecondary, fontSize: 12, lineHeight: 17 },
-  savingOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.7)", alignItems: "center", justifyContent: "center", zIndex: 10 },
-  savingCard: { alignItems: "center", gap: 12, paddingHorizontal: 28, paddingVertical: 22, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e2eef7", elevation: 6, shadowColor: "#0f172a", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
+  metaNote: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: UI.tealSoft, borderRadius: 12, padding: 12, marginTop: 16 },
+  metaNoteText: { flex: 1, color: UI.sub, fontSize: 12, lineHeight: 17 },
+  savingOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(240,246,250,0.75)", alignItems: "center", justifyContent: "center", zIndex: 10 },
+  savingCard: { alignItems: "center", gap: 12, paddingHorizontal: 28, paddingVertical: 22, borderRadius: 18, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, elevation: 6, shadowColor: "#0f172a", shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
   savingText: { color: colors.text, fontSize: 14, fontWeight: "700" },
   errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12, marginTop: 8 },
   errorBannerText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600" },
 
-  label: { color: colors.text, fontSize: 14, fontWeight: "800", marginTop: 20, marginBottom: 8 },
-  miniLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginBottom: 6 },
-  required: { color: colors.danger },
+  label: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold", marginTop: 16, marginBottom: 6 },
+  miniLabel: { color: UI.sub, fontSize: 11, fontWeight: "700", marginBottom: 6 },
+  required: { color: UI.red },
   fieldError: { color: colors.danger, fontSize: 12, marginTop: 4 },
-  inputBox: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#f8fbfd", paddingHorizontal: 14, justifyContent: "center" },
-  inputError: { borderColor: colors.danger },
-  inputText: { color: colors.text, fontSize: 15 },
+  inputBox: { minHeight: 46, borderRadius: 10, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, justifyContent: "center" },
+  inputError: { borderColor: UI.red },
+  inputText: { color: UI.ink, fontSize: 13 },
   budgetRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  currency: { color: colors.textSecondary, fontSize: 16, fontWeight: "800" },
+  currency: { color: UI.sub, fontSize: 15, fontWeight: "800" },
 
-  sourceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  sourceTile: { width: "30.5%", alignItems: "center", gap: 6, paddingVertical: 14, borderRadius: 16, borderWidth: 1.5, borderColor: "#e2eef7", backgroundColor: "#ffffff" },
-  sourceText: { color: colors.textSecondary, fontSize: 12, fontWeight: "800" },
+  sourceField: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14 },
+  sourceFieldOpen: { borderColor: UI.blue, borderWidth: 1.5 },
+  sourceFieldText: { color: UI.ink, fontSize: 14, fontWeight: "800" },
+  sourceMenu: { marginTop: 8, borderRadius: 14, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", overflow: "hidden" },
+  sourceOption: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  sourceOptionActive: { backgroundColor: "#edf3ff" },
+  sourceOptionIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  sourceOptionText: { flex: 1, color: UI.ink, fontSize: 14, fontWeight: "800" },
 
   dateRow: { flexDirection: "row", gap: 10 },
   dateFieldWrap: { flex: 1 },
-  noEnd: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 48, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: "#bae6fd", backgroundColor: "#f0f9ff" },
-  noEndText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
-  clearEnd: { color: colors.primary, fontSize: 12, fontWeight: "800", marginTop: 8 },
+  noEnd: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 44, borderRadius: 10, borderWidth: 1, borderStyle: "dashed", borderColor: UI.line, backgroundColor: "#ffffff" },
+  noEndText: { color: UI.sub, fontSize: 13, fontWeight: "700" },
+  clearEnd: { color: UI.teal, fontSize: 12, fontWeight: "800", marginTop: 8 },
 
   statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  statusChip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 999, borderWidth: 1.5, borderColor: "#d7e6f1", backgroundColor: "#ffffff" },
-  statusText: { color: colors.textSecondary, fontSize: 13, fontWeight: "800" },
+  statusChip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 999, borderWidth: 1.5, borderColor: UI.line, backgroundColor: "#ffffff" },
+  statusText: { color: UI.ink, fontSize: 13, fontWeight: "800" },
 
-  priorityCard: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 22, padding: 14, borderRadius: 18, backgroundColor: "#faf5ff", borderWidth: 1, borderColor: "#ede9fe" },
-  priorityIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: "#ede9fe", alignItems: "center", justifyContent: "center" },
-  priorityTitle: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  priorityHint: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  priorityCard: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 22, padding: 14, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
+  priorityIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: UI.blueSoft, alignItems: "center", justifyContent: "center" },
+  priorityTitle: { color: UI.ink, fontSize: 13, fontWeight: "800" },
+  priorityHint: { color: UI.sub, fontSize: 12, lineHeight: 17, marginTop: 2 },
 
-  bottomBar: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 12, backgroundColor: "#ffffff", borderTopWidth: 1, borderTopColor: "#e2eef7" },
-  cancelButton: { height: 52, paddingHorizontal: 22, borderRadius: 16, borderWidth: 1.5, borderColor: "#d7e6f1", alignItems: "center", justifyContent: "center" },
-  cancelText: { color: colors.textSecondary, fontSize: 15, fontWeight: "800" },
-  saveWrap: { flex: 1 },
-  saveButton: { height: 52, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  saveText: { color: "#ffffff", fontSize: 16, fontWeight: "800" },
+  bottomBar: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: UI.bg, borderTopWidth: 1, borderTopColor: UI.line },
+  cancelButton: { width: 110, height: 44, borderRadius: 999, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  cancelText: { color: UI.ink, fontSize: 14, fontWeight: "800" },
+  saveButton: { flex: 1, height: 44, borderRadius: 999, backgroundColor: UI.blue, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  saveText: { color: "#ffffff", fontSize: 14, fontWeight: "800" },
 });

@@ -1,18 +1,20 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert, BackHandler, KeyboardAvoidingView, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet,
   TextInput as RNTextInput, View,
 } from "react-native";
-import { ActivityIndicator, Appbar, Button, Text } from "react-native-paper";
+import { ActivityIndicator, Button, Text } from "react-native-paper";
 import axios from "axios";
 import * as DocumentPicker from "expo-document-picker";
-import { LinearGradient } from "expo-linear-gradient";
-import { router, useFocusEffect, useNavigation } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import { Brochure, deleteBrochure, fetchBrochures, uploadBrochure } from "@/api/brochures";
+
+// Palette of the redesigned screen: lavender page, white cards, blue accents, green share.
+const UI = { bg: "#eef1fa", line: "#e4e9f3", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", blue: "#2457e6", green: "#0f7b5f", red: "#d6334f" };
 
 const FILE_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
 const CATEGORIES = ["Products", "Services", "Pricing", "Company", "General"];
@@ -38,9 +40,9 @@ function pretty(value?: string) {
 }
 
 function fileLook(mimeType?: string) {
-  if (mimeType?.includes("pdf")) return { icon: "document-text" as const, color: "#dc2626", bg: "#fee2e2", label: "PDF" };
-  if (mimeType?.startsWith("image")) return { icon: "image" as const, color: "#2563eb", bg: "#dbeafe", label: "Image" };
-  return { icon: "document" as const, color: "#64748b", bg: "#eef2f6", label: "File" };
+  if (mimeType?.includes("pdf")) return { icon: "document-text-outline" as const, color: "#e0414f", bg: "#fde1e1", label: "PDF" };
+  if (mimeType?.startsWith("image")) return { icon: "image-outline" as const, color: UI.blue, bg: "#dbe5fb", label: "Image" };
+  return { icon: "document-outline" as const, color: UI.sub, bg: "#e5e9f2", label: "File" };
 }
 
 function FieldError({ message }: { message: string }) {
@@ -72,15 +74,21 @@ export default function BrochuresScreen() {
   // Messages under each field, set when Upload is pressed and cleared as soon as that field is fixed.
   const [fieldErrors, setFieldErrors] = useState({ file: "", name: "" });
 
+  const hasData = useRef(false);
+  // `silent` refreshes in place: no spinner, and a failure keeps the list on screen but says so.
   const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    setError("");
-    try { setBrochures(await fetchBrochures()); }
-    catch (loadError) { setError(errorMessage(loadError, "Could not load brochures.")); }
+    if (!silent) { setLoading(true); setError(""); }
+    try { setBrochures(await fetchBrochures()); setError(""); hasData.current = true; }
+    catch (loadError) {
+      const message = errorMessage(loadError, "Could not load brochures.");
+      if (hasData.current) Alert.alert("Couldn't refresh brochures", message);
+      else setError(message);
+    }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  // Coming back to the screen refreshes quietly once the list is on screen, instead of replacing it with a spinner.
+  useFocusEffect(useCallback(() => { load(hasData.current); }, [load]));
 
   // The upload form is a full page: hide the tab bar and let the phone's back button close it.
   useEffect(() => {
@@ -114,6 +122,10 @@ export default function BrochuresScreen() {
 
   const totalViews = brochures.reduce((sum, item) => sum + (item.views || 0), 0);
   const totalShares = brochures.reduce((sum, item) => sum + (item.times_shared || 0), 0);
+
+  // The Content Library's "Upload" shortcut opens the uploader straight away.
+  const { action } = useLocalSearchParams<{ action?: string }>();
+  useEffect(() => { if (action === "new") { router.setParams({ action: undefined }); openUpload(); } }, [action]);
 
   function openUpload() {
     setPickedFile(null);
@@ -180,13 +192,15 @@ export default function BrochuresScreen() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Brochures" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={20} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>Brochures</Text>
+      </View>
 
       {loading ? (
-        <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>
+        <View style={styles.state}><ActivityIndicator size="large" color={UI.blue} /></View>
       ) : error && !brochures.length ? (
         <View style={styles.state}>
           <Ionicons name="cloud-offline-outline" size={32} color={colors.textMuted} />
@@ -197,15 +211,15 @@ export default function BrochuresScreen() {
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 170 }]}
           showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(true); }} tintColor={colors.primary} colors={[colors.primary]} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(true); }} tintColor={UI.blue} colors={[UI.blue]} />}
         >
-          <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.summary}>
+          <View style={styles.summary}>
             <View style={styles.summaryItem}><Text style={styles.summaryValue}>{brochures.length}</Text><Text style={styles.summaryLabel}>Brochures</Text></View>
             <View style={styles.summaryDivider} />
             <View style={styles.summaryItem}><Text style={styles.summaryValue}>{totalShares}</Text><Text style={styles.summaryLabel}>Shares</Text></View>
             <View style={styles.summaryDivider} />
             <View style={styles.summaryItem}><Text style={styles.summaryValue}>{totalViews}</Text><Text style={styles.summaryLabel}>Views</Text></View>
-          </LinearGradient>
+          </View>
 
           <View style={styles.searchBox}>
             <Ionicons name="search" size={18} color={colors.textMuted} />
@@ -233,7 +247,7 @@ export default function BrochuresScreen() {
               <Pressable key={brochure.id} style={styles.card} onPress={() => openBrochure(brochure)}>
                 <View style={styles.cardTop}>
                   <View style={[styles.fileIcon, { backgroundColor: kind.bg }]}>
-                    <Ionicons name={kind.icon} size={24} color={kind.color} />
+                    <Ionicons name={kind.icon} size={22} color={kind.color} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.cardName} numberOfLines={1}>{brochure.name}</Text>
@@ -251,18 +265,18 @@ export default function BrochuresScreen() {
                   </View>
                   <View style={{ flex: 1 }} />
                   <Pressable style={styles.shareButton} onPress={() => shareBrochure(brochure)}>
-                    <Ionicons name="logo-whatsapp" size={16} color="#fff" />
+                    <Ionicons name="chatbubble-outline" size={16} color="#fff" />
                     <Text style={styles.shareText}>Share</Text>
                   </Pressable>
                   <Pressable style={styles.deleteButton} onPress={() => confirmDelete(brochure)} hitSlop={6}>
-                    <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                    <Ionicons name="trash-outline" size={17} color={UI.red} />
                   </Pressable>
                 </View>
               </Pressable>
             );
           }) : (
             <View style={styles.empty}>
-              <View style={styles.emptyIcon}><Ionicons name="folder-open-outline" size={32} color={colors.primary} /></View>
+              <View style={styles.emptyIcon}><Ionicons name="folder-open-outline" size={32} color={UI.blue} /></View>
               <Text style={styles.emptyTitle}>{brochures.length ? "No brochures match" : "No brochures yet"}</Text>
               <Text style={styles.emptyText}>{brochures.length ? "Try another search or category." : "Upload a PDF or image, then share it with any lead on WhatsApp in one tap."}</Text>
               {!brochures.length ? (
@@ -278,9 +292,9 @@ export default function BrochuresScreen() {
 
       {!uploadOpen && !loading && !(error && !brochures.length) ? (
         <Pressable accessibilityLabel="Upload brochure" style={[styles.fabWrap, { bottom: 64 + Math.max(insets.bottom, 8) + 16 }]} onPress={openUpload}>
-          <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fab}>
-            <Ionicons name="add" size={30} color="#fff" />
-          </LinearGradient>
+          <View style={styles.fab}>
+            <Ionicons name="add" size={28} color="#fff" />
+          </View>
         </Pressable>
       ) : null}
 
@@ -288,7 +302,7 @@ export default function BrochuresScreen() {
         <KeyboardAvoidingView style={[styles.overlay, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={[styles.overlayHeader, { paddingTop: insets.top + 8 }]}>
             <Pressable onPress={() => !uploading && setUploadOpen(false)} hitSlop={10} style={styles.overlayBack}>
-              <Ionicons name="arrow-back" size={24} color={colors.text} />
+              <Ionicons name="arrow-back" size={22} color={UI.ink} />
             </Pressable>
             <Text style={styles.overlayTitle}>Upload brochure</Text>
           </View>
@@ -311,7 +325,7 @@ export default function BrochuresScreen() {
                 </>
               ) : (
                 <View style={styles.pickerEmpty}>
-                  <Ionicons name="cloud-upload-outline" size={30} color={colors.primary} />
+                  <Ionicons name="cloud-upload-outline" size={26} color={UI.blue} />
                   <Text style={styles.pickerTitle}>Choose a PDF or image</Text>
                   <Text style={styles.pickerHint}>PDF, JPG, PNG or WEBP</Text>
                 </View>
@@ -322,7 +336,7 @@ export default function BrochuresScreen() {
 
             <Text style={styles.label}>Name <Text style={styles.required}>*</Text></Text>
             <View style={[styles.input, !!fieldErrors.name && styles.fieldInvalid]}>
-              <RNTextInput value={uploadName} onChangeText={(value) => { setUploadName(value); setUploadError(""); setFieldErrors((current) => ({ ...current, name: "" })); }} placeholder="e.g. Summer price list" placeholderTextColor={colors.textMuted} style={styles.inputText} />
+              <RNTextInput value={uploadName} onChangeText={(value) => { setUploadName(value); setUploadError(""); setFieldErrors((current) => ({ ...current, name: "" })); }} placeholder="e.g. Summer price list" placeholderTextColor={UI.muted} style={styles.inputText} />
             </View>
             {fieldErrors.name ? <FieldError message={fieldErrors.name} /> : null}
 
@@ -341,10 +355,10 @@ export default function BrochuresScreen() {
 
           <View style={[styles.formFooter, { paddingBottom: Math.max(insets.bottom, 12) }]}>
             <Pressable onPress={confirmUpload} disabled={uploading} style={uploading && { opacity: 0.6 }}>
-              <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.saveButton}>
+              <View style={styles.saveButton}>
                 {uploading ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="cloud-upload" size={19} color="#fff" />}
                 <Text style={styles.saveText}>{uploading ? "Uploading..." : "Upload brochure"}</Text>
-              </LinearGradient>
+              </View>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -354,78 +368,79 @@ export default function BrochuresScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f4f9fc" },
-  header: { backgroundColor: "#ffffff" },
-  headerTitle: { fontSize: 17, fontWeight: "800", color: colors.text },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingBottom: 10 },
+  headerButton: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, alignItems: "center", justifyContent: "center" },
+  headerTitle: { fontSize: 18, fontFamily: "DMSans_700Bold", color: UI.ink },
   state: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30, gap: 8 },
   errorText: { color: colors.danger, fontSize: 13, textAlign: "center" },
   content: { padding: 14, gap: 12 },
 
-  summary: { flexDirection: "row", alignItems: "center", borderRadius: 20, paddingVertical: 16 },
+  summary: { flexDirection: "row", alignItems: "center", borderRadius: 16, paddingVertical: 14, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
   summaryItem: { flex: 1, alignItems: "center" },
-  summaryValue: { color: "#fff", fontSize: 24, fontWeight: "900" },
-  summaryLabel: { color: "rgba(255,255,255,0.88)", fontSize: 12, fontWeight: "700", marginTop: 1 },
-  summaryDivider: { width: 1, height: 34, backgroundColor: "rgba(255,255,255,0.3)" },
+  summaryValue: { color: UI.ink, fontSize: 24, fontFamily: "DMSans_700Bold" },
+  summaryLabel: { color: UI.sub, fontSize: 12, fontFamily: "Inter_600SemiBold", marginTop: 1 },
+  summaryDivider: { width: 1, height: 34, backgroundColor: UI.line },
 
-  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", paddingHorizontal: 12, minHeight: 46 },
-  searchField: { flex: 1, color: colors.text, fontSize: 14, paddingVertical: 8 },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1, borderColor: UI.line, paddingHorizontal: 12, minHeight: 44 },
+  searchField: { flex: 1, color: UI.ink, fontSize: 13, paddingVertical: 8 },
 
   chipScroll: { flexGrow: 0, flexShrink: 0 },
   chipRow: { gap: 8, paddingVertical: 2, alignItems: "center" },
-  chip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#d7e6f1" },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
+  chip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
+  chipActive: { backgroundColor: UI.blue, borderColor: UI.blue },
+  chipText: { color: UI.ink, fontSize: 13, fontFamily: "Inter_700Bold" },
   chipTextActive: { color: "#ffffff" },
-  chipCount: { minWidth: 20, height: 20, borderRadius: 10, backgroundColor: "#eef4f9", alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
+  chipCount: { minWidth: 20, height: 20, borderRadius: 10, backgroundColor: "#e9edf7", alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
   chipCountActive: { backgroundColor: "rgba(255,255,255,0.28)" },
-  chipCountText: { color: colors.textSecondary, fontSize: 11, fontWeight: "800" },
+  chipCountText: { color: UI.sub, fontSize: 11, fontWeight: "800" },
   chipCountTextActive: { color: "#ffffff" },
 
-  card: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: "#e2eef7", padding: 14, gap: 12 },
+  card: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 14, gap: 12 },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  fileIcon: { width: 48, height: 48, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  cardName: { color: colors.text, fontSize: 15, fontWeight: "800" },
-  cardMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
-  tag: { backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
-  tagText: { color: colors.primary, fontSize: 11, fontWeight: "800" },
+  fileIcon: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  cardName: { color: UI.ink, fontSize: 14, fontFamily: "Inter_700Bold" },
+  cardMeta: { color: UI.sub, fontSize: 11, marginTop: 2 },
+  tag: { backgroundColor: "#dbe5fb", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  tagText: { color: UI.blue, fontSize: 10, fontFamily: "Inter_700Bold" },
   cardBottom: { flexDirection: "row", alignItems: "center", gap: 8 },
   statsRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  statText: { color: colors.textSecondary, fontSize: 12, fontWeight: "700" },
-  shareButton: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#16a34a", borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9 },
+  statText: { color: UI.sub, fontSize: 12, fontWeight: "700" },
+  shareButton: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: UI.green, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 },
   shareText: { color: "#fff", fontSize: 13, fontWeight: "800" },
-  deleteButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.dangerSoft, alignItems: "center", justifyContent: "center" },
+  deleteButton: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#fde1e6", alignItems: "center", justifyContent: "center" },
 
   empty: { alignItems: "center", paddingTop: 40, paddingHorizontal: 24, gap: 6 },
-  emptyIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  emptyIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: "#dbe5fb", alignItems: "center", justifyContent: "center", marginBottom: 6 },
   emptyTitle: { color: colors.text, fontSize: 16, fontWeight: "800" },
   emptyText: { color: colors.textMuted, fontSize: 13, textAlign: "center", lineHeight: 19 },
-  emptyButton: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, backgroundColor: colors.primary, borderRadius: 999, paddingHorizontal: 20, paddingVertical: 12 },
+  emptyButton: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, backgroundColor: UI.blue, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12 },
   emptyButtonText: { color: "#fff", fontSize: 14, fontWeight: "800" },
 
   fabWrap: { position: "absolute", right: 18 },
-  fab: { width: 58, height: 58, borderRadius: 29, alignItems: "center", justifyContent: "center", shadowColor: "#4f46e5", shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 8 },
+  fab: { width: 52, height: 52, borderRadius: 26, backgroundColor: UI.blue, alignItems: "center", justifyContent: "center", shadowColor: UI.blue, shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 8 },
 
-  overlay: { ...StyleSheet.absoluteFill, zIndex: 50, elevation: 50, backgroundColor: "#ffffff" },
-  overlayHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
-  overlayBack: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
-  overlayTitle: { color: colors.text, fontSize: 18, fontWeight: "800" },
-  formContent: { padding: 16, paddingBottom: 24 },
+  overlay: { ...StyleSheet.absoluteFill, zIndex: 50, elevation: 50, backgroundColor: UI.bg },
+  overlayHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingBottom: 12, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
+  overlayBack: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  overlayTitle: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
+  formContent: { padding: 16, paddingTop: 12, paddingBottom: 24 },
   formError: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12 },
   formErrorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "700" },
-  label: { color: colors.text, fontSize: 13, fontWeight: "800", marginTop: 18, marginBottom: 8 },
-  required: { color: colors.danger },
+  label: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold", marginTop: 18, marginBottom: 8 },
+  required: { color: UI.red },
   fieldInvalid: { borderColor: colors.danger },
   fieldError: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 },
   fieldErrorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600" },
-  picker: { borderRadius: 16, borderWidth: 2, borderStyle: "dashed", borderColor: "#bae6fd", backgroundColor: "#f0f9ff", padding: 16, flexDirection: "row", alignItems: "center", gap: 12, minHeight: 96 },
-  pickerFilled: { borderStyle: "solid", borderColor: "#d7e6f1", backgroundColor: "#ffffff" },
+  picker: { borderRadius: 14, borderWidth: 2, borderStyle: "dashed", borderColor: "#c1d0f3", backgroundColor: "#eef2fd", padding: 16, flexDirection: "row", alignItems: "center", gap: 12, minHeight: 96 },
+  pickerFilled: { borderStyle: "solid", borderColor: UI.line, backgroundColor: "#ffffff" },
   pickerEmpty: { flex: 1, alignItems: "center", gap: 4 },
-  pickerTitle: { color: colors.primary, fontSize: 15, fontWeight: "800" },
-  pickerHint: { color: colors.textMuted, fontSize: 12 },
-  input: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#f8fbfd", paddingHorizontal: 14, justifyContent: "center" },
-  inputText: { color: colors.text, fontSize: 15 },
+  pickerTitle: { color: UI.blue, fontSize: 13, fontFamily: "Inter_700Bold" },
+  pickerHint: { color: UI.sub, fontSize: 11 },
+  input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, justifyContent: "center" },
+  inputText: { color: UI.ink, fontSize: 13 },
   categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  formFooter: { paddingHorizontal: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.borderSoft, backgroundColor: "#ffffff" },
-  saveButton: { height: 52, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  saveText: { color: "#ffffff", fontSize: 16, fontWeight: "800" },
+  formFooter: { paddingHorizontal: 16, paddingTop: 12, backgroundColor: UI.bg },
+  saveButton: { height: 50, borderRadius: 12, backgroundColor: UI.blue, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  saveText: { color: "#ffffff", fontSize: 14, fontFamily: "Inter_700Bold" },
 });

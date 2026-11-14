@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Appbar, Button, Card, Chip, SegmentedButtons, Text, TextInput } from "react-native-paper";
+import { Alert, BackHandler, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { ActivityIndicator, Button, Chip, Text, TextInput } from "react-native-paper";
 import axios from "axios";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,7 +10,25 @@ import {
   createWhatsAppTemplate, fetchWhatsAppTemplates, templateComponent, WhatsAppTemplate,
 } from "@/api/whatsappTemplates";
 
-const CATEGORIES = ["MARKETING", "UTILITY", "AUTHENTICATION"];
+// Pale lavender page, white cards with soft borders, indigo actions.
+const UI = { bg: "#f4f5fb", line: "#dfe2f0", ink: "#14172e", sub: "#5b6280", muted: "#8b91ab", accent: "#4b45e0", accentSoft: "#e8e9fb", track: "#e8eaf4", chip: "#eceef6" };
+
+// Shows {{1}}-style variables as small highlighted tokens inside the template text.
+function BodyText({ text }: { text: string }) {
+  const parts = text.split(/(\{\{\d+\}\})/g);
+  return (
+    <Text style={styles.cardBody} numberOfLines={3}>
+      {parts.map((part, index) => /^\{\{\d+\}\}$/.test(part)
+        ? <Text key={index} style={styles.variable}>{` ${part} `}</Text>
+        : part)}
+    </Text>
+  );
+}
+
+// AUTHENTICATION is left out: Meta requires a fixed one-time-password format for it, which free-text body input can't produce.
+const CATEGORIES = ["MARKETING", "UTILITY"];
+const MAX_BODY_LENGTH = 1024;
+const MAX_NAME_LENGTH = 512;
 const LANGUAGES = [
   { value: "en_US", label: "English (US)" },
   { value: "en", label: "English" },
@@ -18,9 +36,9 @@ const LANGUAGES = [
 ];
 
 const STATUS_COLOR: Record<string, { bg: string; text: string }> = {
-  APPROVED: { bg: colors.successSoft, text: colors.success },
-  PENDING: { bg: colors.warningSoft, text: colors.warning },
-  REJECTED: { bg: colors.dangerSoft, text: colors.danger },
+  APPROVED: { bg: "#d9f3e4", text: "#0f6b3a" },
+  PENDING: { bg: "#fdeccd", text: "#8a5a12" },
+  REJECTED: { bg: "#fde3e8", text: "#b3173a" },
 };
 
 function errorMessage(error: unknown, fallback: string) {
@@ -60,7 +78,9 @@ export default function WhatsAppTemplatesScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
@@ -86,10 +106,18 @@ export default function WhatsAppTemplatesScreen() {
       setError(errorMessage(loadError, "Could not load templates."));
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
   useEffect(() => { load(); }, []);
+
+  // System back closes the create form instead of leaving the screen.
+  useEffect(() => {
+    if (!creating) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { if (!submitting) setCreating(false); return true; });
+    return () => sub.remove();
+  }, [creating, submitting]);
 
   const counts = useMemo(() => ({
     ALL: templates.length,
@@ -100,9 +128,16 @@ export default function WhatsAppTemplatesScreen() {
     OTHER: templates.filter((item) => !KNOWN_STATUSES.includes(item.status)).length,
   }), [templates]);
 
-  const visibleTemplates = statusFilter === "ALL" ? templates
+  // Don't stay on the Other filter once nothing is left in it (its button disappears).
+  useEffect(() => { if (statusFilter === "OTHER" && !counts.OTHER) setStatusFilter("ALL"); }, [statusFilter, counts.OTHER]);
+
+  const byStatus = statusFilter === "ALL" ? templates
     : statusFilter === "OTHER" ? templates.filter((item) => !KNOWN_STATUSES.includes(item.status))
     : templates.filter((item) => item.status === statusFilter);
+  const needle = query.trim().toLowerCase();
+  const visibleTemplates = needle
+    ? byStatus.filter((item) => item.name.toLowerCase().includes(needle) || (templateComponent(item, "BODY")?.text || "").toLowerCase().includes(needle))
+    : byStatus;
 
   const varCount = countVars(bodyText);
   useEffect(() => {
@@ -119,8 +154,10 @@ export default function WhatsAppTemplatesScreen() {
       setFormError("Name must be lowercase letters, numbers, and underscores only (e.g. order_update).");
       return;
     }
+    if (name.length > MAX_NAME_LENGTH) { setFormError(`Name can be at most ${MAX_NAME_LENGTH} characters.`); return; }
     const body = bodyText.trim();
     if (!body) { setFormError("Body text is required."); return; }
+    if (body.length > MAX_BODY_LENGTH) { setFormError(`Body text can be at most ${MAX_BODY_LENGTH} characters (currently ${body.length}).`); return; }
     const problem = variableProblem(body);
     if (problem) { setFormError(problem); return; }
     if (varCount > 0 && examples.some((example) => !example.trim())) {
@@ -144,10 +181,10 @@ export default function WhatsAppTemplatesScreen() {
   if (creating) {
     return (
       <View style={styles.screen}>
-        <Appbar.Header style={styles.header} elevated={false}>
-          <Appbar.BackAction onPress={() => setCreating(false)} />
-          <Appbar.Content title="Create template" titleStyle={styles.headerTitle} />
-        </Appbar.Header>
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+          <Pressable onPress={() => setCreating(false)} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back"><Ionicons name="chevron-back" size={20} color={UI.ink} /></Pressable>
+          <Text style={styles.headerTitle} numberOfLines={1}>Create template</Text>
+        </View>
         <ScrollView ref={formScroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}>
           {formError ? <Text style={styles.formError}>{formError}</Text> : null}
           <TextInput
@@ -176,6 +213,7 @@ export default function WhatsAppTemplatesScreen() {
             placeholder="Hi {{1}}, your order is on its way. Track it here: {{2}}"
             multiline numberOfLines={4} style={[styles.field, styles.textarea]}
           />
+          <Text style={styles.hint}>{bodyText.trim().length}/{MAX_BODY_LENGTH} characters</Text>
           <Text style={styles.hint}>Use {"{{1}}"}, {"{{2}}"}... for variables. Header, footer and buttons aren't supported yet.</Text>
 
           {varCount > 0 ? (
@@ -201,58 +239,69 @@ export default function WhatsAppTemplatesScreen() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="WhatsApp Templates" titleStyle={styles.headerTitle} />
-        <Appbar.Action icon="plus" color={colors.primary} onPress={openCreate} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back"><Ionicons name="chevron-back" size={20} color={UI.ink} /></Pressable>
+        <Text style={styles.headerTitle} numberOfLines={1}>WhatsApp Templates</Text>
+        <Pressable onPress={openCreate} style={[styles.headerButton, styles.headerAdd]} accessibilityRole="button" accessibilityLabel="New template"><Ionicons name="add" size={22} color="#ffffff" /></Pressable>
+      </View>
 
       <View style={styles.filterRow}>
-        <SegmentedButtons
-          value={statusFilter}
-          onValueChange={setStatusFilter}
-          buttons={[
+        <View style={styles.segmented}>
+          {[
             { value: "ALL", label: `All ${counts.ALL}` },
-            { value: "APPROVED", label: `Approved ${counts.APPROVED}` },
-            { value: "PENDING", label: `Pending ${counts.PENDING}` },
-            { value: "REJECTED", label: `Rejected ${counts.REJECTED}` },
+            { value: "APPROVED", label: "Approved" },
+            { value: "PENDING", label: "Pending" },
+            { value: "REJECTED", label: "Rejected" },
             ...(counts.OTHER ? [{ value: "OTHER", label: `Other ${counts.OTHER}` }] : []),
-          ]}
-        />
+          ].map((item) => {
+            const active = statusFilter === item.value;
+            return (
+              <Pressable key={item.value} onPress={() => setStatusFilter(item.value)} style={[styles.segOption, active && styles.segOptionActive]} accessibilityRole="button" accessibilityState={{ selected: active }}>
+                <Text style={[styles.segText, active && styles.segTextActive]} numberOfLines={1}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={16} color={UI.sub} />
+          <RNTextInput value={query} onChangeText={setQuery} placeholder="Search templates" placeholderTextColor={UI.muted} style={styles.searchInput} />
+          {query ? <Pressable onPress={() => setQuery("")} hitSlop={8}><Ionicons name="close-circle" size={16} color={UI.muted} /></Pressable> : null}
+        </View>
       </View>
 
       {loading ? (
-        <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>
+        <View style={styles.state}><ActivityIndicator size="large" color={UI.accent} /></View>
       ) : error ? (
         <View style={styles.state}>
           <Text style={styles.errorText}>{error}</Text>
           <Button mode="contained" onPress={load} style={{ marginTop: 14 }}>Try again</Button>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={UI.accent} colors={[UI.accent]} />}
+        >
           {visibleTemplates.length ? visibleTemplates.map((template) => {
             const statusStyle = STATUS_COLOR[template.status] || { bg: colors.surfaceMuted, text: colors.textSecondary };
             const body = templateComponent(template, "BODY")?.text;
             return (
-              <Card key={`${template.name}-${template.language}`} mode="outlined" style={styles.card}>
-                <Card.Content>
-                  <View style={styles.cardTopRow}>
-                    <Text style={styles.cardName} numberOfLines={1}>{template.name}</Text>
-                    <View style={[styles.statusPill, { backgroundColor: statusStyle.bg }]}>
-                      <Text style={[styles.statusPillText, { color: statusStyle.text }]}>{template.status}</Text>
-                    </View>
+              <View key={`${template.name}-${template.language}`} style={styles.card}>
+                <View style={styles.cardTopRow}>
+                  <Text style={styles.cardName} numberOfLines={1}>{template.name}</Text>
+                  <View style={[styles.statusPill, { backgroundColor: statusStyle.bg }]}>
+                    <Text style={[styles.statusPillText, { color: statusStyle.text }]}>{template.status}</Text>
                   </View>
-                  <View style={styles.cardMetaRow}>
-                    <Text style={styles.cardMeta}>{template.category}</Text>
-                    <Text style={styles.cardMeta}>{template.language}</Text>
-                  </View>
-                  {body ? <Text style={styles.cardBody} numberOfLines={3}>{body}</Text> : null}
-                </Card.Content>
-              </Card>
+                </View>
+                <View style={styles.cardMetaRow}>
+                  <Text style={styles.metaChip}>{template.category}</Text>
+                  <Text style={styles.metaChip}>{template.language}</Text>
+                </View>
+                {body ? <BodyText text={body} /> : null}
+              </View>
             );
           }) : (
             <View style={styles.empty}>
-              <View style={styles.emptyIcon}><Ionicons name="logo-whatsapp" size={28} color={colors.primary} /></View>
+              <View style={styles.emptyIcon}><Ionicons name="logo-whatsapp" size={26} color={UI.accent} /></View>
               <Text style={styles.emptyTitle}>No templates yet</Text>
               <Text style={styles.emptyText}>Create one to submit it for Meta's approval.</Text>
               <Button mode="outlined" onPress={openCreate} style={{ marginTop: 14 }}>Create template</Button>
@@ -265,25 +314,36 @@ export default function WhatsAppTemplatesScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#fff" },
-  header: { backgroundColor: "#fff" },
-  headerTitle: { fontSize: 15, fontWeight: "700" },
-  filterRow: { paddingHorizontal: 16, paddingTop: 10, backgroundColor: "#fff", paddingBottom: 10 },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingBottom: 8, backgroundColor: UI.bg },
+  headerButton: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  headerAdd: { backgroundColor: UI.accent, borderColor: UI.accent },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 16, fontWeight: "800" },
+  filterRow: { paddingHorizontal: 14, paddingTop: 2, paddingBottom: 8, gap: 8 },
+  segmented: { flexDirection: "row", backgroundColor: UI.track, borderRadius: 12, padding: 3 },
+  segOption: { flex: 1, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 9, paddingHorizontal: 2 },
+  segOptionActive: { backgroundColor: "#ffffff" },
+  segText: { color: UI.sub, fontSize: 12, fontWeight: "600" },
+  segTextActive: { color: UI.ink, fontWeight: "800" },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, height: 38, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
+  searchInput: { flex: 1, color: UI.ink, fontSize: 13, paddingVertical: 0 },
   state: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30 },
   errorText: { color: colors.danger, fontSize: 13, textAlign: "center" },
-  content: { padding: 14 },
+  content: { paddingHorizontal: 14, paddingTop: 4 },
 
-  card: { marginBottom: 12 },
+  card: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 12, marginBottom: 10 },
   cardTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  cardName: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "800" },
-  statusPill: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+  cardName: { flex: 1, color: UI.ink, fontSize: 14, fontWeight: "800" },
+  statusPill: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
   statusPillText: { fontSize: 10, fontWeight: "800" },
-  cardMetaRow: { flexDirection: "row", gap: 10, marginTop: 6 },
-  cardMeta: { color: colors.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
-  cardBody: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 8 },
+  cardMetaRow: { flexDirection: "row", gap: 6, marginTop: 6 },
+  metaChip: { overflow: "hidden", backgroundColor: UI.chip, color: UI.sub, fontSize: 10, fontWeight: "800", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  variable: { backgroundColor: UI.accentSoft, color: "#3a35b8", fontWeight: "800" },
+  cardMeta: { color: UI.muted, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
+  cardBody: { color: UI.sub, fontSize: 12, lineHeight: 18, marginTop: 8 },
 
   empty: { alignItems: "center", paddingTop: 60 },
-  emptyIcon: { width: 60, height: 60, borderRadius: 18, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  emptyIcon: { width: 56, height: 56, borderRadius: 16, backgroundColor: UI.accentSoft, alignItems: "center", justifyContent: "center" },
   emptyTitle: { color: colors.text, fontSize: 15, fontWeight: "800", marginTop: 14 },
   emptyText: { color: colors.textMuted, fontSize: 12, marginTop: 4, textAlign: "center" },
 

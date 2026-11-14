@@ -166,16 +166,23 @@ export async function fetchNotifications() {
     const items = Array.isArray(data) ? data : data.notifications || [];
     const serverItems = items.map((item) => normalizeNotification(item as Partial<AppNotification> & Record<string, unknown>));
     // A push received in the foreground is mirrored locally and also returned by the server — keep one copy.
-    const key = (item: AppNotification) => `${item.title}|${item.message ?? ""}`;
-    const localByKey = new Map(localNotifications.map((item) => [key(item), item]));
-    const serverKeys = new Set(serverItems.map(key));
+    // Same text alone isn't enough: a repeated alert ("Source: Facebook" twice) is two notifications. A mirrored push and
+    // its server copy arrive within moments of each other, so they must also be close in time.
+    const SAME_EVENT_MS = 2 * 60_000;
+    const sameText = (a: AppNotification, b: AppNotification) => a.title === b.title && (a.message ?? "") === (b.message ?? "");
+    const closeInTime = (a: AppNotification, b: AppNotification) => {
+      const x = new Date(a.created_at || "").getTime();
+      const y = new Date(b.created_at || "").getTime();
+      return Number.isNaN(x) || Number.isNaN(y) || Math.abs(x - y) <= SAME_EVENT_MS;
+    };
+    const twinOf = (item: AppNotification, others: AppNotification[]) => others.find((other) => sameText(item, other) && closeInTime(item, other));
     // For a duplicate keep the server copy (it owns read state) but borrow the lead details
     // from the local one, so tapping it can still open the lead.
     const merged = serverItems.map((item) => {
-      const local = localByKey.get(key(item));
+      const local = twinOf(item, localNotifications);
       return local ? { ...item, lead_id: item.lead_id || local.lead_id, lead_name: item.lead_name || local.lead_name, lead_phone: item.lead_phone || local.lead_phone, lead_stage: item.lead_stage || local.lead_stage } : item;
     });
-    return withReadState(newestFirst([...localNotifications.filter((item) => !serverKeys.has(key(item))), ...merged]));
+    return withReadState(newestFirst([...localNotifications.filter((item) => !twinOf(item, serverItems)), ...merged]));
   } catch {
     // Never let a failing follow-ups call hide the locally saved notifications (e.g. "New lead created").
     const followups = await fetchTodayFollowups().catch(() => []);

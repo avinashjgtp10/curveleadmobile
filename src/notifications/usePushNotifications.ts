@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { router } from "expo-router";
 import type * as NotificationsType from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -7,11 +7,15 @@ import { useAuth } from "@/contexts/AuthContext";
 import { unregisterPushToken } from "@/api/pushTokens";
 import { rateLimitRemainingMs } from "@/api/client";
 import { saveIncomingPushNotification } from "@/api/notifications";
-import { configureNotificationHandler } from "./push";
-import { LAST_REGISTERED_TOKEN_KEY, registerDevice } from "./pushStatus";
+import { configureNotificationHandler, getNotificationPermission } from "./push";
+import { LAST_REGISTERED_TOKEN_KEY, getPushStatus, registerDevice } from "./pushStatus";
 import { navigateToNotification, NotificationRouteData } from "./navigateToNotification";
 import { withRetry } from "./retry";
 import { isExpoGo } from "./environment";
+
+// Register the foreground handler as soon as the app loads, not after the first screen mounts: a push that arrives
+// during start-up would otherwise fall back to iOS's default and show no banner.
+configureNotificationHandler();
 
 /** Must stay lazy — see push.ts: importing expo-notifications statically crashes Expo Go on Android. */
 function loadNotifications(): typeof NotificationsType {
@@ -97,10 +101,22 @@ export function usePushNotifications(navigationReady: boolean) {
       registerDevice().catch(() => {});
     });
 
+    // Registration otherwise runs only at login / app start. If it failed then (server briefly down, rate limit) or the
+    // person turned notifications on later in the phone's settings, this phone would stay unregistered until a restart.
+    const appSub = AppState.addEventListener("change", async (state) => {
+      if (state !== "active" || cancelled || rateLimitRemainingMs()) return;
+      const status = await getPushStatus();
+      if (!status || status.state === "registered" || status.state === "unsupported") return;
+      // Only when the permission is now on: asking again while it's off would just nag.
+      if ((await getNotificationPermission()) !== "granted") return;
+      registerDevice().catch(() => {});
+    });
+
     return () => {
       cancelled = true;
       clearTimeout(timer);
       tokenSub.remove();
+      appSub.remove();
     };
   }, [user, isLoading]);
 

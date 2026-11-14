@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
-import { ActivityIndicator, Appbar, Text } from "react-native-paper";
+import { ActivityIndicator, Text } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import axios from "axios";
@@ -12,6 +12,8 @@ import {
   activateAiAdDraft, AiAdBrief, AiAdDestination, AiAdDraft, AiAdDraftSummary, AiAdLanguage, AiMetaDraft,
   createAiAdDraft, createAiAdOnMeta, fetchAiAdDraft, fetchAiAdDrafts, updateAiAdDraft, uploadAiAdImage,
 } from "@/api/ads";
+
+const P = { bg: "#f4f6f5", line: "#d5e0dc", ink: "#0f1f1a", sub: "#4a6a61", muted: "#8a9a94", blue: "#1d4fd8", blueSoft: "#edf3ff" };
 
 const EMPTY_AI_BRIEF: AiAdBrief = { offer: "", goal: "", location: "", budget_per_day_inr: 500, duration_days: 14, language: "en", destination: "LEAD_FORM" };
 const LANGUAGES: { value: AiAdLanguage; label: string }[] = [{ value: "en", label: "English" }, { value: "hi", label: "Hindi" }, { value: "mr", label: "Marathi" }];
@@ -183,10 +185,12 @@ export default function AiCampaignScreen() {
 
   return (
     <KeyboardAvoidingView style={[styles.screen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title={draft ? "Review campaign" : "Create with AI"} titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={20} color={P.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>{draft ? "Review campaign" : "Create ad"}</Text>
+      </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 28 }]} keyboardShouldPersistTaps="handled">
         {error ? <Banner icon="alert-circle-outline" text={error} danger /> : null}
@@ -195,7 +199,7 @@ export default function AiCampaignScreen() {
           <>
             <View style={styles.reviewTop}>
               <Pressable onPress={() => { setDraft(null); setForm(null); }} style={styles.smallButton}>
-                <Ionicons name="arrow-back" size={16} color={colors.primary} />
+                <Ionicons name="arrow-back" size={16} color={P.blue} />
                 <Text style={styles.smallButtonText}>Brief</Text>
               </Pressable>
               <Text style={styles.statusPill}>{draft.status}</Text>
@@ -212,7 +216,7 @@ export default function AiCampaignScreen() {
             {(form.primary_texts || []).map((text, index) => (
               <View key={index} style={[styles.choice, form.primary_text_index === index && styles.choiceActive]}>
                 <Pressable onPress={() => updateField("primary_text_index", index)} disabled={locked} style={styles.radio}>
-                  <Ionicons name={form.primary_text_index === index ? "radio-button-on" : "radio-button-off"} size={20} color={colors.primary} />
+                  <Ionicons name={form.primary_text_index === index ? "radio-button-on" : "radio-button-off"} size={20} color={P.blue} />
                 </Pressable>
                 <View style={{ flex: 1 }}>
                   <Input value={text} onChangeText={(value) => updateArray("primary_texts", index, value)} editable={!locked} multiline />
@@ -225,7 +229,7 @@ export default function AiCampaignScreen() {
             {(form.headlines || []).map((headline, index) => (
               <View key={index} style={styles.headlineRow}>
                 <Pressable onPress={() => updateField("headline_index", index)} disabled={locked} style={styles.radio}>
-                  <Ionicons name={form.headline_index === index ? "radio-button-on" : "radio-button-off"} size={20} color={colors.primary} />
+                  <Ionicons name={form.headline_index === index ? "radio-button-on" : "radio-button-off"} size={20} color={P.blue} />
                 </Pressable>
                 <Input value={headline} onChangeText={(value) => updateArray("headlines", index, value)} editable={!locked} style={{ flex: 1 }} />
               </View>
@@ -243,7 +247,7 @@ export default function AiCampaignScreen() {
             {form.destination === "LEAD_FORM" && !form.lead_form?.existing_form_id ? <Field label="Privacy-policy link" hint="Meta requires it on every new lead form."><Input value={form.lead_form?.privacy_policy_url || ""} onChangeText={updatePrivacy} editable={!locked} placeholder="https://yourbusiness.in/privacy" autoCapitalize="none" keyboardType="url" /></Field> : null}
 
             <View style={styles.imageBox}>
-              <View style={styles.imageIcon}><Ionicons name={draft.image ? "image-outline" : "cloud-upload-outline"} size={24} color={colors.textMuted} /></View>
+              <View style={styles.imageIcon}><Ionicons name={draft.image ? "image-outline" : "cloud-upload-outline"} size={24} color={P.muted} /></View>
               <View style={{ flex: 1 }}><Text style={styles.cardTitle}>{draft.image?.name || "Ad image"}</Text><Text style={styles.hint}>{draft.image ? "Image uploaded" : "Upload JPG or PNG before creating on Meta."}</Text></View>
               <Pressable onPress={pickImage} disabled={!!busy || locked} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>{busy === "image" ? "Uploading" : draft.image ? "Replace" : "Upload"}</Text></Pressable>
             </View>
@@ -256,14 +260,15 @@ export default function AiCampaignScreen() {
         ) : (
           <>
             <Field label="What are you advertising?" hint="The offer, price and who it's for."><Input value={brief.offer} onChangeText={(value) => setBriefField("offer", value)} multiline placeholder="Diwali hair spa at 999 for women in Baramati, this month only" /></Field>
-            <Field label="Goal (optional)"><Input value={brief.goal} onChangeText={(value) => setBriefField("goal", value)} placeholder="e.g. 50 bookings before Diwali" /></Field>
-            <View style={styles.grid}><Field label="City"><Input value={brief.location} onChangeText={(value) => setBriefField("location", value)} placeholder="Baramati" /></Field><Field label="Ad language"><View style={styles.chipRow}>{LANGUAGES.map((item) => <Chip key={item.value} label={item.label} active={brief.language === item.value} onPress={() => setBriefField("language", item.value)} />)}</View></Field></View>
+            <Field label="What do you want from this ad?"><Input value={brief.goal} onChangeText={(value) => setBriefField("goal", value)} placeholder="e.g. 50 bookings before Diwali" /></Field>
+            <Field label="City"><Input value={brief.location} onChangeText={(value) => setBriefField("location", value)} placeholder="Baramati" /></Field>
+            <Field label="Ad language"><View style={styles.langRow}>{LANGUAGES.map((item) => <Chip key={item.value} label={item.label} active={brief.language === item.value} onPress={() => setBriefField("language", item.value)} grow />)}</View></Field>
             <View style={styles.grid}><Field label="Budget per day (₹)"><Input value={String(brief.budget_per_day_inr)} onChangeText={(value) => setBriefField("budget_per_day_inr", Number(value.replace(/[^\d]/g, "")) || 0)} keyboardType="number-pad" /></Field><Field label="Run for (days)"><Input value={String(brief.duration_days)} onChangeText={(value) => setBriefField("duration_days", Number(value.replace(/[^\d]/g, "")) || 0)} keyboardType="number-pad" /></Field></View>
             <Text style={styles.label}>When someone taps the ad</Text>
-            <View style={styles.destinationRow}>{(["LEAD_FORM", "WHATSAPP"] as AiAdDestination[]).map((value) => <Pressable key={value} onPress={() => setBriefField("destination", value)} style={[styles.destinationCard, brief.destination === value && styles.destinationActive]}><Text style={styles.destinationTitle}>{value === "LEAD_FORM" ? "Instant lead form" : "WhatsApp chat"}</Text><Text style={styles.hint}>{value === "LEAD_FORM" ? "Leads land in CurveLead automatically" : "Opens a chat with your business"}</Text></Pressable>)}</View>
-            <Pressable onPress={createDraft} disabled={drafting} style={[styles.draftButton, drafting && { opacity: 0.65 }]}>{drafting ? <ActivityIndicator color="#fff" /> : <Ionicons name="sparkles-outline" size={18} color="#fff" />}<Text style={styles.draftText}>{drafting ? "Writing your ads..." : "Draft the campaign"}</Text></Pressable>
-            <View style={styles.draftsHeader}><Text style={styles.sectionTitle}>Earlier drafts</Text>{loadingDrafts ? <ActivityIndicator size="small" color={colors.primary} /> : null}</View>
-            {drafts.length ? drafts.slice(0, 8).map((item) => <Pressable key={item.id} style={styles.draftRow} onPress={() => openDraft(item.id)} disabled={busy === "open"}><Text style={styles.draftStatus}>{item.status}</Text><Text style={styles.draftName} numberOfLines={1}>{item.campaign_name || item.brief?.offer || "Untitled draft"}</Text><Text style={styles.draftDate}>{shortDate(item.created_at)}</Text></Pressable>) : !loadingDrafts ? <Text style={styles.emptyText}>No drafts yet.</Text> : null}
+            <View style={styles.destinationRow}>{(["LEAD_FORM", "WHATSAPP"] as AiAdDestination[]).map((value) => <Pressable key={value} onPress={() => setBriefField("destination", value)} style={[styles.destinationCard, brief.destination === value && styles.destinationActive]}><View style={styles.destinationTop}><Text style={[styles.destinationTitle, { flex: 1 }]} numberOfLines={1}>{value === "LEAD_FORM" ? "Instant lead form" : "WhatsApp chat"}</Text><View style={[styles.checkRing, brief.destination === value && styles.checkRingOn]}>{brief.destination === value ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}</View></View><Text style={styles.hint}>{value === "LEAD_FORM" ? "Leads land in CurveLead automatically" : "Opens a chat with your business"}</Text></Pressable>)}</View>
+            <Pressable onPress={createDraft} disabled={drafting} style={[styles.draftButton, drafting && { opacity: 0.65 }]}><Text style={styles.draftText}>{drafting ? "Writing your ads..." : "Draft the campaign"}</Text>{drafting ? <ActivityIndicator color="#fff" /> : <Ionicons name="arrow-forward" size={20} color="#fff" />}</Pressable>
+            <View style={styles.draftsHeader}><Text style={styles.sectionTitle}>Earlier drafts</Text>{loadingDrafts ? <ActivityIndicator size="small" color={P.blue} /> : null}</View>
+            {drafts.length ? drafts.slice(0, 8).map((item) => <Pressable key={item.id} style={styles.draftRow} onPress={() => openDraft(item.id)} disabled={busy === "open"}><Text style={styles.draftStatus}>{item.status}</Text><Text style={styles.draftName} numberOfLines={1}>{item.campaign_name || item.brief?.offer || "Untitled draft"}</Text><Text style={styles.draftDate}>{shortDate(item.created_at)}</Text></Pressable>) : !loadingDrafts ? <View style={styles.emptyBox}><Text style={styles.emptyText}>Your saved drafts will appear here.</Text></View> : null}
           </>
         )}
       </ScrollView>
@@ -276,11 +281,11 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 function Input(props: React.ComponentProps<typeof RNTextInput>) {
-  return <View style={[styles.inputBox, props.multiline && styles.textareaBox, props.style as object]}><RNTextInput placeholderTextColor={colors.textMuted} textAlignVertical={props.multiline ? "top" : "center"} {...props} style={[styles.input, props.multiline && styles.textarea]} /></View>;
+  return <View style={[styles.inputBox, props.multiline && styles.textareaBox, props.style as object]}><RNTextInput placeholderTextColor={P.muted} textAlignVertical={props.multiline ? "top" : "center"} {...props} style={[styles.input, props.multiline && styles.textarea]} /></View>;
 }
 
-function Chip({ label, active, onPress, disabled }: { label: string; active: boolean; onPress: () => void; disabled?: boolean }) {
-  return <Pressable onPress={onPress} disabled={disabled} style={[styles.chip, active && styles.chipActive]}><Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text></Pressable>;
+function Chip({ label, active, onPress, disabled, grow }: { label: string; active: boolean; onPress: () => void; disabled?: boolean; grow?: boolean }) {
+  return <Pressable onPress={onPress} disabled={disabled} style={[styles.chip, grow && { flex: 1 }, active && styles.chipActive]}><Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text></Pressable>;
 }
 
 function Banner({ icon, text, danger, warning, success }: { icon: keyof typeof Ionicons.glyphMap; text: string; danger?: boolean; warning?: boolean; success?: boolean }) {
@@ -290,53 +295,59 @@ function Banner({ icon, text, danger, warning, success }: { icon: keyof typeof I
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#ffffff" },
-  header: { backgroundColor: "#ffffff" },
+  screen: { flex: 1, backgroundColor: "#f4f6f5" },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingBottom: 10, backgroundColor: "#f4f6f5" },
   headerTitle: { color: colors.text, fontSize: 17, fontWeight: "900" },
   content: { padding: 16, gap: 10 },
-  label: { color: colors.textSecondary, fontSize: 12, fontWeight: "900", marginTop: 8, marginBottom: 6 },
-  hint: { color: colors.textMuted, fontSize: 11, lineHeight: 15, marginTop: 4 },
-  inputBox: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#ffffff", paddingHorizontal: 12, justifyContent: "center" },
+  label: { color: P.ink, fontSize: 12, fontWeight: "900", marginTop: 8, marginBottom: 6 },
+  hint: { color: P.sub, fontSize: 11, lineHeight: 15, marginTop: 4 },
+  inputBox: { minHeight: 48, borderRadius: 20, borderWidth: 1, borderColor: "#d5e0dc", backgroundColor: "#ffffff", paddingHorizontal: 12, justifyContent: "center" },
   textareaBox: { minHeight: 92, paddingVertical: 10 },
   input: { color: colors.text, fontSize: 15, paddingVertical: 0 },
   textarea: { minHeight: 70 },
+  headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 14, borderWidth: 1, borderColor: "#d5e0dc", backgroundColor: "#ffffff" },
+  langRow: { flexDirection: "row", gap: 10 },
+  destinationTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  checkRing: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: "#c4d0cb", alignItems: "center", justifyContent: "center" },
+  checkRingOn: { backgroundColor: "#1d4fd8", borderColor: "#1d4fd8" },
+  emptyBox: { borderRadius: 20, borderWidth: 1, borderStyle: "dashed", borderColor: "#c4d0cb", backgroundColor: "#ffffff", paddingVertical: 8 },
   grid: { flexDirection: "row", gap: 10 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  chip: { minHeight: 42, borderRadius: 13, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#fff", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
-  chipActive: { backgroundColor: "#ede9fe", borderColor: "#7c3aed" },
-  chipText: { color: colors.textSecondary, fontSize: 12, fontWeight: "900" },
-  chipTextActive: { color: "#7c3aed" },
+  chip: { minHeight: 42, borderRadius: 20, borderWidth: 1, borderColor: "#d5e0dc", backgroundColor: "#fff", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  chipActive: { backgroundColor: "#edf3ff", borderColor: "#1d4fd8" },
+  chipText: { color: P.ink, fontSize: 12, fontWeight: "900" },
+  chipTextActive: { color: "#1d4fd8" },
   destinationRow: { flexDirection: "row", gap: 10 },
-  destinationCard: { flex: 1, minHeight: 74, borderRadius: 16, borderWidth: 1, borderColor: "#d7e6f1", padding: 12, justifyContent: "center" },
-  destinationActive: { backgroundColor: "#eef2ff", borderColor: colors.primary },
+  destinationCard: { flex: 1, minHeight: 74, borderRadius: 20, borderWidth: 1, borderColor: "#d5e0dc", padding: 12, justifyContent: "center" },
+  destinationActive: { backgroundColor: "#edf3ff", borderColor: "#1d4fd8" },
   destinationTitle: { color: colors.text, fontSize: 13, fontWeight: "900" },
-  draftButton: { height: 52, borderRadius: 16, backgroundColor: "#7c3aed", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8 },
+  draftButton: { height: 54, borderRadius: 20, backgroundColor: "#1d4fd8", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8 },
   draftText: { color: "#fff", fontSize: 16, fontWeight: "900" },
   draftsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
   sectionTitle: { color: colors.text, fontSize: 14, fontWeight: "900" },
-  draftRow: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, borderWidth: 1, borderColor: "#e2eef7", paddingHorizontal: 10 },
+  draftRow: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, borderWidth: 1, borderColor: "#d5e0dc", paddingHorizontal: 10 },
   draftStatus: { overflow: "hidden", borderRadius: 999, backgroundColor: "#eef2f6", color: colors.textSecondary, fontSize: 10, fontWeight: "900", paddingHorizontal: 8, paddingVertical: 3 },
   draftName: { flex: 1, color: colors.text, fontSize: 13, fontWeight: "800" },
   draftDate: { color: colors.textMuted, fontSize: 10, fontWeight: "700" },
-  emptyText: { color: colors.textMuted, fontSize: 12, textAlign: "center", paddingVertical: 12 },
+  emptyText: { color: "#4a6a61", fontSize: 12, textAlign: "center", paddingVertical: 12 },
   reviewTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  smallButton: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, backgroundColor: "#f0f9ff", paddingHorizontal: 10 },
-  smallButtonText: { color: colors.primary, fontSize: 13, fontWeight: "900" },
+  smallButton: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, backgroundColor: "#edf3ff", paddingHorizontal: 10 },
+  smallButtonText: { color: "#1d4fd8", fontSize: 13, fontWeight: "900" },
   statusPill: { overflow: "hidden", borderRadius: 999, backgroundColor: "#eef2f6", color: colors.textSecondary, fontSize: 11, fontWeight: "900", paddingHorizontal: 10, paddingVertical: 4 },
   banner: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 13, padding: 12 },
   bannerText: { flex: 1, fontSize: 12, fontWeight: "800" },
-  choice: { flexDirection: "row", gap: 8, borderRadius: 14, borderWidth: 1, borderColor: "#e2eef7", padding: 8 },
-  choiceActive: { borderColor: colors.primary, backgroundColor: "#eef2ff" },
+  choice: { flexDirection: "row", gap: 8, borderRadius: 14, borderWidth: 1, borderColor: "#d5e0dc", padding: 8 },
+  choiceActive: { borderColor: "#1d4fd8", backgroundColor: "#edf3ff" },
   radio: { paddingTop: 10 },
   headlineRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  imageBox: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, borderWidth: 1, borderColor: "#e2eef7", padding: 12 },
+  imageBox: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, borderWidth: 1, borderColor: "#d5e0dc", padding: 12 },
   imageIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: "#eef2f6", alignItems: "center", justifyContent: "center" },
   cardTitle: { color: colors.text, fontSize: 14, fontWeight: "900" },
-  secondaryButton: { minHeight: 40, borderRadius: 13, borderWidth: 1, borderColor: "#bae6fd", backgroundColor: "#f0f9ff", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
-  secondaryButtonText: { color: colors.primary, fontSize: 13, fontWeight: "900" },
+  secondaryButton: { minHeight: 40, borderRadius: 13, borderWidth: 1, borderColor: "#c9d8f7", backgroundColor: "#edf3ff", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  secondaryButtonText: { color: "#1d4fd8", fontSize: 13, fontWeight: "900" },
   actions: { flexDirection: "row", gap: 10, marginTop: 8 },
-  secondaryLarge: { flex: 1, height: 50, borderRadius: 15, borderWidth: 1, borderColor: "#d7e6f1", alignItems: "center", justifyContent: "center" },
-  primaryLarge: { flex: 1.4, height: 50, borderRadius: 15, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  secondaryLarge: { flex: 1, height: 50, borderRadius: 15, borderWidth: 1, borderColor: "#d5e0dc", alignItems: "center", justifyContent: "center" },
+  primaryLarge: { flex: 1.4, height: 50, borderRadius: 15, backgroundColor: "#1d4fd8", alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
   primaryText: { color: "#ffffff", fontSize: 13, fontWeight: "900", textAlign: "center" },
   activateBox: { gap: 10, borderRadius: 16, borderWidth: 1.5, borderColor: "#fde68a", backgroundColor: "#fffbeb", padding: 14 },
   activateTitle: { color: "#92400e", fontSize: 13, fontWeight: "900" },

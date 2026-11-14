@@ -2,7 +2,7 @@ import React from "react";
 import Svg, { Path, Circle, Rect, Line, Polyline } from "react-native-svg";
 export function IconHome({ active }: { active?: boolean }) {
   return (
-    <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#0ea5e9" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#0e8a9b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <Path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z" />
       <Path d="M9 21V12h6v9" />
     </Svg>
@@ -10,7 +10,7 @@ export function IconHome({ active }: { active?: boolean }) {
 }
 export function IconUsers({ active }: { active?: boolean }) {
   return (
-    <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#0ea5e9" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#0e8a9b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <Path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
       <Circle cx="9" cy="7" r="4" />
       <Path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
@@ -19,7 +19,7 @@ export function IconUsers({ active }: { active?: boolean }) {
 }
 export function IconCheck({ active }: { active?: boolean }) {
   return (
-    <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#0ea5e9" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#0e8a9b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <Circle cx="12" cy="12" r="10" />
       <Path d="M9 12l2 2 4-4" />
     </Svg>
@@ -27,7 +27,7 @@ export function IconCheck({ active }: { active?: boolean }) {
 }
 export function IconBook({ active }: { active?: boolean }) {
   return (
-    <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#0ea5e9" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#0e8a9b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <Rect x="3" y="3" width="7" height="18" rx="1" />
       <Rect x="14" y="3" width="7" height="18" rx="1" />
     </Svg>
@@ -35,7 +35,7 @@ export function IconBook({ active }: { active?: boolean }) {
 }
 export function IconGrid({ active }: { active?: boolean }) {
   return (
-    <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#0ea5e9" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#0e8a9b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <Rect x="3" y="3" width="7" height="7" rx="1" />
       <Rect x="14" y="3" width="7" height="7" rx="1" />
       <Rect x="3" y="14" width="7" height="7" rx="1" />
