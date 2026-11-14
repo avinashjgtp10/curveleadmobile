@@ -14,30 +14,36 @@ import {
 
 
 // The add forms' palette: pale blue page, white cards with soft blue borders, deep teal-blue actions.
-const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", red: "#d6334f", redSoft: "#fdecef", amber: "#c2710c", amberSoft: "#fde9c9", green: "#0f7b5f", greenSoft: "#d8f0e5", track: "#e4ecf3" };
+const UI = { bg: "#f3f6fc", line: "#d3def2", ink: "#0f1f3d", sub: "#5a6b85", muted: "#8b97ad", teal: "#1d4fd8", tealSoft: "#e1ebfc", red: "#d6334f", redSoft: "#fdecef", amber: "#c2710c", amberSoft: "#fde9c9", green: "#0f7b5f", greenSoft: "#d8f0e5", track: "#e4ecf3" };
 const PAGE_SIZE = 25;
 
-type StatusKey = "" | "In Progress" | "Converted" | "Lost";
+type StatusKey = "" | "In Progress" | "Converted" | "Lost" | "Cancelled" | "Not Enrolled";
+const STATUS_TABS: { value: StatusKey; label: string }[] = [
+  { value: "", label: "All" },
+  { value: "In Progress", label: "Active" },
+  { value: "Cancelled", label: "Cancelled" },
+  { value: "Not Enrolled", label: "Not enrolled" },
+];
 
 function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
 
 const STATUS_STYLE: Record<AutomationStatus, { color: string; bg: string }> = {
-  "Not Enrolled": { color: "#64748b", bg: "#eef2f6" },
-  "In Progress": { color: "#1d4ed8", bg: "#dbeafe" },
+  "Not Enrolled": { color: "#4a5a75", bg: "#e6eaf2" },
+  "In Progress": { color: "#1d4fd8", bg: "#e1ebfc" },
   Completed: { color: "#0f766e", bg: "#ccfbf1" },
   Cancelled: { color: "#6b7280", bg: "#f3f4f6" },
-  Converted: { color: "#15803d", bg: "#dcfce7" },
-  Lost: { color: "#b91c1c", bg: "#fee2e2" },
+  Converted: { color: "#0f6b57", bg: "#d9efe8" },
+  Lost: { color: "#b3173a", bg: "#fde3e8" },
 };
 
 function StatTile({ label, value, icon, tint, bg, active, onPress }: {
   label: string; value: number; icon: keyof typeof Ionicons.glyphMap; tint: string; bg: string; active: boolean; onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={[styles.statTile, active && { borderColor: tint, backgroundColor: bg }]}>
-      <View style={[styles.statIcon, { backgroundColor: active ? "#ffffff" : bg }]}>
+    <Pressable onPress={onPress} style={[styles.statTile, active && { borderColor: UI.teal }]}>
+      <View style={[styles.statIcon, { backgroundColor: bg }]}>
         <Ionicons name={icon} size={18} color={tint} />
       </View>
       <Text style={styles.statValue}>{value.toLocaleString("en-IN")}</Text>
@@ -205,7 +211,7 @@ export default function LeadAutomationScreen() {
     <View style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
-          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+          <Ionicons name="arrow-back" size={24} color={UI.ink} />
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>Lead Automation</Text>
         <Pressable onPress={refresh} disabled={loading || refreshing} hitSlop={10} style={[styles.headerButton, (loading || refreshing) && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel="Refresh">
@@ -219,14 +225,12 @@ export default function LeadAutomationScreen() {
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={UI.teal} colors={[UI.teal]} />}
       >
-        <View style={[styles.hero, { backgroundColor: UI.teal }]}>
-          <View style={styles.heroIcon}><Ionicons name="git-network-outline" size={24} color="#ffffff" /></View>
+        <View style={styles.hero}>
+          <View style={styles.heroIcon}><Ionicons name="git-branch-outline" size={24} color="#ffffff" /></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.heroTitle}>Follow-up on autopilot</Text>
             <Text style={styles.heroSubtitle}>Track every lead's journey and let the follow-ups run themselves.</Text>
           </View>
-          <View style={styles.heroCircleLarge} />
-          <View style={styles.heroCircleSmall} />
         </View>
 
         <View style={styles.segment}>
@@ -243,10 +247,10 @@ export default function LeadAutomationScreen() {
         {tab === "leads" ? (
           <>
             <View style={styles.statsRow}>
-              <StatTile label="All" value={summary.total} icon="people-outline" tint={UI.teal} bg="#e0e7ff" active={statusFilter === ""} onPress={() => setStatusFilter("")} />
-              <StatTile label="Active" value={summary.inProgress} icon="time-outline" tint="#2563eb" bg="#dbeafe" active={statusFilter === "In Progress"} onPress={() => setStatusFilter("In Progress")} />
-              <StatTile label="Won" value={summary.converted} icon="checkmark-circle-outline" tint="#16a34a" bg="#dcfce7" active={statusFilter === "Converted"} onPress={() => setStatusFilter("Converted")} />
-              <StatTile label="Lost" value={summary.lost} icon="close-circle-outline" tint="#dc2626" bg="#fee2e2" active={statusFilter === "Lost"} onPress={() => setStatusFilter("Lost")} />
+              <StatTile label="All" value={summary.total} icon="people-outline" tint={UI.teal} bg="#e1ebfc" active={statusFilter === ""} onPress={() => setStatusFilter("")} />
+              <StatTile label="Active" value={summary.inProgress} icon="time-outline" tint="#1d4fd8" bg="#e1ebfc" active={statusFilter === "In Progress"} onPress={() => setStatusFilter("In Progress")} />
+              <StatTile label="Won" value={summary.converted} icon="checkmark-circle-outline" tint="#0f7b5f" bg="#d9efe8" active={statusFilter === "Converted"} onPress={() => setStatusFilter("Converted")} />
+              <StatTile label="Lost" value={summary.lost} icon="close-circle-outline" tint="#d6334f" bg="#fde3e8" active={statusFilter === "Lost"} onPress={() => setStatusFilter("Lost")} />
             </View>
 
             <View style={styles.searchBox}>
@@ -266,20 +270,32 @@ export default function LeadAutomationScreen() {
               ) : null}
             </View>
 
+            <View style={styles.statusSegment}>
+              {STATUS_TABS.map((item) => {
+                const active = statusFilter === item.value;
+                return (
+                  <Pressable key={item.label} onPress={() => setStatusFilter(item.value)} style={[styles.statusSegButton, active && styles.statusSegActive]} accessibilityRole="button" accessibilityState={{ selected: active }}>
+                    <Text style={[styles.statusSegText, active && styles.statusSegTextActive]} numberOfLines={1}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
             {steps.length ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stepRow}>
-                <Pressable onPress={() => setStepFilter("")} style={[styles.stepChip, !stepFilter && styles.stepChipActive]}>
-                  <Text style={[styles.stepChipText, !stepFilter && styles.stepChipTextActive]}>All steps</Text>
-                </Pressable>
-                {steps.map((step) => {
-                  const active = stepFilter === step;
-                  return (
-                    <Pressable key={step} onPress={() => setStepFilter(active ? "" : step)} style={[styles.stepChip, active && styles.stepChipActive]}>
-                      <Text style={[styles.stepChipText, active && styles.stepChipTextActive]}>{step}</Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
+              <View style={styles.stepPanel}>
+                <Text style={styles.stepPanelLabel}>{statusFilter === "Cancelled" ? "CANCELLED AT" : "STEP"}</Text>
+                <View style={styles.stepPanelRow}>
+                  {steps.map((step) => {
+                    const active = stepFilter === step;
+                    return (
+                      <Pressable key={step} onPress={() => setStepFilter(active ? "" : step)} style={[styles.stepChip, active && styles.stepChipActive]}>
+                        {active ? <Ionicons name="checkmark" size={15} color={UI.teal} /> : null}
+                        <Text style={[styles.stepChipText, active && styles.stepChipTextActive]} numberOfLines={1}>{step}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
             ) : <View style={{ height: 12 }} />}
 
             <View style={styles.listHeader}>
@@ -287,7 +303,7 @@ export default function LeadAutomationScreen() {
               {hasFilters ? (
                 <Pressable onPress={clearFilters} hitSlop={8} style={styles.clearButton}>
                   <Ionicons name="close" size={14} color={UI.teal} />
-                  <Text style={styles.clearText}>Clear filters</Text>
+                  <Text style={styles.clearText}>Clear filter</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -342,7 +358,7 @@ export default function LeadAutomationScreen() {
             <Text style={styles.groupHint}>Message series sent to a lead over time.</Text>
             {sequences.length ? sequences.map((item) => (
               <View key={item.id} style={styles.settingCard}>
-                <View style={[styles.settingIcon, { backgroundColor: "#e0e7ff" }]}>
+                <View style={[styles.settingIcon, { backgroundColor: "#e1ebfc" }]}>
                   <Ionicons name="layers-outline" size={20} color={UI.teal} />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -359,8 +375,8 @@ export default function LeadAutomationScreen() {
             <Text style={styles.groupHint}>When a rule matches, the lead joins a sequence automatically.</Text>
             {rules.length ? rules.map((item) => (
               <View key={item.id} style={styles.settingCard}>
-                <View style={[styles.settingIcon, { backgroundColor: "#fef3c7" }]}>
-                  <Ionicons name="flash-outline" size={20} color="#d97706" />
+                <View style={[styles.settingIcon, { backgroundColor: "#fde9d6" }]}>
+                  <Ionicons name="flash-outline" size={20} color="#9a4a0a" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.settingTitle} numberOfLines={1}>{item.name}</Text>
@@ -380,41 +396,46 @@ export default function LeadAutomationScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: UI.bg },
-  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: UI.bg },
   headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
-  headerTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 18, fontFamily: "DMSans_700Bold" },
 
-  hero: { borderRadius: 20, padding: 18, flexDirection: "row", alignItems: "center", gap: 14, overflow: "hidden", marginTop: 4 },
-  heroIcon: { width: 46, height: 46, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
-  heroTitle: { color: "#ffffff", fontSize: 18, fontWeight: "900" },
-  heroSubtitle: { color: "rgba(255,255,255,0.88)", fontSize: 12, lineHeight: 17, marginTop: 3 },
-  heroCircleLarge: { position: "absolute", width: 120, height: 120, borderRadius: 60, backgroundColor: "rgba(255,255,255,0.1)", right: -30, top: -34 },
-  heroCircleSmall: { position: "absolute", width: 70, height: 70, borderRadius: 35, backgroundColor: "rgba(255,255,255,0.1)", right: 50, bottom: -28 },
+  hero: { borderRadius: 20, borderWidth: 1, borderColor: UI.line, backgroundColor: UI.tealSoft, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginTop: 4 },
+  heroIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: UI.teal, alignItems: "center", justifyContent: "center" },
+  heroTitle: { color: UI.ink, fontSize: 18, fontWeight: "800" },
+  heroSubtitle: { color: UI.sub, fontSize: 13, lineHeight: 18, marginTop: 3 },
 
-  segment: { flexDirection: "row", backgroundColor: "#f1f6fa", borderRadius: 14, padding: 4, marginTop: 16 },
+  segment: { flexDirection: "row", backgroundColor: "#e3e9f5", borderRadius: 16, padding: 4, marginTop: 16 },
   segmentButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 40, borderRadius: 11 },
   segmentActive: { backgroundColor: "#ffffff", shadowColor: "#0f172a", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
   segmentText: { color: UI.sub, fontSize: 14, fontWeight: "700" },
-  segmentTextActive: { color: UI.teal },
+  segmentTextActive: { color: UI.teal, fontWeight: "800" },
 
   statsRow: { flexDirection: "row", gap: 8, marginTop: 14 },
-  statTile: { flex: 1, borderRadius: 16, borderWidth: 1.5, borderColor: UI.line, backgroundColor: "#ffffff", paddingVertical: 12, paddingHorizontal: 8, alignItems: "center" },
+  statTile: { flex: 1, borderRadius: 18, borderWidth: 1.5, borderColor: UI.line, backgroundColor: "#ffffff", paddingVertical: 12, paddingHorizontal: 6, alignItems: "center" },
   statIcon: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   statValue: { color: UI.ink, fontSize: 18, fontWeight: "900", marginTop: 8 },
-  statLabel: { color: UI.sub, fontSize: 11, fontWeight: "700", marginTop: 1 },
+  statLabel: { color: UI.sub, fontSize: 12, fontWeight: "600", marginTop: 1 },
 
-  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: UI.line, paddingLeft: 12, paddingRight: 12, minHeight: 48, marginTop: 14 },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: UI.line, paddingLeft: 14, paddingRight: 12, minHeight: 48, marginTop: 14 },
   searchField: { flex: 1, backgroundColor: "transparent", fontSize: 14 },
 
-  stepRow: { gap: 8, paddingVertical: 12 },
-  stepChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
-  stepChipActive: { backgroundColor: UI.teal, borderColor: UI.teal },
-  stepChipText: { color: UI.sub, fontSize: 13, fontWeight: "700" },
-  stepChipTextActive: { color: "#ffffff" },
+  statusSegment: { flexDirection: "row", backgroundColor: "#e3e9f5", borderRadius: 16, padding: 4, marginTop: 14 },
+  statusSegButton: { flex: 1, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 12, paddingHorizontal: 2 },
+  statusSegActive: { backgroundColor: UI.teal },
+  statusSegText: { color: UI.sub, fontSize: 13, fontWeight: "600" },
+  statusSegTextActive: { color: "#ffffff", fontWeight: "800" },
+  stepPanel: { backgroundColor: UI.tealSoft, borderRadius: 18, borderWidth: 1, borderColor: UI.line, padding: 12, marginTop: 12, marginBottom: 4 },
+  stepPanelLabel: { color: UI.sub, fontSize: 12, fontWeight: "800", letterSpacing: 0.8, marginBottom: 8 },
+  stepPanelRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  stepChip: { flexGrow: 1, flexBasis: "45%", minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 12, borderRadius: 14, backgroundColor: UI.tealSoft, borderWidth: 1, borderColor: UI.line },
+  stepChipActive: { backgroundColor: "#ffffff", borderColor: "#ffffff" },
+  stepChipText: { color: UI.sub, fontSize: 14, fontWeight: "700" },
+  stepChipTextActive: { color: UI.teal, fontWeight: "800" },
 
   listHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
-  listTitle: { color: UI.ink, fontSize: 15, fontWeight: "800" },
-  clearButton: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: UI.tealSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  listTitle: { color: UI.ink, fontSize: 17, fontWeight: "800" },
+  clearButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 4, paddingVertical: 5 },
   clearText: { color: UI.teal, fontSize: 12, fontWeight: "800" },
 
   leadsList: { gap: 10 },
@@ -422,16 +443,16 @@ const styles = StyleSheet.create({
   errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#fee2e2", borderRadius: 12, padding: 10 },
   errorBannerText: { flex: 1, color: "#b91c1c", fontSize: 12 },
   errorBannerRetry: { color: "#b91c1c", fontSize: 12, fontWeight: "800" },
-  leadCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: UI.line, padding: 12 },
+  leadCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: UI.line, padding: 14 },
   pressed: { backgroundColor: "#ffffff" },
   leadAvatar: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
   leadAvatarText: { fontSize: 18, fontWeight: "900" },
   leadBody: { flex: 1, minWidth: 0 },
-  leadName: { color: UI.ink, fontSize: 15, fontWeight: "800" },
-  leadPhone: { color: UI.muted, fontSize: 12, marginTop: 2 },
+  leadName: { color: UI.ink, fontSize: 16, fontWeight: "800" },
+  leadPhone: { color: UI.sub, fontSize: 13, marginTop: 2 },
   leadTags: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
-  stepTag: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: UI.tealSoft, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, flexShrink: 1 },
-  stepTagText: { color: UI.teal, fontSize: 11, fontWeight: "800", flexShrink: 1 },
+  stepTag: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: UI.tealSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, flexShrink: 1 },
+  stepTagText: { color: UI.teal, fontSize: 12, fontWeight: "800", flexShrink: 1 },
   optOutTag: { backgroundColor: "#fee2e2", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   optOutText: { color: "#b91c1c", fontSize: 10, fontWeight: "800" },
   statusPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
@@ -447,10 +468,10 @@ const styles = StyleSheet.create({
 
   settingsList: { gap: 10, marginTop: 14 },
   settingsHint: { color: UI.sub, fontSize: 12, backgroundColor: "#fff7ed", borderRadius: 12, padding: 10 },
-  groupTitle: { color: UI.ink, fontSize: 16, fontWeight: "900" },
-  groupHint: { color: UI.sub, fontSize: 12, marginTop: -6 },
+  groupTitle: { color: UI.ink, fontSize: 20, fontWeight: "800" },
+  groupHint: { color: UI.sub, fontSize: 14, marginTop: -6 },
   noneText: { color: UI.muted, fontSize: 13, textAlign: "center", paddingVertical: 14, backgroundColor: "#ffffff", borderRadius: 14 },
-  settingCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: UI.line, padding: 14 },
+  settingCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: UI.line, padding: 14 },
   settingIcon: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   settingTitle: { color: UI.ink, fontSize: 14, fontWeight: "800" },
   settingDescription: { color: UI.sub, fontSize: 12, lineHeight: 17, marginTop: 2 },

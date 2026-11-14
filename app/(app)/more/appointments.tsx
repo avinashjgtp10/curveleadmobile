@@ -10,7 +10,7 @@ import { completeLeadFollowup, createLeadFollowup, fetchLeads, fetchTodayFollowu
 
 
 // The add forms' palette: pale blue page, white cards with soft blue borders, deep teal-blue actions.
-const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", red: "#d6334f", redSoft: "#fdecef", amber: "#c2710c", amberSoft: "#fde9c9", green: "#0f7b5f" };
+const UI = { bg: "#f3f6fc", line: "#d3def2", ink: "#0f1f3d", sub: "#5a6b85", muted: "#8b97ad", teal: "#1d4fd8", tealSoft: "#e1ebfc", red: "#b3173a", redSoft: "#fde3e8", amber: "#8a4a08", amberSoft: "#fde9d6", green: "#0f7b5f" };
 const CARD = { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 16 } as const;
 type AppointmentTab = "all" | "upcoming" | "today" | "overdue" | "completed";
 type TypeOption = { key: FollowupType; label: string; icon: keyof typeof Ionicons.glyphMap };
@@ -169,6 +169,8 @@ function AppointmentsContent() {
   const [activeTab, setActiveTab] = useState<AppointmentTab>("all");
   const [query, setQuery] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [draftTab, setDraftTab] = useState<AppointmentTab>("all");
+  const [draftType, setDraftType] = useState<FollowupType | "">("");
   const [typeFilter, setTypeFilter] = useState<FollowupType | "">("");
   const [completingId, setCompletingId] = useState<string | null>(null);
   // The server only returns open appointments, so the Completed tab lists the ones finished in this session.
@@ -339,6 +341,12 @@ function AppointmentsContent() {
     setSheetOpen(true);
   }
 
+  function openFilters() {
+    setDraftTab(activeTab);
+    setDraftType(typeFilter);
+    setFilterOpen(true);
+  }
+
   // Going back to Home (when opened from a Home tile) is handled for every More screen in more/_layout.tsx.
   function goBack() {
     router.back();
@@ -348,7 +356,7 @@ function AppointmentsContent() {
     <View style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <Pressable onPress={goBack} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
-          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+          <Ionicons name="arrow-back" size={24} color={UI.ink} />
         </Pressable>
         <Text style={styles.headerTitle}>Appointments</Text>
         <Pressable onPress={() => load(true)} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Refresh">
@@ -372,54 +380,40 @@ function AppointmentsContent() {
         </View>
 
         <View style={styles.summaryGrid}>
-          <View style={[styles.summaryCard, styles.upcomingCard]}>
-            <View style={styles.summaryIcon}><Ionicons name="calendar-outline" size={18} color={UI.teal} /></View>
-            <Text style={styles.summaryLabel}>UPCOMING</Text>
-            <Text style={styles.summaryValue}>{counts.upcoming}</Text>
+          <View style={styles.summaryCard}>
+            <View style={[styles.summaryIcon, { backgroundColor: UI.tealSoft }]}><Ionicons name="calendar-outline" size={16} color={UI.teal} /></View>
+            <Text style={[styles.summaryValue, { color: UI.teal }]}>{counts.upcoming}</Text>
+            <Text style={styles.summaryLabel}>Upcoming</Text>
             <Text style={styles.summaryText}>appointments</Text>
           </View>
-          <View style={[styles.summaryCard, styles.todayCard]}>
-            <View style={styles.summaryIconAmber}><Ionicons name="time-outline" size={18} color={UI.amber} /></View>
-            <Text style={[styles.summaryLabel, { color: UI.amber }]}>TODAY</Text>
+          <View style={styles.summaryCard}>
+            <View style={[styles.summaryIcon, { backgroundColor: UI.amberSoft }]}><Ionicons name="time-outline" size={16} color={UI.amber} /></View>
             <Text style={[styles.summaryValue, { color: UI.amber }]}>{counts.today}</Text>
+            <Text style={styles.summaryLabel}>Today</Text>
             <Text style={styles.summaryText}>scheduled</Text>
           </View>
           <View style={[styles.summaryCard, styles.overdueCard]}>
-            <View style={styles.summaryIconRed}><Ionicons name="alert-circle-outline" size={18} color={UI.red} /></View>
-            <Text style={[styles.summaryLabel, { color: UI.red }]}>OVERDUE</Text>
+            <View style={[styles.summaryIcon, { backgroundColor: UI.redSoft }]}><Ionicons name="alert-circle-outline" size={16} color={UI.red} /></View>
             <Text style={[styles.summaryValue, { color: UI.red }]}>{counts.overdue}</Text>
+            <Text style={styles.summaryLabel}>Overdue</Text>
             <Text style={styles.summaryText}>need follow-up</Text>
           </View>
         </View>
 
         <View style={styles.listCard}>
-          <View style={styles.tabRow}>
-            {TABS.map((tab) => (
-              <Pressable key={tab.key} style={[styles.tabChip, activeTab === tab.key && styles.tabChipActive]} onPress={() => setActiveTab(tab.key)} accessibilityRole="tab" accessibilityState={{ selected: activeTab === tab.key }}>
-                <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-
           <View style={styles.toolbar}>
-            <Searchbar value={query} onChangeText={setQuery} placeholder="Search by lead, type..." elevation={0} inputStyle={styles.searchInput} style={styles.searchBox} />
-            <Pressable style={styles.filterButton} onPress={() => setFilterOpen((value) => !value)}>
-              <Ionicons name="options-outline" size={16} color={UI.sub} />
-              <Text style={styles.filterButtonText}>{typeFilter ? typeMeta(typeFilter).label : "Filters"}</Text>
+            <Searchbar value={query} onChangeText={setQuery} placeholder="Search by lead name..." elevation={0} inputStyle={styles.searchInput} style={styles.searchBox} />
+            <Pressable style={styles.filterButton} onPress={openFilters} accessibilityRole="button" accessibilityLabel="Filters">
+              <Ionicons name="options-outline" size={16} color={UI.teal} />
+              <Text style={styles.filterButtonText}>Filters</Text>
             </Pressable>
           </View>
-          {filterOpen ? (
-            <View style={styles.typeFilterRow}>
-              <Pressable style={[styles.typeFilterChip, !typeFilter && styles.typeFilterChipActive]} onPress={() => setTypeFilter("")}>
-                <Text style={[styles.typeFilterText, !typeFilter && styles.typeFilterTextActive]}>Show All</Text>
-              </Pressable>
-              {TYPES.map((item) => (
-                <Pressable key={item.key} style={[styles.typeFilterChip, typeFilter === item.key && styles.typeFilterChipActive]} onPress={() => setTypeFilter(item.key)}>
-                  <Text style={[styles.typeFilterText, typeFilter === item.key && styles.typeFilterTextActive]}>{item.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
+
+          <View style={styles.showingRow}>
+            <Text style={styles.showingLabel}>Showing</Text>
+            <View style={styles.showingPill}><Text style={styles.showingPillText}>{TABS.find((tab) => tab.key === activeTab)?.label}</Text></View>
+            {typeFilter ? <View style={styles.showingPill}><Text style={styles.showingPillText}>{typeMeta(typeFilter).label}</Text></View> : null}
+          </View>
 
           {loading ? (
             <View style={styles.state}><ActivityIndicator size="large" color={UI.teal} /></View>
@@ -437,13 +431,61 @@ function AppointmentsContent() {
             />
           )) : (
             <View style={styles.empty}>
-              <Ionicons name="calendar-clear-outline" size={34} color={UI.muted} />
-              <Text style={styles.emptyTitle}>No appointments found</Text>
-              <Text style={styles.emptyText}>{activeTab === "completed" ? "Appointments you mark completed will show up here." : "Create a new appointment or change the filters."}</Text>
+              <View style={styles.emptyIcon}><Ionicons name="calendar-outline" size={24} color={UI.teal} /></View>
+              <Text style={styles.emptyTitle}>{query || typeFilter || activeTab !== "all" ? "No appointments found" : "No appointments yet"}</Text>
+              <Text style={styles.emptyText}>{activeTab === "completed" ? "Appointments you mark completed will show up here." : query || typeFilter || activeTab !== "all" ? "Change the filters or search to see more." : "Schedule your first sales appointment with a lead and it will show up here."}</Text>
+              <Pressable style={styles.emptyButton} onPress={openCreate}>
+                <Ionicons name="add" size={18} color={UI.teal} />
+                <Text style={styles.emptyButtonText}>New appointment</Text>
+              </Pressable>
             </View>
           )}
         </View>
       </ScrollView>
+
+      <Modal visible={filterOpen} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setFilterOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setFilterOpen(false)}>
+          <Pressable style={[styles.filterSheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.filterHead}>
+              <Text style={styles.filterTitle}>Filters</Text>
+              <Pressable onPress={() => setFilterOpen(false)} hitSlop={8} style={styles.filterClose} accessibilityRole="button" accessibilityLabel="Close"><Ionicons name="close" size={18} color={UI.ink} /></Pressable>
+            </View>
+
+            <Text style={styles.filterSection}>APPOINTMENTS</Text>
+            <View style={styles.filterChips}>
+              {TABS.map((tab) => {
+                const active = draftTab === tab.key;
+                return (
+                  <Pressable key={tab.key} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setDraftTab(tab.key)}>
+                    {active ? <Ionicons name="checkmark" size={14} color="#ffffff" /> : null}
+                    <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{tab.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.filterDivider} />
+            <Text style={styles.filterSection}>TYPE</Text>
+            <View style={styles.filterChips}>
+              {[{ key: "" as const, label: "Show All" }, ...TYPES].map((item) => {
+                const active = draftType === item.key;
+                return (
+                  <Pressable key={item.label} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setDraftType(item.key)}>
+                    {active ? <Ionicons name="checkmark" size={14} color="#ffffff" /> : null}
+                    <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.filterActions}>
+              <Pressable style={styles.resetButton} onPress={() => { setDraftTab("all"); setDraftType(""); }}><Text style={styles.resetText}>Reset</Text></Pressable>
+              <Pressable style={styles.applyButton} onPress={() => { setActiveTab(draftTab); setTypeFilter(draftType); setFilterOpen(false); }}><Text style={styles.applyText}>Apply filters</Text></Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal visible={sheetOpen} animationType="slide" presentationStyle="fullScreen" statusBarTranslucent navigationBarTranslucent onRequestClose={closeSheet}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.sheetKeyboard}>
@@ -509,46 +551,55 @@ function AppointmentsContent() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: UI.bg },
-  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: UI.bg },
   headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
   headerTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
-  content: { paddingHorizontal: 16, paddingTop: 14 },
-  titleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
+  content: { paddingHorizontal: 14, paddingTop: 8 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   title: { color: UI.ink, fontSize: 20, fontFamily: "DMSans_700Bold" },
-  subtitle: { color: UI.sub, fontSize: 12, marginTop: 2 },
-  newButton: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: UI.teal, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 11 },
-  newButtonText: { color: "#fff", fontSize: 12, fontFamily: "Inter_700Bold" },
-  summaryGrid: { gap: 12, marginBottom: 14 },
-  summaryCard: { ...CARD, minHeight: 94, padding: 14 },
-  upcomingCard: { backgroundColor: "#ffffff", borderColor: UI.line },
-  todayCard: { backgroundColor: "#ffffff", borderColor: UI.line },
-  overdueCard: { backgroundColor: "#ffffff", borderColor: "#f6c8d0" },
-  summaryIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center", position: "absolute", left: 14, top: 24 },
-  summaryIconAmber: { width: 42, height: 42, borderRadius: 21, backgroundColor: UI.amberSoft, alignItems: "center", justifyContent: "center", position: "absolute", left: 14, top: 24 },
-  summaryIconRed: { width: 42, height: 42, borderRadius: 21, backgroundColor: UI.redSoft, alignItems: "center", justifyContent: "center", position: "absolute", left: 14, top: 24 },
-  summaryLabel: { marginLeft: 58, color: UI.teal, fontSize: 10, fontFamily: "Inter_700Bold" },
-  summaryValue: { marginLeft: 58, color: UI.teal, fontSize: 26, fontFamily: "Inter_700Bold", marginTop: 3 },
-  summaryText: { marginLeft: 58, color: UI.sub, fontSize: 11, marginTop: -2 },
-  listCard: { ...CARD, padding: 14 },
-  tabRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingBottom: 12 },
-  tabChip: { minHeight: 38, paddingHorizontal: 13, borderRadius: 999, alignItems: "center", justifyContent: "center", backgroundColor: "#e4ecf3" },
-  tabChipActive: { backgroundColor: UI.teal },
-  tabText: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold" },
-  tabTextActive: { color: "#fff" },
-  toolbar: { flexDirection: "row", gap: 8, marginBottom: 10 },
-  searchBox: { flex: 1, height: 42, backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1, borderColor: UI.line },
-  searchInput: { fontSize: 12, minHeight: 40 },
-  filterButton: { minWidth: 92, height: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "rgba(255,255,255,0.82)" },
+  subtitle: { color: UI.sub, fontSize: 12 },
+  newButton: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: UI.teal, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9 },
+  newButtonText: { color: "#fff", fontSize: 13, fontFamily: "Inter_700Bold" },
+  summaryGrid: { flexDirection: "row", gap: 8, marginBottom: 10 },
+  summaryCard: { flex: 1, ...CARD, borderRadius: 14, padding: 9 },
+  overdueCard: { borderColor: "#f6c8d0" },
+  summaryIcon: { width: 30, height: 30, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  summaryLabel: { color: UI.ink, fontSize: 11, fontFamily: "Inter_700Bold" },
+  summaryValue: { fontSize: 22, fontFamily: "Inter_700Bold", marginTop: 4 },
+  summaryText: { color: UI.sub, fontSize: 10, marginTop: 0 },
+  listCard: { gap: 0 },
+  toolbar: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  searchBox: { flex: 1, height: 38, backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1, borderColor: UI.line },
+  searchInput: { fontSize: 13, minHeight: 36 },
+  filterButton: { height: 38, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
   filterButtonText: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold" },
-  typeFilterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
-  typeFilterChip: { borderRadius: 999, borderWidth: 1, borderColor: UI.line, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: "#ffffff" },
-  typeFilterChipActive: { backgroundColor: UI.teal, borderColor: UI.teal },
-  typeFilterText: { color: UI.sub, fontSize: 11, fontFamily: "Inter_700Bold" },
-  typeFilterTextActive: { color: "#fff" },
+  showingRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6, marginBottom: 10 },
+  showingLabel: { color: UI.sub, fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  showingPill: { backgroundColor: "#e6edfb", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  showingPillText: { color: UI.teal, fontSize: 12, fontFamily: "Inter_700Bold" },
+  filterSheet: { backgroundColor: "#ffffff", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 16, paddingTop: 8 },
+  filterHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 0, marginBottom: 8 },
+  filterTitle: { color: UI.ink, fontSize: 17, fontFamily: "Inter_700Bold" },
+  filterClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#eef1f8", alignItems: "center", justifyContent: "center" },
+  filterSection: { color: UI.sub, fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 1, marginBottom: 6 },
+  filterChips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  filterChip: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 34, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
+  filterChipActive: { backgroundColor: UI.teal, borderColor: UI.teal },
+  filterChipText: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold" },
+  filterChipTextActive: { color: "#ffffff" },
+  filterDivider: { height: 1, backgroundColor: UI.line, marginVertical: 12 },
+  filterActions: { flexDirection: "row", gap: 10, marginTop: 14 },
+  resetButton: { flex: 1, height: 42, borderRadius: 14, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  resetText: { color: UI.teal, fontSize: 14, fontFamily: "Inter_700Bold" },
+  applyButton: { flex: 1.4, height: 42, borderRadius: 14, backgroundColor: UI.teal, alignItems: "center", justifyContent: "center" },
+  applyText: { color: "#ffffff", fontSize: 14, fontFamily: "Inter_700Bold" },
+  emptyIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center" },
+  emptyButton: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 12, backgroundColor: "#e6edfb", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9 },
+  emptyButtonText: { color: UI.teal, fontSize: 13, fontFamily: "Inter_700Bold" },
   state: { alignItems: "center", justifyContent: "center", paddingVertical: 46, gap: 12 },
   errorText: { color: UI.red, fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: UI.line },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#d7e9f5", alignItems: "center", justifyContent: "center" },
+  row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 8, backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: UI.line },
+  avatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#dde7fb", alignItems: "center", justifyContent: "center" },
   avatarText: { color: UI.teal, fontSize: 12, fontFamily: "Inter_700Bold" },
   rowMain: { flex: 1 },
   rowName: { color: UI.ink, fontSize: 13, fontFamily: "Inter_700Bold" },
@@ -571,9 +622,9 @@ const styles = StyleSheet.create({
   popoverText: { color: UI.sub, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   popoverSuccessText: { color: UI.green },
   popoverDangerText: { color: UI.red },
-  empty: { alignItems: "center", paddingVertical: 42 },
-  emptyTitle: { color: UI.ink, fontSize: 14, fontFamily: "Inter_700Bold", marginTop: 10 },
-  emptyText: { color: UI.muted, fontSize: 12, textAlign: "center", marginTop: 4 },
+  empty: { alignItems: "center", paddingVertical: 22, paddingHorizontal: 16, borderRadius: 18, borderWidth: 1, borderStyle: "dashed", borderColor: "#bccdf0", backgroundColor: "#ffffff" },
+  emptyTitle: { color: UI.ink, fontSize: 15, fontFamily: "Inter_700Bold", marginTop: 10 },
+  emptyText: { color: UI.sub, fontSize: 12, lineHeight: 17, textAlign: "center", marginTop: 4 },
   sheetKeyboard: { flex: 1 },
   fullSheet: { flex: 1, backgroundColor: UI.bg },
   fullSheetHeader: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
@@ -581,7 +632,7 @@ const styles = StyleSheet.create({
   fullSheetTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   fullSheetBody: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 24 },
   fullSheetActions: { paddingHorizontal: 18, paddingTop: 12, marginTop: 0, borderTopWidth: 1, borderTopColor: UI.line, backgroundColor: UI.bg },
-  sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,0.38)" },
+  sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,31,61,0.45)" },
   sheet: { backgroundColor: "#ffffff", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: "86%" },
   sheetBody: { maxHeight: 500 },
   sheetHandle: { width: 42, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: UI.line, marginBottom: 14 },
