@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Appbar, Button, Text } from "react-native-paper";
+import { ActivityIndicator, Button, Text } from "react-native-paper";
 import axios from "axios";
 import * as WebBrowser from "expo-web-browser";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,11 +29,11 @@ function loadRazorpay(): RazorpayModule | null {
   }
 }
 
-// The accent of the plan picker: the same CurveLead blue as the other screens. (Names kept from the first version.)
-const GREEN = colors.primary;
-const GREEN_DARK = "#0284c7";
-const GREEN_SOFT = "#e0f2fe";
-const GREEN_BORDER = "#bae6fd";
+// Pale lavender page, white cards with soft borders, indigo accents.
+const UI = { bg: "#f4f5fb", line: "#dfe2f0", ink: "#14172e", sub: "#5b6280", muted: "#8b91ab", accent: "#4b45e0", accentSoft: "#eceefe", accentLine: "#c9ccf0", track: "#e8eaf4" };
+const GREEN = UI.accent;
+const GREEN_SOFT = UI.accentSoft;
+const GREEN_BORDER = UI.accentLine;
 
 const PERIODS: { key: BillingCycle; label: string; badge?: string }[] = [
   { key: "monthly", label: "Monthly" },
@@ -190,16 +189,16 @@ If money was taken, contact support with payment ID ${payment.razorpay_payment_i
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Choose Your Plan" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back"><Ionicons name="chevron-back" size={20} color={UI.ink} /></Pressable>
+        <Text style={styles.headerTitle}>Choose Your Plan</Text>
+      </View>
 
       {loading ? (
         <View style={styles.state}><ActivityIndicator size="large" color={GREEN} /></View>
       ) : error && !plans.length ? (
         <View style={styles.state}>
-          <Ionicons name="cloud-offline-outline" size={32} color={colors.textMuted} />
+          <Ionicons name="cloud-offline-outline" size={32} color={UI.muted} />
           <Text style={styles.errorText}>{error}</Text>
           <Button mode="contained" buttonColor={GREEN} onPress={() => load()} style={{ marginTop: 8 }}>Try again</Button>
         </View>
@@ -236,7 +235,7 @@ If money was taken, contact support with payment ID ${payment.razorpay_payment_i
               return (
                 <Pressable key={plan.id} onPress={() => setSelected(plan.id)} style={[styles.card, active && styles.cardActive]}>
                   <View style={styles.cardTop}>
-                    <View style={styles.planIcon}><Ionicons name={copy.icon} size={18} color={active ? colors.primary : "#64748b"} /></View>
+                    <View style={[styles.planIcon, active && styles.planIconActive]}><Ionicons name="pricetag-outline" size={18} color={active ? UI.accent : UI.sub} /></View>
                     <View style={{ flex: 1 }}>
                       <View style={styles.nameRow}>
                         <Text style={styles.planName}>{plan.name} Plan</Text>
@@ -245,7 +244,7 @@ If money was taken, contact support with payment ID ${payment.razorpay_payment_i
                       </View>
                       <Text style={styles.planDescription} numberOfLines={2}>{copy.description}</Text>
                     </View>
-                    <View style={[styles.radio, active && styles.radioActive]}>{active ? <View style={styles.radioDot} /> : null}</View>
+                    <View style={[styles.radio, active && styles.radioActive]}>{active ? <Ionicons name="checkmark" size={16} color="#ffffff" /> : null}</View>
                   </View>
 
                   <View style={styles.priceRow}>
@@ -257,7 +256,7 @@ If money was taken, contact support with payment ID ${payment.razorpay_payment_i
                     <View style={styles.chipRow}>
                       {chips.map((feature) => (
                         <View key={feature} style={styles.featureChip}>
-                          <Ionicons name="checkmark-circle" size={14} color={active ? colors.primary : "#94a3b8"} />
+                          <Ionicons name="checkmark-circle-outline" size={15} color={active ? UI.accent : UI.muted} />
                           <Text style={styles.featureChipText}>{feature}</Text>
                         </View>
                       ))}
@@ -267,7 +266,7 @@ If money was taken, contact support with payment ID ${payment.razorpay_payment_i
                       <View style={styles.moreList}>
                         {allFeatures.slice(2).map((feature) => (
                           <View key={feature} style={styles.moreRow}>
-                            <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+                            <Ionicons name="checkmark-circle-outline" size={16} color={UI.accent} />
                             <Text style={styles.moreText}>{feature}</Text>
                           </View>
                         ))}
@@ -276,8 +275,8 @@ If money was taken, contact support with payment ID ${payment.razorpay_payment_i
                     ) : null}
 
                     <Pressable style={styles.viewMore} onPress={() => toggleMore(plan.id)} hitSlop={8}>
-                      <Text style={styles.viewMoreText}>{open ? "View Less" : "View More"}</Text>
-                      <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color={colors.primary} />
+                      <Text style={styles.viewMoreText}>{open ? "View less" : "View more"}</Text>
+                      <Ionicons name={open ? "chevron-up" : "chevron-down"} size={14} color={UI.accent} />
                     </Pressable>
                   </View>
                 </Pressable>
@@ -292,11 +291,9 @@ If money was taken, contact support with payment ID ${payment.razorpay_payment_i
               <Text style={styles.total}>Total: {selectedPrice ? formatPrice(selectedPrice.amount, selectedPrice.currency) : "-"}</Text>
               <Text style={styles.totalSub}>{selectedPrice?.amount ? (cycle === "yearly" ? "Per Year" : "Per Month") : "No payment needed"}</Text>
             </View>
-            <Pressable onPress={payNow} disabled={!canPay || paying} style={(!canPay || paying) && { opacity: 0.55 }}>
-              <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.payButton}>
-                {paying ? <ActivityIndicator size="small" color="#fff" /> : null}
-                <Text style={styles.payText}>{isCurrent ? "Current plan" : canPay ? "Pay Now" : "Included"}</Text>
-              </LinearGradient>
+            <Pressable onPress={payNow} disabled={!canPay || paying} style={[styles.payButton, canPay ? styles.payButtonOn : styles.payButtonOff, paying && { opacity: 0.7 }]} accessibilityRole="button">
+              {paying ? <ActivityIndicator size="small" color="#fff" /> : null}
+              <Text style={[styles.payText, !canPay && styles.payTextOff]}>{isCurrent ? "Current plan" : canPay ? "Pay Now" : "Included"}</Text>
             </Pressable>
           </View>
         </>
@@ -306,58 +303,63 @@ If money was taken, contact support with payment ID ${payment.razorpay_payment_i
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f4f9fc" },
-  header: { backgroundColor: "#ffffff" },
-  headerTitle: { fontSize: 17, fontWeight: "800", color: colors.text },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingBottom: 8, backgroundColor: UI.bg },
+  headerButton: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 22, fontWeight: "800" },
   state: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30, gap: 8 },
-  errorText: { color: colors.danger, fontSize: 13, textAlign: "center" },
+  errorText: { color: "#b3173a", fontSize: 13, textAlign: "center" },
 
   periodWrap: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 2 },
-  periodRow: { flexDirection: "row", backgroundColor: "#eaf1f7", borderRadius: 12, padding: 3 },
-  periodTab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, height: 34, borderRadius: 10 },
+  periodRow: { flexDirection: "row", backgroundColor: UI.track, borderRadius: 14, padding: 3 },
+  periodTab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 38, borderRadius: 11 },
   periodTabActive: { backgroundColor: "#ffffff", shadowColor: "#0f172a", shadowOpacity: 0.08, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  periodText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
-  periodTextActive: { color: colors.primary },
-  periodBadge: { backgroundColor: colors.primarySoft, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 },
-  periodBadgeText: { color: colors.primary, fontSize: 10, fontWeight: "800" },
+  periodText: { color: UI.sub, fontSize: 14, fontWeight: "700" },
+  periodTextActive: { color: "#3a35b8", fontWeight: "800" },
+  periodBadge: { backgroundColor: "#d9f3e4", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  periodBadgeText: { color: "#0f6b3a", fontSize: 10, fontWeight: "800" },
 
   content: { paddingHorizontal: 14, paddingTop: 8, gap: 10 },
-  card: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1.5, borderColor: "#e2eef7", overflow: "hidden" },
-  cardActive: { borderColor: colors.primary },
+  card: { backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: UI.line, overflow: "hidden" },
+  cardActive: { borderColor: UI.accent, borderWidth: 2 },
   cardTop: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingHorizontal: 12, paddingTop: 12 },
-  planIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: "#eef4f9", alignItems: "center", justifyContent: "center" },
+  planIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: "#eef0f8", alignItems: "center", justifyContent: "center" },
+  planIconActive: { backgroundColor: UI.accentSoft },
   nameRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
-  planName: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  planName: { color: UI.ink, fontSize: 15, fontWeight: "800" },
   planBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   planBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
-  currentBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "#dcfce7" },
-  currentBadgeText: { color: "#15803d", fontSize: 10, fontWeight: "800" },
-  planDescription: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: "#cbd5e1", alignItems: "center", justifyContent: "center", marginTop: 4 },
-  radioActive: { borderColor: colors.primary },
-  radioDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: colors.primary },
+  currentBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "#d9f3e4" },
+  currentBadgeText: { color: "#0f6b3a", fontSize: 10, fontWeight: "800" },
+  planDescription: { color: UI.sub, fontSize: 12, marginTop: 1 },
+  radio: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: "#c4c8dc", alignItems: "center", justifyContent: "center", marginTop: 4 },
+  radioActive: { borderColor: UI.accent, backgroundColor: UI.accent },
+  radioDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: UI.accent },
 
   priceRow: { flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10 },
-  price: { color: colors.text, fontSize: 26, fontWeight: "900", letterSpacing: -0.8 },
-  per: { color: colors.textMuted, fontSize: 13, marginBottom: 4, marginLeft: 2 },
+  price: { color: UI.ink, fontSize: 28, fontWeight: "900", letterSpacing: -0.8 },
+  per: { color: UI.sub, fontSize: 13, marginBottom: 5, marginLeft: 3 },
 
-  features: { backgroundColor: "#f8fbfd", paddingHorizontal: 10, paddingTop: 10, paddingBottom: 6, borderTopWidth: 1, borderTopColor: "#eef4f9" },
+  features: { backgroundColor: "#f7f8fc", paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6, borderTopWidth: 1, borderTopColor: UI.line },
   featuresActive: { backgroundColor: GREEN_SOFT, borderTopColor: GREEN_BORDER },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-start", gap: 8 },
   featureChip: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#ffffff", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
-  featureChipText: { color: colors.text, fontSize: 12, fontWeight: "600" },
+  featureChipText: { color: UI.ink, fontSize: 12, fontWeight: "700" },
   moreList: { marginTop: 10, gap: 7, paddingHorizontal: 4 },
   moreRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  moreText: { color: colors.text, fontSize: 13, flex: 1 },
-  moreNone: { color: colors.textMuted, fontSize: 12, textAlign: "center" },
-  viewMore: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, paddingTop: 8, paddingBottom: 2 },
-  viewMoreText: { color: colors.primary, fontSize: 13, fontWeight: "800" },
+  moreText: { color: UI.ink, fontSize: 13, flex: 1 },
+  moreNone: { color: UI.muted, fontSize: 12, textAlign: "center" },
+  viewMore: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 3, paddingTop: 6, paddingBottom: 2 },
+  viewMoreText: { color: "#3a35b8", fontSize: 13, fontWeight: "800" },
 
-  empty: { color: colors.textMuted, textAlign: "center", paddingVertical: 30 },
+  empty: { color: UI.muted, textAlign: "center", paddingVertical: 30 },
 
-  bottomBar: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingTop: 10, backgroundColor: "#ffffff", borderTopWidth: 1, borderTopColor: "#e2eef7" },
-  total: { color: colors.text, fontSize: 17, fontWeight: "900" },
-  totalSub: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
+  bottomBar: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingTop: 10, backgroundColor: "#ffffff", borderTopWidth: 1, borderTopColor: UI.line },
+  total: { color: UI.ink, fontSize: 18, fontWeight: "900" },
+  totalSub: { color: UI.sub, fontSize: 12, marginTop: 1 },
   payButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, minWidth: 140, height: 46, borderRadius: 14, paddingHorizontal: 18 },
+  payButtonOn: { backgroundColor: UI.accent },
+  payButtonOff: { backgroundColor: "#c9ccf0" },
   payText: { color: "#ffffff", fontSize: 15, fontWeight: "800" },
+  payTextOff: { color: "#2a2790" },
 });
