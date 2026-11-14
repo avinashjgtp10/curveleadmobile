@@ -191,13 +191,15 @@ function UpcomingFollowupsCard({ followups, onPress }: { followups: TodayFollowu
 
 function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress: () => void }) {
   const { t } = useT();
-  const items = [
-    { label: "New leads", value: data.leads_today, dot: "#10b981" },
-    { label: "Follow-ups", value: data.followups_today, dot: "#f59e0b" },
-    { label: "Demos", value: data.demos_today, dot: "#7c3aed" },
-    { label: "Overdue", value: data.overdue_followups, dot: "#e11d48" },
-    { label: "Hot Leads", value: data.hot_leads, dot: "#ea580c" },
-    { label: "Critical", value: data.critical_followups, dot: "#be123c" },
+  // Each tile opens the list behind its number. The Leads and Follow-ups screens start with the matching filter.
+  const at = String(Date.now());
+  const items: { label: string; value: number; dot: string; go: () => void }[] = [
+    { label: "New leads", value: data.leads_today, dot: "#10b981", go: () => router.push({ pathname: "/(app)/leads", params: { preset: "new_today", presetAt: at } }) },
+    { label: "Follow-ups", value: data.followups_today, dot: "#f59e0b", go: () => router.push({ pathname: "/(app)/followups", params: { filter: "day", filterAt: at } }) },
+    { label: "Demos", value: data.demos_today, dot: "#7c3aed", go: () => router.push({ pathname: "/(app)/followups", params: { filter: "day", filterAt: at } }) },
+    { label: "Overdue", value: data.overdue_followups, dot: "#e11d48", go: () => router.push({ pathname: "/(app)/followups", params: { filter: "overdue", filterAt: at } }) },
+    { label: "Hot Leads", value: data.hot_leads, dot: "#ea580c", go: () => router.push({ pathname: "/(app)/leads", params: { preset: "hot", presetAt: at } }) },
+    { label: "Critical", value: data.critical_followups, dot: "#be123c", go: () => router.push({ pathname: "/(app)/followups", params: { filter: "overdue", filterAt: at } }) },
   ];
   return (
     <View style={styles.plainBlock}>
@@ -207,11 +209,11 @@ function TodayActivityCard({ data, onPress }: { data: DashboardSummary; onPress:
       </View>
       <View style={styles.activityGrid}>
         {items.map((item) => (
-          <View key={item.label} style={styles.activityTile}>
+          <Pressable key={item.label} style={({ pressed }) => [styles.activityTile, pressed && { opacity: 0.7 }]} onPress={item.go} accessibilityRole="button" accessibilityLabel={`${t(item.label)}: ${fmt(item.value)}`}>
             <View style={[styles.activityDot, { backgroundColor: item.dot }]} />
             <Text style={styles.activityValue}>{fmt(item.value)}</Text>
             <Text style={styles.activityLabel} numberOfLines={1}>{t(item.label)}</Text>
-          </View>
+          </Pressable>
         ))}
       </View>
     </View>
@@ -280,6 +282,10 @@ const ALL_TOOLS: GridItem[] = APP_TOOLS.map((tool) => ({
   bg: TOOL_TONES[tool.tone].bg, iconColor: TOOL_TONES[tool.tone].fg,
   badges: tool.badge ? [{ text: tool.badge, bg: "#7c3aed" }] : undefined,
 }));
+
+// Everyday tools shown on the dashboard, in this order. Everything else lives in the More tab.
+const DASHBOARD_TOOLS = ["Leads", "Follow-ups", "WhatsApp", "Appointments", "Quotations", "Brochures", "Ads Manager", "Lead Automation", "AI Agent", "Reports", "Team"];
+const MORE_TILE: GridItem = { icon: "grid-outline", label: "More", bg: TOOL_TONES.gray.bg, iconColor: TOOL_TONES.gray.fg, href: "/(app)/more" };
 
 function openGridItem(item: GridItem) {
   // Features under More open inside the More tab's stack; remember they came from Home so Back returns here
@@ -350,16 +356,21 @@ export default function DashboardScreen() {
   const { user, tenant } = useAuth();
   // Team, Integrations and Billing are admin-only (the More menu already hides them from staff).
   const canManage = user?.role === "admin" || user?.role === "super_admin";
-  // The "Manage your business" grid shows every tool, in the order of the workspace menu: Leads first, User Guide last.
-  // The grid and the search offer every tool this person may use (Team, Integrations and Billing are admin-only).
+  // The search offers every tool this person may use (Team, Integrations and Billing are admin-only).
   const visibleTools = ALL_TOOLS.filter((item) => !item.roles || (!!user?.role && item.roles.includes(user.role)));
-  const manageItems = visibleTools;
   const searchItems = visibleTools;
+  // The grid shows the everyday tools; the rest are one tap away in More (the last tile).
+  const manageItems = [
+    ...DASHBOARD_TOOLS.map((label) => visibleTools.find((item) => item.label === label)).filter((item): item is GridItem => !!item),
+    MORE_TILE,
+  ];
   const insets = useSafeAreaInsets();
   const [period, setPeriod] = useState<DashboardPeriod>("last_7_days");
   const [periodOpen, setPeriodOpen] = useState(false);
   const periodLabel = PERIOD_OPTIONS.find((item) => item.key === period)?.label || "Last 7 days";
   const [data, setData] = useState<DashboardSummary | null>(null);
+  const dataRef = useRef<DashboardSummary | null>(null);
+  dataRef.current = data;
   const [upcomingFollowups, setUpcomingFollowups] = useState<TodayFollowup[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
   // Keep the number on the app icon equal to the unread count the bell shows.
@@ -456,7 +467,8 @@ export default function DashboardScreen() {
       setError(message);
       setFailedLoads((count) => count + 1);
       // With numbers already on screen the error banner is hidden, so tell the person the refresh didn't work.
-      if (refresh) Alert.alert("Couldn't refresh", message);
+      // With no numbers on screen the "Couldn't load dashboard" state already shows the error, so an alert on top would just repeat it.
+      if (refresh && dataRef.current) Alert.alert("Couldn't refresh", message);
     } finally { setLoading(false); setRefreshing(false); }
   }, [period]);
 
@@ -625,9 +637,9 @@ export default function DashboardScreen() {
             </View>
 
             <TodayActivityCard data={data} onPress={() => router.push("/(app)/leads")} />
+            <AttentionCard count={attentionCount} onPress={() => router.push("/(app)/followups")} />
             <PipelineCard stages={data.pipeline || []} onPress={() => router.push("/(app)/leads")} />
             {team?.length ? <TeamPerformanceCard team={team} onPress={() => router.push("/(app)/more/reports")} /> : null}
-            <AttentionCard count={attentionCount} onPress={() => router.push("/(app)/followups")} />
             <UpcomingFollowupsCard followups={upcomingFollowups} onPress={() => router.push("/(app)/followups")} />
 
             <ToolGrid title="Manage your business" items={manageItems} onOpen={openGridItem} />

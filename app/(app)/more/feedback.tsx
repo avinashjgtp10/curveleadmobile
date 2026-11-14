@@ -1,22 +1,24 @@
 import React, { useState } from "react";
 import { Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
-import { ActivityIndicator, Appbar, Text } from "react-native-paper";
+import { ActivityIndicator, Text } from "react-native-paper";
 import axios from "axios";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "@/theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { FeedbackType, sendFeedback } from "@/api/feedback";
 import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 
+// Pale lavender page, white cards with soft borders, indigo actions.
+const UI = { bg: "#f4f5fb", line: "#dfe2f0", ink: "#14172e", sub: "#5b6280", muted: "#8b91ab", accent: "#4b45e0", accentSoft: "#e8e9fb", red: "#b3173a" };
+
 const MAX_MESSAGE = 1000;
 
 const TYPES: { key: FeedbackType; label: string; hint: string; icon: keyof typeof Ionicons.glyphMap; color: string; bg: string; placeholder: string }[] = [
-  { key: "idea", label: "Idea", hint: "Suggest a feature", icon: "bulb", color: "#d97706", bg: "#fef3c7", placeholder: "What would make CurveLead better for you?" },
-  { key: "bug", label: "Bug", hint: "Report a problem", icon: "bug", color: "#dc2626", bg: "#fee2e2", placeholder: "What went wrong, and what were you doing when it happened?" },
-  { key: "other", label: "Other", hint: "Anything else", icon: "chatbubble-ellipses", color: "#4f46e5", bg: "#e0e7ff", placeholder: "Tell us what's on your mind." },
+  { key: "idea", label: "Idea", hint: "Suggest a feature", icon: "bulb-outline", color: "#9a4a0a", bg: "#fdf0c4", placeholder: "What would make CurveLead better for you?" },
+  { key: "bug", label: "Bug", hint: "Report a problem", icon: "bug-outline", color: "#b3173a", bg: "#fde3e8", placeholder: "What went wrong, and what were you doing when it happened?" },
+  { key: "other", label: "Other", hint: "Anything else", icon: "chatbox-ellipses-outline", color: "#3a35b8", bg: "#e4e6fd", placeholder: "Tell us what's on your mind." },
 ];
 
 const RATING_LABELS = ["", "Not good", "Could be better", "It's okay", "Good", "Love it!"];
@@ -73,14 +75,14 @@ ${user?.name || ""} ${user?.email || ""}`.trim();
 
   return (
     <KeyboardAvoidingView style={[styles.screen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Submit Feedback" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back"><Ionicons name="chevron-back" size={20} color={UI.ink} /></Pressable>
+        <Text style={styles.headerTitle}>Submit Feedback</Text>
+      </View>
 
       {sent ? (
         <View style={styles.successState}>
-          <LinearGradient colors={["#22c55e", "#0ea5e9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.successIcon}>
+          <LinearGradient colors={["#22c55e", "#4b45e0"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.successIcon}>
             <Ionicons name="checkmark" size={46} color="#fff" />
           </LinearGradient>
           <Text style={styles.successTitle}>Thanks for the feedback!</Text>
@@ -114,7 +116,7 @@ ${user?.name || ""} ${user?.email || ""}`.trim();
             <View style={styles.starRow}>
               {[1, 2, 3, 4, 5].map((value) => (
                 <Pressable key={value} onPress={() => setRating(rating === value ? 0 : value)} hitSlop={6}>
-                  <Ionicons name={value <= rating ? "star" : "star-outline"} size={28} color={value <= rating ? "#f59e0b" : "#cbd5e1"} />
+                  <Ionicons name={value <= rating ? "star" : "star-outline"} size={28} color={value <= rating ? "#e8a317" : "#b9bdd6"} />
                 </Pressable>
               ))}
             </View>
@@ -125,66 +127,61 @@ ${user?.name || ""} ${user?.email || ""}`.trim();
           <View style={[styles.inputBox, !!error && styles.inputError]}>
             <RNTextInput
               value={message} onChangeText={(value) => { setMessage(value.slice(0, MAX_MESSAGE)); if (error) setError(""); }}
-              placeholder={current.placeholder} placeholderTextColor={colors.textMuted} multiline textAlignVertical="top" style={styles.inputText}
+              placeholder={current.placeholder} placeholderTextColor={UI.muted} multiline textAlignVertical="top" style={styles.inputText}
             />
           </View>
           <View style={styles.counterRow}>
             {error ? <Text style={styles.errorText}>{error}</Text> : <View />}
             <Text style={styles.counter}>{message.length} / {MAX_MESSAGE}</Text>
           </View>
+
+          <Pressable onPress={handleSubmit} disabled={sending} style={[styles.submitButton, sending && { opacity: 0.6 }]} accessibilityRole="button">
+            {sending ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="paper-plane-outline" size={18} color="#fff" />}
+            <Text style={styles.submitText}>Send feedback</Text>
+          </Pressable>
         </ScrollView>
       )}
 
-      {!sent ? (
-        <View style={[styles.footer, { paddingBottom: keyboardHeight ? 10 : insets.bottom + 10 }]}>
-          <Pressable onPress={handleSubmit} disabled={sending} style={sending && { opacity: 0.6 }}>
-            <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submitButton}>
-              {sending ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={17} color="#fff" />}
-              <Text style={styles.submitText}>Send feedback</Text>
-            </LinearGradient>
-          </Pressable>
-        </View>
-      ) : null}
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f4f9fc" },
-  header: { backgroundColor: "#ffffff" },
-  headerTitle: { fontSize: 17, fontWeight: "800", color: colors.text },
-  content: { padding: 14, gap: 2 },
-  intro: { color: colors.textSecondary, fontSize: 13, lineHeight: 18, marginBottom: 2 },
-  footer: { paddingHorizontal: 14, paddingTop: 10, backgroundColor: "#ffffff", borderTopWidth: 1, borderTopColor: "#e2eef7" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingBottom: 8, backgroundColor: UI.bg },
+  headerButton: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 24, fontWeight: "800" },
+  content: { paddingHorizontal: 14, paddingTop: 2, gap: 2 },
+  intro: { color: UI.sub, fontSize: 13, lineHeight: 19, marginBottom: 2 },
 
-  label: { color: colors.text, fontSize: 14, fontWeight: "800", marginTop: 14, marginBottom: 8 },
-  optional: { color: colors.textMuted, fontSize: 12, fontWeight: "600" },
+  label: { color: UI.ink, fontSize: 14, fontWeight: "800", marginTop: 14, marginBottom: 8 },
+  optional: { color: UI.sub, fontSize: 12, fontWeight: "600" },
 
   typeRow: { flexDirection: "row", gap: 10 },
-  typeTile: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 6, borderRadius: 14, borderWidth: 2, borderColor: "#e2eef7", backgroundColor: "#ffffff" },
-  typeIcon: { width: 30, height: 30, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  typeLabel: { color: colors.text, fontSize: 14, fontWeight: "800" },
+  typeTile: { flex: 1, alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, paddingHorizontal: 6, borderRadius: 16, borderWidth: 2, borderColor: UI.line, backgroundColor: "#ffffff" },
+  typeIcon: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  typeLabel: { color: UI.ink, fontSize: 14, fontWeight: "800" },
 
-  ratingCard: { backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: "#e2eef7", paddingVertical: 10, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 12 },
+  ratingCard: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, paddingVertical: 10, paddingHorizontal: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
   starRow: { flexDirection: "row", gap: 8 },
-  ratingText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
+  ratingText: { color: UI.sub, fontSize: 13, fontWeight: "700" },
 
-  inputBox: { minHeight: 120, borderRadius: 16, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#ffffff", paddingHorizontal: 14, paddingVertical: 6 },
-  inputError: { borderColor: colors.danger },
-  inputText: { color: colors.text, fontSize: 14, minHeight: 106, paddingVertical: 8 },
+  inputBox: { minHeight: 120, borderRadius: 16, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, paddingVertical: 6 },
+  inputError: { borderColor: UI.red },
+  inputText: { color: UI.ink, fontSize: 14, minHeight: 106, paddingVertical: 8 },
   counterRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
-  counter: { color: colors.textMuted, fontSize: 11 },
-  errorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "700" },
+  counter: { color: UI.sub, fontSize: 11 },
+  errorText: { flex: 1, color: UI.red, fontSize: 12, fontWeight: "700" },
 
-  submitButton: { height: 50, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  submitButton: { height: 48, borderRadius: 14, backgroundColor: UI.accent, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 14 },
   submitText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 
   successState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30 },
   successIcon: { width: 90, height: 90, borderRadius: 45, alignItems: "center", justifyContent: "center", marginBottom: 20 },
-  successTitle: { color: colors.text, fontSize: 20, fontWeight: "900", textAlign: "center" },
-  successText: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, textAlign: "center", marginTop: 8 },
-  secondaryButton: { marginTop: 24, alignSelf: "stretch", alignItems: "center", paddingVertical: 14, borderRadius: 16, backgroundColor: colors.primarySoft },
-  secondaryText: { color: colors.primary, fontSize: 15, fontWeight: "800" },
+  successTitle: { color: UI.ink, fontSize: 20, fontWeight: "900", textAlign: "center" },
+  successText: { color: UI.sub, fontSize: 13, lineHeight: 19, textAlign: "center", marginTop: 8 },
+  secondaryButton: { marginTop: 24, alignSelf: "stretch", alignItems: "center", paddingVertical: 14, borderRadius: 16, backgroundColor: UI.accentSoft },
+  secondaryText: { color: UI.accent, fontSize: 15, fontWeight: "800" },
   linkButton: { marginTop: 8, paddingVertical: 10 },
-  linkText: { color: colors.textSecondary, fontSize: 14, fontWeight: "700" },
+  linkText: { color: UI.sub, fontSize: 14, fontWeight: "700" },
 });

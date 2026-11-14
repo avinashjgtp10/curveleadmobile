@@ -10,7 +10,7 @@ import {
 } from "react-native-paper";
 import { rateLimitRemainingMs } from "@/api/client";
 import axios from "axios";
-import { router, useFocusEffect, useNavigation } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,7 +26,7 @@ import {
 import { fetchStaff, StaffMember } from "@/api/staff";
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
 import { notifyLeadsDeleted } from "@/api/notifications";
-import { FilterDateField, formatYmd } from "@/components/FilterDateField";
+import { FilterDateField, formatYmd, toYmd } from "@/components/FilterDateField";
 
 const PAGE_SIZE = 25;
 // With a status, follow-up or reply-window filter on, this many leads are fetched at once and filtered on the phone.
@@ -339,6 +339,17 @@ export default function LeadsScreen() {
     parent?.setOptions({ tabBarStyle: hideBar ? { display: "none" } : tabBarStyleFor(insets.bottom) });
     return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
   }, [filtersSheetOpen, settingsSheetOpen, selectMode, navigation, insets.bottom]);
+
+  // Opened from a dashboard tile (New leads, Hot leads): start from that filter alone.
+  const { preset, presetAt } = useLocalSearchParams<{ preset?: string; presetAt?: string }>();
+  useEffect(() => {
+    if (!preset) return;
+    clearFilters();
+    setSearch(""); setQuery("");
+    if (preset === "new_today") { const today = toYmd(new Date()); setFilterDateFrom(today); setFilterDateTo(today); }
+    else if (preset === "hot") setScore("hot");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset, presetAt]);
 
   const activeFilterCount = [score, filterStage, filterStatus, filterHealth, filterSla, filterSource, filterAssignedTo, filterDateFrom || filterDateTo].filter(Boolean).length;
 

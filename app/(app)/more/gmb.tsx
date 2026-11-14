@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Appbar, Button, Card, Switch, Text, TextInput } from "react-native-paper";
+import { ActivityIndicator, Button, Card, Switch, Text, TextInput } from "react-native-paper";
 import axios from "axios";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -9,6 +9,9 @@ import { colors } from "@/theme";
 import { draftGmbReviewMessage, fetchGmbReviewRequestSettings, GmbReviewRequestSettings, updateGmbReviewRequestSettings } from "@/api/gmb";
 import { fetchSendableWhatsAppTemplates, SendableWhatsAppTemplate } from "@/api/whatsapp";
 
+
+// The add forms' palette: pale blue page, white cards with soft blue borders, deep teal-blue actions.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7" };
 type GmbTab = "review-requests" | "reviews" | "posts" | "insights";
 
 const TABS: { key: GmbTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -31,7 +34,7 @@ function isRouteMissing(error: unknown) {
 function ComingSoonTab({ label }: { label: string }) {
   return (
     <View style={styles.comingSoon}>
-      <View style={styles.comingSoonIcon}><Ionicons name="time-outline" size={22} color={colors.primary} /></View>
+      <View style={styles.comingSoonIcon}><Ionicons name="time-outline" size={22} color={UI.teal} /></View>
       <Text style={styles.comingSoonTitle}>{label} coming soon</Text>
       <Text style={styles.comingSoonText}>We're bringing this to the app shortly.</Text>
     </View>
@@ -122,12 +125,12 @@ function ReviewRequestsTab() {
     }
   }
 
-  if (loading) return <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>;
+  if (loading) return <View style={styles.state}><ActivityIndicator size="large" color={UI.teal} /></View>;
   if (error) {
     return (
       <View style={styles.state}>
         <Text style={styles.errorText}>{error}</Text>
-        <Button mode="contained" onPress={load} style={styles.retry}>Try again</Button>
+        <Button mode="contained" buttonColor={UI.teal} onPress={load} style={styles.retry}>Try again</Button>
       </View>
     );
   }
@@ -141,7 +144,7 @@ function ReviewRequestsTab() {
             <Text style={styles.cardTitle}>Ask for a Google review when a lead is won</Text>
             <Text style={styles.cardDescription}>When a lead reaches a Won stage, CurveLead asks them for a review on WhatsApp. Make sure only your real customer stage is tagged Won (Settings → Pipeline).</Text>
           </View>
-          <Switch value={enabled} onValueChange={toggleEnabled} color={colors.primary} />
+          <Switch value={enabled} onValueChange={toggleEnabled} color={UI.teal} />
         </Card.Content>
       </Card>
 
@@ -165,15 +168,15 @@ function ReviewRequestsTab() {
           </Text>
           <View style={styles.templateList}>
             <Pressable style={[styles.templateRow, !templateName && styles.templateRowActive]} onPress={() => setTemplateName("")}>
-              <Ionicons name={!templateName ? "radio-button-on" : "radio-button-off"} size={18} color={!templateName ? colors.primary : colors.textMuted} />
+              <Ionicons name={!templateName ? "radio-button-on" : "radio-button-off"} size={18} color={!templateName ? UI.teal : UI.muted} />
               <Text style={styles.templateText}>No template — send only inside the 24-hour window</Text>
             </Pressable>
-            {templates === null ? <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 10 }} /> : null}
+            {templates === null ? <ActivityIndicator size="small" color={UI.teal} style={{ marginVertical: 10 }} /> : null}
             {(templates || []).map((template) => {
               const active = templateName === template.name;
               return (
                 <Pressable key={`${template.name}-${template.language}`} style={[styles.templateRow, active && styles.templateRowActive]} onPress={() => setTemplateName(template.name)}>
-                  <Ionicons name={active ? "radio-button-on" : "radio-button-off"} size={18} color={active ? colors.primary : colors.textMuted} />
+                  <Ionicons name={active ? "radio-button-on" : "radio-button-off"} size={18} color={active ? UI.teal : UI.muted} />
                   <Text style={styles.templateText}>{template.name} · {String(template.category || "").toLowerCase()} · {template.language}</Text>
                 </Pressable>
               );
@@ -187,7 +190,7 @@ function ReviewRequestsTab() {
           <View style={styles.messageHeaderRow}>
             <Text style={styles.cardTitle}>Message (inside the 24-hour window)</Text>
             <Button
-              mode="contained" compact icon="creation" onPress={handleDraft} loading={drafting} disabled={drafting}
+              mode="contained" buttonColor={UI.teal} compact icon="creation" onPress={handleDraft} loading={drafting} disabled={drafting}
               style={styles.draftButton} contentStyle={styles.draftButtonContent} labelStyle={styles.draftButtonLabel}
             >
               Draft with AI
@@ -195,14 +198,14 @@ function ReviewRequestsTab() {
           </View>
           <Text style={styles.cardDescription}>Keep {"{{name}}"} and {"{{review_link}}"} in the message — they're swapped for the real values when it's sent.</Text>
           <TextInput
-            mode="outlined" value={message} onChangeText={setMessage} multiline numberOfLines={7}
+            mode="outlined" outlineColor={UI.line} activeOutlineColor={UI.teal} outlineStyle={styles.outline} value={message} onChangeText={setMessage} multiline numberOfLines={7}
             textAlignVertical="top" contentStyle={styles.messageContent}
             style={[styles.field, styles.messageField]}
           />
         </Card.Content>
       </Card>
 
-      <Button mode="contained" onPress={handleSave} loading={saving} disabled={saving} style={styles.saveButton} contentStyle={styles.saveButtonContent}>
+      <Button mode="contained" buttonColor={UI.teal} onPress={handleSave} loading={saving} disabled={saving} style={styles.saveButton} contentStyle={styles.saveButtonContent}>
         Save
       </Button>
     </>
@@ -215,22 +218,23 @@ export default function GmbScreen() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="GMB" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>GMB</Text>
+      </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
+      <View style={styles.tabRow}>
         {TABS.map((tab) => {
           const active = activeTab === tab.key;
           return (
-            <Pressable key={tab.key} style={[styles.tabChip, active && styles.tabChipActive]} onPress={() => setActiveTab(tab.key)}>
-              <Ionicons name={tab.icon} size={14} color={active ? colors.surface : colors.textSecondary} />
+            <Pressable key={tab.key} style={[styles.tabChip, active && styles.tabChipActive]} onPress={() => setActiveTab(tab.key)} accessibilityRole="tab" accessibilityState={{ selected: active }}>
               <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
             </Pressable>
           );
         })}
-      </ScrollView>
+      </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 120 }]} showsVerticalScrollIndicator={false}>
         {activeTab === "review-requests" ? <ReviewRequestsTab /> : <ComingSoonTab label={TABS.find((tab) => tab.key === activeTab)!.label} />}
@@ -240,27 +244,27 @@ export default function GmbScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   state: { alignItems: "center", justifyContent: "center", paddingVertical: 60, paddingHorizontal: 30 },
   errorText: { color: colors.danger, fontSize: 13, textAlign: "center" },
   retry: { marginTop: 14 },
 
-  tabRow: { gap: 8, paddingHorizontal: 18, paddingVertical: 12, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
-  tabChip: {
-    flexDirection: "row", alignItems: "center", gap: 6, height: 36, paddingHorizontal: 14,
-    borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface,
-  },
-  tabChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  tabLabel: { fontSize: 12, fontWeight: "700", color: colors.textSecondary },
-  tabLabelActive: { color: colors.surface },
+  // Rounded pills that wrap onto more rows, like the Reports tabs.
+  tabRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 4 },
+  tabChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: "#e4ecf3" },
+  tabChipActive: { backgroundColor: UI.teal },
+  tabLabel: { fontSize: 12, fontWeight: "700", color: UI.ink },
+  tabLabelActive: { color: "#ffffff" },
 
   content: { padding: 18, gap: 14 },
 
-  card: {},
+  card: { backgroundColor: "#ffffff", borderColor: UI.line, borderRadius: 16 },
+  outline: { borderRadius: 10 },
   cardTitle: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  cardDescription: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 6 },
+  cardDescription: { color: UI.sub, fontSize: 12, lineHeight: 17, marginTop: 6 },
   field: { marginTop: 12 },
   messageField: { minHeight: 170 },
   messageContent: { fontSize: 14, lineHeight: 21, paddingTop: 10, paddingBottom: 10 },
@@ -269,8 +273,8 @@ const styles = StyleSheet.create({
   toggleBody: { flex: 1 },
 
   templateList: { marginTop: 10, gap: 6 },
-  templateRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.surface },
-  templateRowActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  templateRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
+  templateRowActive: { borderColor: UI.teal, backgroundColor: UI.tealSoft },
   templateText: { flex: 1, color: colors.text, fontSize: 12, fontWeight: "600" },
 
   // Title on its own line with the button under it: side by side, the long title pushed the button off the card.
@@ -279,11 +283,11 @@ const styles = StyleSheet.create({
   draftButtonContent: { height: 32 },
   draftButtonLabel: { fontSize: 11, fontWeight: "800", marginVertical: 0, marginHorizontal: 8 },
 
-  saveButton: { borderRadius: 10, marginTop: 4 },
+  saveButton: { borderRadius: 999, marginTop: 4 },
   saveButtonContent: { height: 48 },
 
   comingSoon: { alignItems: "center", paddingVertical: 60, gap: 10 },
-  comingSoonIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  comingSoonIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   comingSoonTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
-  comingSoonText: { color: colors.textSecondary, fontSize: 12 },
+  comingSoonText: { color: UI.sub, fontSize: 12 },
 });

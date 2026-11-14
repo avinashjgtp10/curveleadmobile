@@ -1,14 +1,17 @@
-import { GlassBackground, glass } from "@/components/Glass";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Dimensions, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Appbar, Button, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
+import { ActivityIndicator, Button, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { completeLeadFollowup, createLeadFollowup, fetchLeads, fetchTodayFollowups, FollowupType, LeadListItem, TodayFollowup } from "@/api/leads";
 
+
+// The add forms' palette: pale blue page, white cards with soft blue borders, deep teal-blue actions.
+const UI = { bg: "#f3f6fc", line: "#d3def2", ink: "#0f1f3d", sub: "#5a6b85", muted: "#8b97ad", teal: "#1d4fd8", tealSoft: "#e1ebfc", red: "#b3173a", redSoft: "#fde3e8", amber: "#8a4a08", amberSoft: "#fde9d6", green: "#0f7b5f" };
+const CARD = { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 16 } as const;
 type AppointmentTab = "all" | "upcoming" | "today" | "overdue" | "completed";
 type TypeOption = { key: FollowupType; label: string; icon: keyof typeof Ionicons.glyphMap };
 
@@ -110,7 +113,7 @@ function AppointmentRow({ item, completing, done, onView, onComplete, onReschedu
         <Text style={styles.rowName} numberOfLines={1}>{item.lead_name}</Text>
         <Text style={styles.rowPhone}>{item.lead_phone}</Text>
         <View style={styles.rowType}>
-          <Ionicons name={meta.icon} size={13} color={status === "overdue" ? colors.danger : colors.primary} />
+          <Ionicons name={meta.icon} size={13} color={status === "overdue" ? UI.red : UI.teal} />
           <Text style={styles.rowTypeText}>{meta.label}</Text>
         </View>
       </View>
@@ -120,12 +123,12 @@ function AppointmentRow({ item, completing, done, onView, onComplete, onReschedu
         <Text style={[styles.statusPill, status === "overdue" ? styles.statusOverdue : status === "today" ? styles.statusToday : styles.statusUpcoming]}>{status === "overdue" ? "Overdue" : status === "today" ? "Today" : status === "completed" ? "Completed" : "Upcoming"}</Text>
       </View>
       {done ? null : completing ? (
-        <ActivityIndicator size="small" color={colors.primary} style={styles.actionButton} />
+        <ActivityIndicator size="small" color={UI.teal} style={styles.actionButton} />
       ) : (
         <View ref={anchorRef} collapsable={false}>
           <IconButton
             icon="dots-vertical"
-            iconColor={colors.textSecondary}
+            iconColor={UI.sub}
             size={20}
             style={styles.actionButton}
             onPress={(event) => { event.stopPropagation(); openMenu(); }}
@@ -137,15 +140,15 @@ function AppointmentRow({ item, completing, done, onView, onComplete, onReschedu
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
           <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
             <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onView)}>
-              <Ionicons name="eye-outline" size={16} color={colors.textSecondary} />
+              <Ionicons name="eye-outline" size={16} color={UI.sub} />
               <Text style={styles.popoverText}>View Details</Text>
             </Pressable>
             <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onReschedule)}>
-              <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+              <Ionicons name="calendar-outline" size={16} color={UI.sub} />
               <Text style={styles.popoverText}>Reschedule</Text>
             </Pressable>
             <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onComplete)}>
-              <Ionicons name="checkmark-circle-outline" size={16} color={colors.success} />
+              <Ionicons name="checkmark-circle-outline" size={16} color={UI.green} />
               <Text style={[styles.popoverText, styles.popoverSuccessText]}>Mark Completed</Text>
             </Pressable>
           </View>
@@ -166,6 +169,8 @@ function AppointmentsContent() {
   const [activeTab, setActiveTab] = useState<AppointmentTab>("all");
   const [query, setQuery] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [draftTab, setDraftTab] = useState<AppointmentTab>("all");
+  const [draftType, setDraftType] = useState<FollowupType | "">("");
   const [typeFilter, setTypeFilter] = useState<FollowupType | "">("");
   const [completingId, setCompletingId] = useState<string | null>(null);
   // The server only returns open appointments, so the Completed tab lists the ones finished in this session.
@@ -336,6 +341,12 @@ function AppointmentsContent() {
     setSheetOpen(true);
   }
 
+  function openFilters() {
+    setDraftTab(activeTab);
+    setDraftType(typeFilter);
+    setFilterOpen(true);
+  }
+
   // Going back to Home (when opened from a Home tile) is handled for every More screen in more/_layout.tsx.
   function goBack() {
     router.back();
@@ -343,21 +354,23 @@ function AppointmentsContent() {
 
   return (
     <View style={styles.screen}>
-      <GlassBackground />
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={goBack} />
-        <Appbar.Content title="Appointments" titleStyle={styles.headerTitle} />
-        <Appbar.Action icon="refresh" color={colors.primary} onPress={() => load(true)} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <Pressable onPress={goBack} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={24} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>Appointments</Text>
+        <Pressable onPress={() => load(true)} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Refresh">
+          <Ionicons name="refresh" size={20} color={UI.teal} />
+        </Pressable>
+      </View>
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} colors={[colors.primary]} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={UI.teal} colors={[UI.teal]} />}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.titleRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Appointments</Text>
             <Text style={styles.subtitle}>All scheduled sales appointments</Text>
           </View>
           <Pressable style={styles.newButton} onPress={openCreate}>
@@ -367,59 +380,45 @@ function AppointmentsContent() {
         </View>
 
         <View style={styles.summaryGrid}>
-          <View style={[styles.summaryCard, styles.upcomingCard]}>
-            <View style={styles.summaryIcon}><Ionicons name="calendar-outline" size={18} color="#7c3aed" /></View>
-            <Text style={styles.summaryLabel}>UPCOMING</Text>
-            <Text style={styles.summaryValue}>{counts.upcoming}</Text>
+          <View style={styles.summaryCard}>
+            <View style={[styles.summaryIcon, { backgroundColor: UI.tealSoft }]}><Ionicons name="calendar-outline" size={16} color={UI.teal} /></View>
+            <Text style={[styles.summaryValue, { color: UI.teal }]}>{counts.upcoming}</Text>
+            <Text style={styles.summaryLabel}>Upcoming</Text>
             <Text style={styles.summaryText}>appointments</Text>
           </View>
-          <View style={[styles.summaryCard, styles.todayCard]}>
-            <View style={styles.summaryIconAmber}><Ionicons name="time-outline" size={18} color={colors.warning} /></View>
-            <Text style={[styles.summaryLabel, { color: colors.warning }]}>TODAY</Text>
-            <Text style={[styles.summaryValue, { color: colors.warning }]}>{counts.today}</Text>
+          <View style={styles.summaryCard}>
+            <View style={[styles.summaryIcon, { backgroundColor: UI.amberSoft }]}><Ionicons name="time-outline" size={16} color={UI.amber} /></View>
+            <Text style={[styles.summaryValue, { color: UI.amber }]}>{counts.today}</Text>
+            <Text style={styles.summaryLabel}>Today</Text>
             <Text style={styles.summaryText}>scheduled</Text>
           </View>
           <View style={[styles.summaryCard, styles.overdueCard]}>
-            <View style={styles.summaryIconRed}><Ionicons name="alert-circle-outline" size={18} color={colors.danger} /></View>
-            <Text style={[styles.summaryLabel, { color: colors.danger }]}>OVERDUE</Text>
-            <Text style={[styles.summaryValue, { color: colors.danger }]}>{counts.overdue}</Text>
+            <View style={[styles.summaryIcon, { backgroundColor: UI.redSoft }]}><Ionicons name="alert-circle-outline" size={16} color={UI.red} /></View>
+            <Text style={[styles.summaryValue, { color: UI.red }]}>{counts.overdue}</Text>
+            <Text style={styles.summaryLabel}>Overdue</Text>
             <Text style={styles.summaryText}>need follow-up</Text>
           </View>
         </View>
 
         <View style={styles.listCard}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
-            {TABS.map((tab) => (
-              <Pressable key={tab.key} style={[styles.tabChip, activeTab === tab.key && styles.tabChipActive]} onPress={() => setActiveTab(tab.key)}>
-                <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
           <View style={styles.toolbar}>
-            <Searchbar value={query} onChangeText={setQuery} placeholder="Search by lead, type..." elevation={0} inputStyle={styles.searchInput} style={styles.searchBox} />
-            <Pressable style={styles.filterButton} onPress={() => setFilterOpen((value) => !value)}>
-              <Ionicons name="options-outline" size={16} color={colors.textSecondary} />
-              <Text style={styles.filterButtonText}>{typeFilter ? typeMeta(typeFilter).label : "Filters"}</Text>
+            <Searchbar value={query} onChangeText={setQuery} placeholder="Search by lead name..." elevation={0} inputStyle={styles.searchInput} style={styles.searchBox} />
+            <Pressable style={styles.filterButton} onPress={openFilters} accessibilityRole="button" accessibilityLabel="Filters">
+              <Ionicons name="options-outline" size={16} color={UI.teal} />
+              <Text style={styles.filterButtonText}>Filters</Text>
             </Pressable>
           </View>
-          {filterOpen ? (
-            <View style={styles.typeFilterRow}>
-              <Pressable style={[styles.typeFilterChip, !typeFilter && styles.typeFilterChipActive]} onPress={() => setTypeFilter("")}>
-                <Text style={[styles.typeFilterText, !typeFilter && styles.typeFilterTextActive]}>Show All</Text>
-              </Pressable>
-              {TYPES.map((item) => (
-                <Pressable key={item.key} style={[styles.typeFilterChip, typeFilter === item.key && styles.typeFilterChipActive]} onPress={() => setTypeFilter(item.key)}>
-                  <Text style={[styles.typeFilterText, typeFilter === item.key && styles.typeFilterTextActive]}>{item.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
+
+          <View style={styles.showingRow}>
+            <Text style={styles.showingLabel}>Showing</Text>
+            <View style={styles.showingPill}><Text style={styles.showingPillText}>{TABS.find((tab) => tab.key === activeTab)?.label}</Text></View>
+            {typeFilter ? <View style={styles.showingPill}><Text style={styles.showingPillText}>{typeMeta(typeFilter).label}</Text></View> : null}
+          </View>
 
           {loading ? (
-            <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>
+            <View style={styles.state}><ActivityIndicator size="large" color={UI.teal} /></View>
           ) : error ? (
-            <View style={styles.state}><Text style={styles.errorText}>{error}</Text><Button mode="contained" onPress={() => load()}>Try again</Button></View>
+            <View style={styles.state}><Text style={styles.errorText}>{error}</Text><Button mode="contained" buttonColor={UI.teal} onPress={() => load()}>Try again</Button></View>
           ) : visibleAppointments.length ? visibleAppointments.map((item) => (
             <AppointmentRow
               key={item.id}
@@ -432,24 +431,72 @@ function AppointmentsContent() {
             />
           )) : (
             <View style={styles.empty}>
-              <Ionicons name="calendar-clear-outline" size={34} color={colors.textMuted} />
-              <Text style={styles.emptyTitle}>No appointments found</Text>
-              <Text style={styles.emptyText}>{activeTab === "completed" ? "Appointments you mark completed will show up here." : "Create a new appointment or change the filters."}</Text>
+              <View style={styles.emptyIcon}><Ionicons name="calendar-outline" size={24} color={UI.teal} /></View>
+              <Text style={styles.emptyTitle}>{query || typeFilter || activeTab !== "all" ? "No appointments found" : "No appointments yet"}</Text>
+              <Text style={styles.emptyText}>{activeTab === "completed" ? "Appointments you mark completed will show up here." : query || typeFilter || activeTab !== "all" ? "Change the filters or search to see more." : "Schedule your first sales appointment with a lead and it will show up here."}</Text>
+              <Pressable style={styles.emptyButton} onPress={openCreate}>
+                <Ionicons name="add" size={18} color={UI.teal} />
+                <Text style={styles.emptyButtonText}>New appointment</Text>
+              </Pressable>
             </View>
           )}
         </View>
       </ScrollView>
+
+      <Modal visible={filterOpen} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setFilterOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setFilterOpen(false)}>
+          <Pressable style={[styles.filterSheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.filterHead}>
+              <Text style={styles.filterTitle}>Filters</Text>
+              <Pressable onPress={() => setFilterOpen(false)} hitSlop={8} style={styles.filterClose} accessibilityRole="button" accessibilityLabel="Close"><Ionicons name="close" size={18} color={UI.ink} /></Pressable>
+            </View>
+
+            <Text style={styles.filterSection}>APPOINTMENTS</Text>
+            <View style={styles.filterChips}>
+              {TABS.map((tab) => {
+                const active = draftTab === tab.key;
+                return (
+                  <Pressable key={tab.key} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setDraftTab(tab.key)}>
+                    {active ? <Ionicons name="checkmark" size={14} color="#ffffff" /> : null}
+                    <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{tab.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.filterDivider} />
+            <Text style={styles.filterSection}>TYPE</Text>
+            <View style={styles.filterChips}>
+              {[{ key: "" as const, label: "Show All" }, ...TYPES].map((item) => {
+                const active = draftType === item.key;
+                return (
+                  <Pressable key={item.label} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setDraftType(item.key)}>
+                    {active ? <Ionicons name="checkmark" size={14} color="#ffffff" /> : null}
+                    <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.filterActions}>
+              <Pressable style={styles.resetButton} onPress={() => { setDraftTab("all"); setDraftType(""); }}><Text style={styles.resetText}>Reset</Text></Pressable>
+              <Pressable style={styles.applyButton} onPress={() => { setActiveTab(draftTab); setTypeFilter(draftType); setFilterOpen(false); }}><Text style={styles.applyText}>Apply filters</Text></Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal visible={sheetOpen} animationType="slide" presentationStyle="fullScreen" statusBarTranslucent navigationBarTranslucent onRequestClose={closeSheet}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.sheetKeyboard}>
           <View style={[styles.fullSheet, { paddingTop: insets.top }]}>
             <View style={styles.fullSheetHeader}>
               <Pressable onPress={closeSheet} hitSlop={10} style={styles.fullSheetBack}>
-                <Ionicons name="arrow-back" size={24} color={colors.text} />
+                <Ionicons name="arrow-back" size={24} color={UI.ink} />
               </Pressable>
               <Text style={styles.fullSheetTitle}>{reschedulingAppointment ? "Reschedule Appointment" : "New Appointment"}</Text>
             </View>
-            {formError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{formError}</Text></View> : null}
+            {formError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={UI.red} /><Text style={styles.sheetErrorText}>{formError}</Text></View> : null}
 
             <ScrollView contentContainerStyle={styles.fullSheetBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <Text style={styles.sheetLabel}>Lead <Text style={styles.required}>*</Text></Text>
@@ -490,8 +537,8 @@ function AppointmentsContent() {
             </ScrollView>
 
             <View style={[styles.sheetActions, styles.fullSheetActions, { paddingBottom: Math.max(insets.bottom, 14) }]}>
-              <Button mode="outlined" onPress={closeSheet} style={styles.sheetAction}>Cancel</Button>
-              <Button mode="contained" onPress={schedule} loading={saving} disabled={saving} style={styles.sheetAction}>
+              <Button mode="outlined" textColor={UI.teal} onPress={closeSheet} style={styles.sheetAction}>Cancel</Button>
+              <Button mode="contained" buttonColor={UI.teal} onPress={schedule} loading={saving} disabled={saving} style={styles.sheetAction}>
                 {reschedulingAppointment ? "Reschedule" : "Schedule"}
               </Button>
             </View>
@@ -503,100 +550,110 @@ function AppointmentsContent() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: "transparent" },
-  headerTitle: { color: colors.text, fontSize: 18, fontFamily: "Inter_700Bold" },
-  content: { paddingHorizontal: 16 },
-  titleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
-  title: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" },
-  subtitle: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
-  newButton: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#4f46e5", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11 },
-  newButtonText: { color: "#fff", fontSize: 12, fontFamily: "Inter_700Bold" },
-  summaryGrid: { gap: 12, marginBottom: 14 },
-  summaryCard: { ...glass, minHeight: 94, padding: 14 },
-  upcomingCard: { backgroundColor: "rgba(245,243,255,0.78)", borderColor: "rgba(221,214,254,0.9)" },
-  todayCard: { backgroundColor: "rgba(255,251,235,0.82)", borderColor: "rgba(253,230,138,0.9)" },
-  overdueCard: { backgroundColor: "rgba(255,241,242,0.82)", borderColor: "rgba(254,205,211,0.9)" },
-  summaryIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#ede9fe", alignItems: "center", justifyContent: "center", position: "absolute", left: 14, top: 24 },
-  summaryIconAmber: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.warningSoft, alignItems: "center", justifyContent: "center", position: "absolute", left: 14, top: 24 },
-  summaryIconRed: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.dangerSoft, alignItems: "center", justifyContent: "center", position: "absolute", left: 14, top: 24 },
-  summaryLabel: { marginLeft: 58, color: "#7c3aed", fontSize: 10, fontFamily: "Inter_700Bold" },
-  summaryValue: { marginLeft: 58, color: "#7c3aed", fontSize: 26, fontFamily: "Inter_700Bold", marginTop: 3 },
-  summaryText: { marginLeft: 58, color: colors.textSecondary, fontSize: 11, marginTop: -2 },
-  listCard: { ...glass, padding: 14 },
-  tabRow: { gap: 8, paddingBottom: 12 },
-  tabChip: { minHeight: 38, paddingHorizontal: 13, borderRadius: 999, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.75)" },
-  tabChipActive: { backgroundColor: colors.primary },
-  tabText: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_700Bold" },
-  tabTextActive: { color: "#fff" },
-  toolbar: { flexDirection: "row", gap: 8, marginBottom: 10 },
-  searchBox: { flex: 1, height: 42, backgroundColor: "rgba(255,255,255,0.82)", borderRadius: 12, borderWidth: 1, borderColor: colors.border },
-  searchInput: { fontSize: 12, minHeight: 40 },
-  filterButton: { minWidth: 92, height: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: "rgba(255,255,255,0.82)" },
-  filterButtonText: { color: colors.text, fontSize: 12, fontFamily: "Inter_700Bold" },
-  typeFilterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
-  typeFilterChip: { borderRadius: 999, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: colors.surface },
-  typeFilterChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  typeFilterText: { color: colors.textSecondary, fontSize: 11, fontFamily: "Inter_700Bold" },
-  typeFilterTextActive: { color: "#fff" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: UI.bg },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
+  content: { paddingHorizontal: 14, paddingTop: 8 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  title: { color: UI.ink, fontSize: 20, fontFamily: "DMSans_700Bold" },
+  subtitle: { color: UI.sub, fontSize: 12 },
+  newButton: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: UI.teal, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9 },
+  newButtonText: { color: "#fff", fontSize: 13, fontFamily: "Inter_700Bold" },
+  summaryGrid: { flexDirection: "row", gap: 8, marginBottom: 10 },
+  summaryCard: { flex: 1, ...CARD, borderRadius: 14, padding: 9 },
+  overdueCard: { borderColor: "#f6c8d0" },
+  summaryIcon: { width: 30, height: 30, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  summaryLabel: { color: UI.ink, fontSize: 11, fontFamily: "Inter_700Bold" },
+  summaryValue: { fontSize: 22, fontFamily: "Inter_700Bold", marginTop: 4 },
+  summaryText: { color: UI.sub, fontSize: 10, marginTop: 0 },
+  listCard: { gap: 0 },
+  toolbar: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  searchBox: { flex: 1, height: 38, backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1, borderColor: UI.line },
+  searchInput: { fontSize: 13, minHeight: 36 },
+  filterButton: { height: 38, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
+  filterButtonText: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold" },
+  showingRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6, marginBottom: 10 },
+  showingLabel: { color: UI.sub, fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  showingPill: { backgroundColor: "#e6edfb", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  showingPillText: { color: UI.teal, fontSize: 12, fontFamily: "Inter_700Bold" },
+  filterSheet: { backgroundColor: "#ffffff", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 16, paddingTop: 8 },
+  filterHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 0, marginBottom: 8 },
+  filterTitle: { color: UI.ink, fontSize: 17, fontFamily: "Inter_700Bold" },
+  filterClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#eef1f8", alignItems: "center", justifyContent: "center" },
+  filterSection: { color: UI.sub, fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 1, marginBottom: 6 },
+  filterChips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  filterChip: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 34, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
+  filterChipActive: { backgroundColor: UI.teal, borderColor: UI.teal },
+  filterChipText: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold" },
+  filterChipTextActive: { color: "#ffffff" },
+  filterDivider: { height: 1, backgroundColor: UI.line, marginVertical: 12 },
+  filterActions: { flexDirection: "row", gap: 10, marginTop: 14 },
+  resetButton: { flex: 1, height: 42, borderRadius: 14, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  resetText: { color: UI.teal, fontSize: 14, fontFamily: "Inter_700Bold" },
+  applyButton: { flex: 1.4, height: 42, borderRadius: 14, backgroundColor: UI.teal, alignItems: "center", justifyContent: "center" },
+  applyText: { color: "#ffffff", fontSize: 14, fontFamily: "Inter_700Bold" },
+  emptyIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center" },
+  emptyButton: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 12, backgroundColor: "#e6edfb", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9 },
+  emptyButtonText: { color: UI.teal, fontSize: 13, fontFamily: "Inter_700Bold" },
   state: { alignItems: "center", justifyContent: "center", paddingVertical: 46, gap: 12 },
-  errorText: { color: colors.danger, fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#dbeafe", alignItems: "center", justifyContent: "center" },
-  avatarText: { color: "#2563eb", fontSize: 12, fontFamily: "Inter_700Bold" },
+  errorText: { color: UI.red, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 8, backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: UI.line },
+  avatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#dde7fb", alignItems: "center", justifyContent: "center" },
+  avatarText: { color: UI.teal, fontSize: 12, fontFamily: "Inter_700Bold" },
   rowMain: { flex: 1 },
-  rowName: { color: colors.text, fontSize: 13, fontFamily: "Inter_700Bold" },
-  rowPhone: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  rowName: { color: UI.ink, fontSize: 13, fontFamily: "Inter_700Bold" },
+  rowPhone: { color: UI.muted, fontSize: 11, marginTop: 2 },
   rowType: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 7 },
-  rowTypeText: { color: colors.text, fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  rowTypeText: { color: UI.ink, fontSize: 12, fontFamily: "Inter_600SemiBold" },
   rowSide: { alignItems: "flex-end" },
-  rowDate: { color: colors.text, fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  rowTime: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  rowDate: { color: UI.ink, fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  rowTime: { color: UI.muted, fontSize: 11, marginTop: 2 },
   statusPill: { overflow: "hidden", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, fontSize: 10, fontFamily: "Inter_700Bold", marginTop: 7 },
-  statusOverdue: { color: colors.danger, backgroundColor: colors.dangerSoft },
-  statusToday: { color: colors.warning, backgroundColor: colors.warningSoft },
-  statusUpcoming: { color: colors.primary, backgroundColor: colors.primarySoft },
-  actionButton: { width: 34, height: 34, borderRadius: 9, margin: 0, alignSelf: "center", borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.surface },
+  statusOverdue: { color: UI.red, backgroundColor: UI.redSoft },
+  statusToday: { color: UI.amber, backgroundColor: UI.amberSoft },
+  statusUpcoming: { color: UI.teal, backgroundColor: UI.tealSoft },
+  actionButton: { width: 34, height: 34, borderRadius: 9, margin: 0, alignSelf: "center", borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
   popover: {
-    position: "absolute", minWidth: 190, paddingVertical: 6, borderRadius: 10, backgroundColor: colors.surface,
-    borderWidth: 1, borderColor: colors.borderSoft, shadowColor: "#000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9,
+    position: "absolute", minWidth: 190, paddingVertical: 6, borderRadius: 10, backgroundColor: "#ffffff",
+    borderWidth: 1, borderColor: UI.line, shadowColor: "#000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9,
   },
   popoverItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10 },
-  popoverText: { color: colors.textSecondary, fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  popoverSuccessText: { color: colors.success },
-  popoverDangerText: { color: colors.danger },
-  empty: { alignItems: "center", paddingVertical: 42 },
-  emptyTitle: { color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold", marginTop: 10 },
-  emptyText: { color: colors.textMuted, fontSize: 12, textAlign: "center", marginTop: 4 },
+  popoverText: { color: UI.sub, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  popoverSuccessText: { color: UI.green },
+  popoverDangerText: { color: UI.red },
+  empty: { alignItems: "center", paddingVertical: 22, paddingHorizontal: 16, borderRadius: 18, borderWidth: 1, borderStyle: "dashed", borderColor: "#bccdf0", backgroundColor: "#ffffff" },
+  emptyTitle: { color: UI.ink, fontSize: 15, fontFamily: "Inter_700Bold", marginTop: 10 },
+  emptyText: { color: UI.sub, fontSize: 12, lineHeight: 17, textAlign: "center", marginTop: 4 },
   sheetKeyboard: { flex: 1 },
-  fullSheet: { flex: 1, backgroundColor: colors.surface },
-  fullSheetHeader: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
+  fullSheet: { flex: 1, backgroundColor: UI.bg },
+  fullSheetHeader: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
   fullSheetBack: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
-  fullSheetTitle: { flex: 1, color: colors.text, fontSize: 22, fontFamily: "Inter_700Bold" },
+  fullSheetTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   fullSheetBody: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 24 },
-  fullSheetActions: { paddingHorizontal: 18, paddingTop: 12, marginTop: 0, borderTopWidth: 1, borderTopColor: colors.borderSoft, backgroundColor: colors.surface },
-  sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,0.38)" },
-  sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: "86%" },
+  fullSheetActions: { paddingHorizontal: 18, paddingTop: 12, marginTop: 0, borderTopWidth: 1, borderTopColor: UI.line, backgroundColor: UI.bg },
+  sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,31,61,0.45)" },
+  sheet: { backgroundColor: "#ffffff", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: "86%" },
   sheetBody: { maxHeight: 500 },
-  sheetHandle: { width: 42, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
-  sheetTitle: { color: colors.text, fontSize: 18, fontFamily: "Inter_700Bold", marginBottom: 14 },
-  sheetError: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 10, marginBottom: 8 },
-  sheetErrorText: { flex: 1, color: colors.danger, fontSize: 12, fontFamily: "Inter_700Bold" },
-  sheetLabel: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_700Bold", marginTop: 10, marginBottom: 7 },
-  required: { color: colors.danger },
-  selectedLead: { height: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: colors.borderSoft, borderRadius: 8, paddingHorizontal: 12, backgroundColor: colors.surfaceMuted },
-  selectedLeadText: { flex: 1, color: colors.text, fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  changeLeadText: { color: colors.textMuted, fontSize: 11, fontFamily: "Inter_700Bold" },
-  sheetSearch: { minHeight: 48, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12 },
-  suggestions: { maxHeight: 178, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: 10, marginTop: 6, backgroundColor: colors.surface },
+  sheetHandle: { width: 42, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: UI.line, marginBottom: 14 },
+  sheetTitle: { color: UI.ink, fontSize: 18, fontFamily: "Inter_700Bold", marginBottom: 14 },
+  sheetError: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: UI.redSoft, borderRadius: 10, padding: 10, marginBottom: 8 },
+  sheetErrorText: { flex: 1, color: UI.red, fontSize: 12, fontFamily: "Inter_700Bold" },
+  sheetLabel: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold", marginTop: 12, marginBottom: 6 },
+  required: { color: UI.red },
+  selectedLead: { height: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: UI.line, borderRadius: 8, paddingHorizontal: 12, backgroundColor: "#f3f7fb" },
+  selectedLeadText: { flex: 1, color: UI.ink, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  changeLeadText: { color: UI.muted, fontSize: 11, fontFamily: "Inter_700Bold" },
+  sheetSearch: { minHeight: 48, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 12 },
+  suggestions: { maxHeight: 178, borderWidth: 1, borderColor: UI.line, borderRadius: 10, marginTop: 6, backgroundColor: "#ffffff" },
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  typeChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 11, paddingVertical: 8, backgroundColor: colors.surface },
-  typeChipActive: { backgroundColor: "#4f46e5", borderColor: "#4f46e5" },
-  typeChipText: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_700Bold" },
+  typeChip: { borderWidth: 1, borderColor: UI.line, borderRadius: 8, paddingHorizontal: 11, paddingVertical: 8, backgroundColor: "#ffffff" },
+  typeChipActive: { backgroundColor: UI.teal, borderColor: UI.teal },
+  typeChipText: { color: UI.sub, fontSize: 12, fontFamily: "Inter_700Bold" },
   typeChipTextActive: { color: "#fff" },
-  notesInput: { backgroundColor: colors.surface },
+  notesInput: { backgroundColor: "#ffffff" },
   sheetActions: { flexDirection: "row", gap: 8, marginTop: 18 },
-  sheetAction: { flex: 1 },
+  sheetAction: { flex: 1, borderRadius: 999 },
 });
 
 export default function AppointmentsScreen() {

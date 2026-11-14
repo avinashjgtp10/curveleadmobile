@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
-import { ActivityIndicator, Appbar, Text } from "react-native-paper";
+import { ActivityIndicator, Text } from "react-native-paper";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,11 +9,22 @@ import { FALLBACK_NOTIFICATION_GROUPS, NotificationGroup, fetchNotificationGroup
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NOTIFICATION_PREFS_CACHE_KEY, NotificationPermission, getNotificationPermission, requestNotificationPermission } from "@/notifications/push";
+import { PushStatus, getPushStatus, registerDevice } from "@/notifications/pushStatus";
+
+const PUSH_STATE_LABEL: Record<PushStatus["state"], string> = {
+  registered: "This phone is registered for push alerts.",
+  failed: "Registration failed - push alerts can't reach this phone.",
+  denied: "Permission is off - push alerts can't reach this phone.",
+  unsupported: "Not supported here (needs the installed app on a real phone).",
+};
+
+// Same palette as Reports: pale blue page, white cards with soft blue borders, deep teal-blue actions.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7" };
 
 const PHONE_STATUS: Record<NotificationPermission, { icon: keyof typeof Ionicons.glyphMap; title: string; hint: string; tone: string; bg: string }> = {
   granted: { icon: "notifications", title: "Phone notifications are on", hint: "Alerts will pop up on this phone.", tone: colors.success, bg: colors.successSoft },
   denied: { icon: "notifications-off", title: "Phone notifications are off", hint: "Turn them on in your phone settings to get alerts here.", tone: colors.danger, bg: colors.dangerSoft },
-  undetermined: { icon: "notifications-outline", title: "Phone notifications not set up", hint: "Allow notifications to get alerts on this phone.", tone: colors.primary, bg: colors.primarySoft },
+  undetermined: { icon: "notifications-outline", title: "Phone notifications not set up", hint: "Allow notifications to get alerts on this phone.", tone: UI.teal, bg: UI.tealSoft },
   unsupported: { icon: "phone-portrait-outline", title: "Phone alerts unavailable here", hint: "They need the installed CurveLead app on a real phone, not Expo Go or the web.", tone: colors.textMuted, bg: "#f1f5f9" },
 };
 
@@ -33,6 +44,21 @@ export default function NotificationSettingsScreen() {
   const [busy, setBusy] = useState(false);
   // When the saved settings couldn't be loaded, saving would overwrite them with only what was toggled here.
   const [loadFailed, setLoadFailed] = useState(false);
+
+  const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
+  const [registering, setRegistering] = useState(false);
+
+  useEffect(() => { getPushStatus().then(setPushStatus); }, []);
+
+  async function reRegister() {
+    setRegistering(true);
+    try {
+      setPushStatus(await registerDevice(true));
+      setPermission(await getNotificationPermission());
+    } finally {
+      setRegistering(false);
+    }
+  }
 
   const refreshPermission = useCallback(async () => setPermission(await getNotificationPermission()), []);
 
@@ -100,13 +126,12 @@ export default function NotificationSettingsScreen() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <View style={styles.titleRow}>
-          <Ionicons name="notifications-outline" size={20} color={colors.primary} />
-          <Text style={styles.headerTitle}>Notification Settings</Text>
-        </View>
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>Notification Settings</Text>
+      </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 }]} showsVerticalScrollIndicator={false}>
         {permission !== null ? (
@@ -129,6 +154,14 @@ export default function NotificationSettingsScreen() {
           </View>
         ) : null}
 
+        <View style={styles.pushCard}>
+          <Text style={styles.phoneTitle}>{pushStatus ? PUSH_STATE_LABEL[pushStatus.state] : "Push registration hasn't run yet on this phone."}</Text>
+          {pushStatus?.detail && pushStatus.state !== "registered" ? <Text style={styles.phoneHint}>{pushStatus.detail}</Text> : null}
+          <Pressable onPress={reRegister} disabled={registering} hitSlop={6}>
+            <Text style={styles.phoneAction}>{registering ? "Registering..." : "Re-register this phone"}</Text>
+          </Pressable>
+        </View>
+
         <Text style={styles.sectionTitle}>NOTIFY ME ABOUT</Text>
 
         {loadFailed && !loading ? (
@@ -138,17 +171,17 @@ export default function NotificationSettingsScreen() {
         ) : null}
 
         {loading ? (
-          <View style={styles.loading}><ActivityIndicator color={colors.primary} /></View>
+          <View style={styles.loading}><ActivityIndicator color={UI.teal} /></View>
         ) : (
           <View style={styles.list}>
-            {groups.map((group, index) => (
-              <View key={group.key} style={[styles.item, index < groups.length - 1 && styles.itemDivider]}>
+            {groups.map((group) => (
+              <View key={group.key} style={styles.item}>
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.rowTitle}>{group.label}</Text>
                     <Text style={styles.rowDesc}>{group.description}</Text>
                   </View>
-                  <Switch value={isOn(group.key)} onValueChange={() => toggle(group.key)} trackColor={{ true: "#22c55e", false: "#cbd5e1" }} thumbColor="#ffffff" />
+                  <Switch value={isOn(group.key)} onValueChange={() => toggle(group.key)} trackColor={{ true: UI.teal, false: "#cbd5e1" }} thumbColor="#ffffff" />
                 </View>
                 {group.key === "followups" && isOn("followups") ? (
                   <View style={[styles.row, styles.subRow]}>
@@ -156,7 +189,7 @@ export default function NotificationSettingsScreen() {
                       <Text style={styles.subTitle}>Skip lost leads</Text>
                       <Text style={styles.subDesc}>Don't remind me about follow-ups for leads already marked Lost.</Text>
                     </View>
-                    <Switch value={isOn("skip_lost_lead_followups")} onValueChange={() => toggle("skip_lost_lead_followups")} trackColor={{ true: "#22c55e", false: "#cbd5e1" }} thumbColor="#ffffff" />
+                    <Switch value={isOn("skip_lost_lead_followups")} onValueChange={() => toggle("skip_lost_lead_followups")} trackColor={{ true: UI.teal, false: "#cbd5e1" }} thumbColor="#ffffff" />
                   </View>
                 ) : null}
               </View>
@@ -185,33 +218,33 @@ export default function NotificationSettingsScreen() {
 const styles = StyleSheet.create({
   loadError: { backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12, marginBottom: 10 },
   loadErrorText: { color: colors.danger, fontSize: 12, fontWeight: "600", lineHeight: 17 },
-  screen: { flex: 1, backgroundColor: "#f4f9fc" },
-  header: { backgroundColor: "#ffffff" },
-  headerTitle: { fontSize: 16, fontWeight: "800", color: colors.text },
-  content: { padding: 12, gap: 10 },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: UI.bg },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 18, fontFamily: "DMSans_700Bold" },
+  content: { padding: 16, gap: 12 },
   loading: { paddingVertical: 40, alignItems: "center" },
-  phoneCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, padding: 12 },
+  phoneCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 14 },
+  pushCard: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 12 },
   phoneIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
   phoneTitle: { fontSize: 14, fontWeight: "800" },
-  phoneHint: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 2 },
-  phoneAction: { color: colors.primary, fontSize: 12, fontWeight: "800", marginTop: 6 },
-  sectionTitle: { color: colors.textMuted, fontSize: 11, fontWeight: "800", letterSpacing: 0.6, marginTop: 4 },
-  list: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: "#e2eef7", paddingHorizontal: 14 },
-  titleRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
-  item: { paddingVertical: 4 },
-  itemDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#e2e8f0" },
+  phoneHint: { color: UI.sub, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  phoneAction: { color: UI.teal, fontSize: 12, fontWeight: "800", marginTop: 6 },
+  sectionTitle: { color: UI.muted, fontSize: 11, fontWeight: "800", letterSpacing: 0.6, marginTop: 4 },
+  list: { gap: 10 },
+  item: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, paddingHorizontal: 14, paddingVertical: 4 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
-  rowTitle: { color: colors.text, fontSize: 14, fontWeight: "700" },
-  rowDesc: { color: colors.textSecondary, fontSize: 12, lineHeight: 16, marginTop: 2 },
-  subRow: { paddingLeft: 14, paddingTop: 0 },
-  subTitle: { color: colors.text, fontSize: 12, fontWeight: "700" },
-  subDesc: { color: colors.textMuted, fontSize: 11, lineHeight: 15, marginTop: 2 },
+  rowTitle: { color: UI.ink, fontSize: 14, fontWeight: "700" },
+  rowDesc: { color: UI.sub, fontSize: 12, lineHeight: 16, marginTop: 2 },
+  subRow: { paddingLeft: 14, paddingTop: 8, borderTopWidth: 1, borderTopColor: UI.tealSoft },
+  subTitle: { color: UI.ink, fontSize: 12, fontWeight: "700" },
+  subDesc: { color: UI.muted, fontSize: 11, lineHeight: 15, marginTop: 2 },
   note: { flexDirection: "row", alignItems: "flex-start", gap: 6, paddingHorizontal: 2, marginTop: 4 },
-  noteText: { flex: 1, color: colors.textMuted, fontSize: 11, lineHeight: 15 },
-  footer: { flexDirection: "row", gap: 10, paddingHorizontal: 12, paddingTop: 12, backgroundColor: "#ffffff", borderTopWidth: 1, borderTopColor: "#e2eef7" },
-  cancelButton: { flex: 1, borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", paddingVertical: 13, alignItems: "center", backgroundColor: "#ffffff" },
-  cancelText: { color: colors.text, fontSize: 14, fontWeight: "700" },
-  saveButton: { flex: 1, backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 13, alignItems: "center" },
+  noteText: { flex: 1, color: UI.muted, fontSize: 11, lineHeight: 15 },
+  footer: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 12, backgroundColor: UI.bg, borderTopWidth: 1, borderTopColor: UI.line },
+  cancelButton: { flex: 1, borderRadius: 14, borderWidth: 1, borderColor: UI.line, paddingVertical: 13, alignItems: "center", backgroundColor: "#ffffff" },
+  cancelText: { color: UI.ink, fontSize: 14, fontWeight: "700" },
+  saveButton: { flex: 1, backgroundColor: UI.teal, borderRadius: 14, paddingVertical: 13, alignItems: "center" },
   saveDisabled: { opacity: 0.45 },
   saveText: { color: "#fff", fontSize: 14, fontWeight: "800" },
 });

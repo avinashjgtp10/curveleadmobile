@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, BackHandler, Linking, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput as RNTextInput, View } from "react-native";
-import { ActivityIndicator, Appbar, Button, Text } from "react-native-paper";
+import { ActivityIndicator, Button, Text } from "react-native-paper";
 import axios from "axios";
 import * as AuthSession from "expo-auth-session";
 import Constants from "expo-constants";
@@ -25,6 +25,9 @@ function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
 
+// Pale lavender page, white cards with soft borders, indigo actions.
+const UI = { bg: "#f4f5fb", line: "#dfe2f0", ink: "#14172e", sub: "#5b6280", muted: "#8b91ab", accent: "#4b45e0", accentSoft: "#e8e9fb" };
+
 type SoonItem = { key: string; name: string; icon: keyof typeof Ionicons.glyphMap; color: string };
 
 const COMING_SOON: SoonItem[] = [
@@ -44,8 +47,8 @@ const COMING_SOON: SoonItem[] = [
 function StatusPill({ connected, label }: { connected: boolean; label?: string }) {
   return (
     <View style={[styles.pill, connected ? styles.pillOn : styles.pillOff]}>
-      <View style={[styles.pillDot, { backgroundColor: connected ? "#16a34a" : "#94a3b8" }]} />
-      <Text style={[styles.pillText, { color: connected ? "#15803d" : "#64748b" }]}>{label || (connected ? "Connected" : "Not connected")}</Text>
+      <View style={[styles.pillDot, { backgroundColor: connected ? "#0f7b3a" : "#8b91ab" }]} />
+      <Text style={[styles.pillText, { color: connected ? "#0f6b3a" : "#5b6280" }]}>{label || (connected ? "Connected" : "Not connected")}</Text>
     </View>
   );
 }
@@ -56,11 +59,9 @@ function IntegrationCard({ icon, tint, bg, title, connected, statusLabel, descri
   return (
     <View style={styles.card}>
       <View style={styles.cardTop}>
-        <View style={[styles.cardIcon, { backgroundColor: bg }]}><Ionicons name={icon} size={24} color={tint} /></View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.cardTitle}>{title}</Text>
-          <StatusPill connected={connected} label={statusLabel} />
-        </View>
+        <View style={[styles.cardIcon, { backgroundColor: bg }]}><Ionicons name={icon} size={22} color={tint} /></View>
+        <Text style={styles.cardTitle} numberOfLines={1}>{title}</Text>
+        <StatusPill connected={connected} label={statusLabel} />
       </View>
       <Text style={styles.cardDescription}>{description}</Text>
       {children}
@@ -71,12 +72,12 @@ function IntegrationCard({ icon, tint, bg, title, connected, statusLabel, descri
 function ActionButton({ label, icon, onPress, busy, disabled, tone = "primary" }: {
   label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void; busy?: boolean; disabled?: boolean; tone?: "primary" | "danger" | "plain";
 }) {
-  const tint = tone === "danger" ? colors.danger : tone === "plain" ? colors.textSecondary : colors.primary;
-  const bg = tone === "danger" ? colors.dangerSoft : tone === "plain" ? "#eef4f9" : colors.primarySoft;
+  const filled = tone === "primary";
+  const tint = filled ? "#ffffff" : tone === "danger" ? "#b3173a" : UI.ink;
   return (
-    <Pressable onPress={onPress} disabled={busy || disabled} style={[styles.action, { backgroundColor: bg }, (busy || disabled) && { opacity: 0.55 }]}>
-      {busy ? <ActivityIndicator size="small" color={tint} /> : <Ionicons name={icon} size={16} color={tint} />}
-      <Text style={[styles.actionText, { color: tint }]}>{label}</Text>
+    <Pressable onPress={onPress} disabled={busy || disabled} style={[styles.action, filled ? styles.actionFilled : styles.actionOutline, tone === "danger" && { borderColor: "#f3c4cd" }, (busy || disabled) && { opacity: 0.55 }]}>
+      {busy ? <ActivityIndicator size="small" color={tint} /> : <Ionicons name={icon} size={15} color={tint} />}
+      <Text style={[styles.actionText, { color: tint }]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }
@@ -290,20 +291,15 @@ export default function IntegrationsScreen() {
     } finally { setReconnecting(false); }
   }
 
-  const connectedCount = settings
-    ? [settings.meta_configured, googleActive > 0, !!settings.api_key, settings.whatsapp_configured].filter(Boolean).length
-    : 0;
-
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Integrations" titleStyle={styles.headerTitle} />
-        <Appbar.Action icon="refresh" onPress={() => { setRefreshing(true); load(true); }} disabled={loading || refreshing} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back"><Ionicons name="chevron-back" size={20} color={UI.ink} /></Pressable>
+        <Pressable onPress={() => { setRefreshing(true); load(true); }} disabled={loading || refreshing} style={[styles.headerButton, (loading || refreshing) && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel="Refresh"><Ionicons name="refresh" size={18} color={UI.accent} /></Pressable>
+      </View>
 
       {loading ? (
-        <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>
+        <View style={styles.state}><ActivityIndicator size="large" color={UI.accent} /></View>
       ) : error ? (
         <View style={styles.state}>
           <Ionicons name="cloud-offline-outline" size={32} color={colors.textMuted} />
@@ -314,38 +310,34 @@ export default function IntegrationsScreen() {
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 120 }]}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(true); }} tintColor={colors.primary} colors={[colors.primary]} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(true); }} tintColor={UI.accent} colors={[UI.accent]} />}
         >
-          <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.heroTitle}>{connectedCount} of 4 connected</Text>
-              <Text style={styles.heroSub}>Connect your lead sources and WhatsApp so every lead lands in one place.</Text>
-              <View style={styles.heroTrack}><View style={[styles.heroFill, { width: `${(connectedCount / 4) * 100}%` }]} /></View>
-            </View>
-            <View style={styles.heroIcon}><Ionicons name="git-network-outline" size={28} color="#fff" /></View>
-          </LinearGradient>
+          <View>
+            <Text style={styles.pageTitle}>Integrations</Text>
+            <Text style={styles.pageSub}>Connect your lead sources and WhatsApp so every lead lands in one place.</Text>
+          </View>
 
-          <Text style={styles.sectionTitle}>Lead sources</Text>
+          <Text style={styles.sectionTitle}>LEAD SOURCES</Text>
 
           <IntegrationCard
-            icon="logo-facebook" tint="#1877f2" bg="#dbeafe" title="Facebook Lead Ads" connected={settings.meta_configured}
+            icon="logo-facebook" tint="#1d4fd8" bg="#e8e9fb" title="Facebook Lead Ads" connected={settings.meta_configured}
             description={settings.meta_configured ? `Connected to "${settings.meta_page_name}". New leads arrive automatically.` : "Bring in leads from your Facebook Page's Lead Ads forms automatically."}
           >
             <View style={styles.actionRow}>
-              <ActionButton label={settings.meta_configured ? "Reconnect" : "Connect Facebook"} icon="logo-facebook" onPress={startFacebookConnect} busy={connectingFacebook} disabled={!request} />
-              {settings.meta_configured ? <ActionButton label="Sync leads" icon="sync-outline" onPress={syncLeadsNow} busy={syncingLeads} tone="plain" /> : null}
-              {settings.meta_configured ? <ActionButton label="Sync ad insights" icon="stats-chart-outline" onPress={syncInsightsNow} busy={syncingInsights} tone="plain" /> : null}
+              <ActionButton label={settings.meta_configured ? "Reconnect" : "Connect Facebook"} icon={settings.meta_configured ? "link-outline" : "logo-facebook"} onPress={startFacebookConnect} busy={connectingFacebook} disabled={!request} tone={settings.meta_configured ? "plain" : "primary"} />
+              {settings.meta_configured ? <ActionButton label="Sync leads" icon="sync-outline" onPress={syncLeadsNow} busy={syncingLeads} /> : null}
+              {settings.meta_configured ? <ActionButton label="Insights" icon="stats-chart-outline" onPress={syncInsightsNow} busy={syncingInsights} tone="plain" /> : null}
             </View>
           </IntegrationCard>
 
           <IntegrationCard
-            icon="logo-google" tint="#ea4335" bg="#fee2e2" title="Google Ads Lead Form" connected={googleActive > 0}
+            icon="logo-google" tint="#b3261e" bg="#fde3e8" title="Google Ads Lead Form" connected={googleActive > 0}
             statusLabel={googleActive > 0 ? `${googleActive} active` : undefined}
             description="Set up Google Ads Lead Forms (ad-account mapping and webhook keys) from the web dashboard. Leads show up here once it's active."
           />
 
           <IntegrationCard
-            icon="key-outline" tint="#0f172a" bg="#e2e8f0" title="Custom API / Webhook" connected={!!settings.api_key}
+            icon="key-outline" tint="#14172e" bg="#e6e8f2" title="Custom API / Webhook" connected={!!settings.api_key}
             description="Send leads from any source (website form, Zapier, your own app) using an API key."
           >
             {settings.api_key ? (
@@ -365,19 +357,19 @@ export default function IntegrationsScreen() {
             </View>
           </IntegrationCard>
 
-          <Text style={styles.sectionTitle}>Messaging</Text>
+          <Text style={styles.sectionTitle}>MESSAGING</Text>
 
           <IntegrationCard
-            icon="logo-whatsapp" tint="#16a34a" bg="#dcfce7" title="WhatsApp Business API" connected={settings.whatsapp_configured}
+            icon="logo-whatsapp" tint="#0f7b3a" bg="#d9f3e4" title="WhatsApp Business API" connected={settings.whatsapp_configured}
             description={settings.whatsapp_configured ? `Phone number ID: ${settings.whatsapp_phone_number_id}` : "Send and receive WhatsApp messages with your Business API credentials."}
           >
             <View style={styles.actionRow}>
-              <ActionButton label={settings.whatsapp_configured ? "Update" : "Configure"} icon="settings-outline" onPress={openWhatsappSheet} />
-              {settings.whatsapp_phone_number_id ? <ActionButton label="Reconnect" icon="refresh-outline" onPress={handleReconnect} busy={reconnecting} tone="plain" /> : null}
+              <ActionButton label={settings.whatsapp_configured ? "Update" : "Configure"} icon="settings-outline" onPress={openWhatsappSheet} tone={settings.whatsapp_configured ? "plain" : "primary"} />
+              {settings.whatsapp_phone_number_id ? <ActionButton label="Reconnect" icon="link-outline" onPress={handleReconnect} busy={reconnecting} tone="plain" /> : null}
             </View>
           </IntegrationCard>
 
-          <Text style={styles.sectionTitle}>Coming soon</Text>
+          <Text style={styles.sectionTitle}>COMING SOON</Text>
           <View style={styles.soonGrid}>
             {COMING_SOON.map((item) => (
               <View key={item.key} style={styles.soonTile}>
@@ -388,7 +380,7 @@ export default function IntegrationsScreen() {
           </View>
           <Pressable style={styles.contactBanner} onPress={contactUs} accessibilityRole="link" accessibilityLabel="Contact us to request another integration provider">
             <Text style={styles.contactBannerText}>Looking for another provider? <Text style={styles.contactLink}>Contact us</Text></Text>
-            <Ionicons name="mail-outline" size={16} color={colors.primary} />
+            <Ionicons name="mail-outline" size={16} color={UI.accent} />
           </Pressable>
         </ScrollView>
       ) : null}
@@ -457,46 +449,44 @@ export default function IntegrationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f4f9fc" },
-  header: { backgroundColor: "#ffffff" },
-  headerTitle: { fontSize: 17, fontWeight: "800", color: colors.text },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingBottom: 6, backgroundColor: UI.bg },
+  headerButton: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  pageTitle: { color: UI.ink, fontSize: 26, fontWeight: "800" },
+  pageSub: { color: UI.sub, fontSize: 13, lineHeight: 18, marginTop: 4 },
   state: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30, gap: 8 },
   errorText: { color: colors.danger, fontSize: 13, textAlign: "center" },
   retry: { marginTop: 8 },
-  content: { padding: 14, gap: 12 },
+  content: { paddingHorizontal: 14, paddingTop: 6, gap: 10 },
 
-  hero: { borderRadius: 22, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 },
-  heroTitle: { color: "#fff", fontSize: 20, fontWeight: "900" },
-  heroSub: { color: "rgba(255,255,255,0.9)", fontSize: 12, lineHeight: 17, marginTop: 4 },
-  heroTrack: { height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.3)", marginTop: 12, overflow: "hidden" },
-  heroFill: { height: 6, borderRadius: 3, backgroundColor: "#fff" },
-  heroIcon: { width: 54, height: 54, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.22)", alignItems: "center", justifyContent: "center" },
 
-  sectionTitle: { color: colors.text, fontSize: 15, fontWeight: "900", marginTop: 6 },
+  sectionTitle: { color: UI.sub, fontSize: 12, fontWeight: "800", letterSpacing: 1, marginTop: 6 },
 
-  card: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: "#e2eef7", padding: 14, gap: 10 },
+  card: { backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: UI.line, padding: 12, gap: 10 },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  cardIcon: { width: 48, height: 48, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  cardTitle: { color: colors.text, fontSize: 15, fontWeight: "800", marginBottom: 4 },
-  cardDescription: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
-  pill: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
-  pillOn: { backgroundColor: "#dcfce7" },
-  pillOff: { backgroundColor: "#eef2f6" },
+  cardIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  cardTitle: { flex: 1, color: UI.ink, fontSize: 15, fontWeight: "800" },
+  cardDescription: { color: UI.sub, fontSize: 12, lineHeight: 18 },
+  pill: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
+  pillOn: { backgroundColor: "#d9f3e4" },
+  pillOff: { backgroundColor: "#e8eaf4" },
   pillDot: { width: 6, height: 6, borderRadius: 3 },
   pillText: { fontSize: 11, fontWeight: "800" },
-  actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  action: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9 },
+  actionRow: { flexDirection: "row", gap: 8 },
+  action: { flex: 1, minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, paddingHorizontal: 8 },
+  actionFilled: { backgroundColor: UI.accent },
+  actionOutline: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
   actionText: { fontSize: 13, fontWeight: "800" },
-  fieldLabel: { color: colors.textSecondary, fontSize: 11, fontWeight: "800", marginBottom: 4 },
-  codeText: { color: colors.text, fontSize: 12, backgroundColor: "#f4f9fc", borderRadius: 10, padding: 10, overflow: "hidden" },
+  fieldLabel: { color: UI.sub, fontSize: 11, fontWeight: "800", marginBottom: 4 },
+  codeText: { color: UI.ink, fontSize: 12, backgroundColor: UI.bg, borderRadius: 10, padding: 10, overflow: "hidden" },
 
   soonGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  soonTile: { width: "31%", alignItems: "center", gap: 8, paddingVertical: 14, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e2eef7", opacity: 0.85 },
+  soonTile: { width: "31%", alignItems: "center", gap: 6, paddingVertical: 12, borderRadius: 14, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, opacity: 0.85 },
   soonIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   soonName: { color: colors.textSecondary, fontSize: 11, fontWeight: "700", paddingHorizontal: 4 },
   contactBanner: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 4, paddingHorizontal: 12 },
   contactBannerText: { color: colors.textMuted, fontSize: 12, textAlign: "center" },
-  contactLink: { color: colors.primary, fontWeight: "700" },
+  contactLink: { color: UI.accent, fontWeight: "700" },
 
   overlay: { ...StyleSheet.absoluteFill, zIndex: 50, elevation: 50, backgroundColor: "#ffffff" },
   overlayHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },

@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Appbar, Button, Card, Text } from "react-native-paper";
+import { ScrollView, StyleSheet, View, Pressable } from "react-native";
+import { ActivityIndicator, Button, Card, Text } from "react-native-paper";
 import axios from "axios";
 import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +8,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { fetchQuotations, Quotation, QuotationStatus } from "@/api/quotations";
 
+
+// The add forms' palette: pale blue page, white cards with soft blue borders, deep teal-blue actions.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", red: "#d6334f", redSoft: "#fdecef", amber: "#c2710c", amberSoft: "#fde9c9", green: "#0f7b5f", greenSoft: "#d8f0e5", track: "#e4ecf3" };
 const STATUS_COLORS: Record<QuotationStatus, { bg: string; text: string; label: string }> = {
   draft: { bg: "#E5E5E5", text: "#666565", label: "Draft" },
   sent: { bg: "#D2E1FF", text: "#1D61E7", label: "Sent" },
@@ -40,18 +43,22 @@ export default function QuotationsScreen() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Quotations" titleStyle={styles.headerTitle} />
-        <Appbar.Action icon="plus" color={colors.primary} onPress={() => router.push("/(app)/more/quotations/new")} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle} numberOfLines={1}>Quotations</Text>
+        <Pressable onPress={() => router.push("/(app)/more/quotations/new")} hitSlop={10} style={styles.headerButton} accessibilityRole="button">
+          <Ionicons name="add" size={20} color={UI.teal} />
+        </Pressable>
+      </View>
 
       {loading ? (
-        <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>
+        <View style={styles.state}><ActivityIndicator size="large" color={UI.teal} /></View>
       ) : error ? (
         <View style={styles.state}>
           <Text style={styles.errorText}>{error}</Text>
-          <Button mode="contained" onPress={load} style={styles.retry}>Try again</Button>
+          <Button mode="contained" buttonColor={UI.teal} onPress={load} style={styles.retry}>Try again</Button>
         </View>
       ) : (
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
@@ -71,9 +78,9 @@ export default function QuotationsScreen() {
             );
           }) : (
             <View style={styles.empty}>
-              <View style={styles.emptyIcon}><Ionicons name="receipt-outline" size={30} color={colors.primary} /></View>
+              <View style={styles.emptyIcon}><Ionicons name="receipt-outline" size={30} color={UI.teal} /></View>
               <Text style={styles.emptyTitle}>No Quotations Yet</Text>
-              <Button mode="outlined" onPress={() => router.push("/(app)/more/quotations/new")} style={styles.emptyButton}>Create your first quotation</Button>
+              <Button mode="outlined" textColor={UI.teal} onPress={() => router.push("/(app)/more/quotations/new")} style={styles.emptyButton}>Create your first quotation</Button>
             </View>
           )}
         </ScrollView>
@@ -83,24 +90,25 @@ export default function QuotationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   state: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30 },
-  errorText: { color: colors.danger, fontSize: 13, textAlign: "center" },
+  errorText: { color: UI.red, fontSize: 13, textAlign: "center" },
   retry: { marginTop: 14 },
   content: { padding: 18 },
 
   card: { marginBottom: 12 },
   cardTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  quoteNumber: { color: colors.textSecondary, fontSize: 12, fontWeight: "700" },
+  quoteNumber: { color: UI.sub, fontSize: 12, fontWeight: "700" },
   statusPill: { borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 },
   statusPillText: { fontSize: 10, fontWeight: "800" },
-  leadName: { color: colors.text, fontSize: 15, fontWeight: "800", marginTop: 8 },
-  total: { color: colors.primary, fontSize: 18, fontWeight: "800", marginTop: 6 },
+  leadName: { color: UI.ink, fontSize: 15, fontWeight: "800", marginTop: 8 },
+  total: { color: UI.teal, fontSize: 18, fontWeight: "800", marginTop: 6 },
 
   empty: { alignItems: "center", paddingTop: 60 },
-  emptyIcon: { width: 60, height: 60, borderRadius: 18, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
-  emptyTitle: { color: colors.text, fontSize: 15, fontWeight: "800", marginTop: 14 },
+  emptyIcon: { width: 60, height: 60, borderRadius: 18, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center" },
+  emptyTitle: { color: UI.ink, fontSize: 15, fontWeight: "800", marginTop: 14 },
   emptyButton: { marginTop: 12 },
 });
