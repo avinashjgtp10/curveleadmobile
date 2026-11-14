@@ -1,4 +1,5 @@
 import axios from "axios";
+import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 
@@ -14,15 +15,26 @@ export const apiClient = axios.create({
 
 const TOKEN_KEY = "curvelead_auth_token";
 
+// expo-secure-store has no web implementation (its calls throw "getValueWithKeyAsync is not a function"),
+// so the browser build keeps the token in localStorage instead. Phones keep using the secure store.
+const isWeb = Platform.OS === "web";
+
+function webStorage() {
+  try { return typeof window !== "undefined" ? window.localStorage : null; } catch { return null; }
+}
+
 export async function setStoredToken(token: string) {
+  if (isWeb) { webStorage()?.setItem(TOKEN_KEY, token); return; }
   await SecureStore.setItemAsync(TOKEN_KEY, token);
 }
 
 export async function getStoredToken() {
+  if (isWeb) return webStorage()?.getItem(TOKEN_KEY) ?? null;
   return SecureStore.getItemAsync(TOKEN_KEY);
 }
 
 export async function clearStoredToken() {
+  if (isWeb) { webStorage()?.removeItem(TOKEN_KEY); return; }
   await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
 
