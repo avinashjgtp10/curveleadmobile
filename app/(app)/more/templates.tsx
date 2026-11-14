@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Alert, BackHandler, Linking, Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput as RNTextInput, View, useWindowDimensions,
 } from "react-native";
-import { ActivityIndicator, Appbar, Button, Card, Chip, HelperText, IconButton, List, Searchbar, Text } from "react-native-paper";
+import { ActivityIndicator, Button, Chip, HelperText, List, Searchbar, Text } from "react-native-paper";
 import axios from "axios";
-import { router, useNavigation } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
@@ -29,14 +29,30 @@ function relativeTime(value?: string) {
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
   return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
+
+// The list screen: pale lavender page, white cards with soft borders, indigo actions.
+const LIST = { bg: "#f4f5fb", line: "#dfe2f0", ink: "#14172e", sub: "#5b6280", muted: "#8b91ab", accent: "#4b45e0", accentSoft: "#e8e9fb", track: "#e8eaf4", chip: "#eceef6", red: "#b3173a", redSoft: "#fde3e8" };
+
+// Shows {name}-style variables as small highlighted tokens inside the message preview.
+function MessagePreview({ text }: { text: string }) {
+  const parts = text.split(/(\{\{\w+\}\}|\{\w+\})/g);
+  return (
+    <Text style={styles.cardMessage} numberOfLines={2}>
+      {parts.map((part, index) => /^\{\{?\w+\}?\}$/.test(part)
+        ? <Text key={index} style={styles.variable}>{` ${part.replace(/^\{\{/, "{").replace(/\}\}$/, "}")} `}</Text>
+        : part)}
+    </Text>
+  );
+}
+
+// The add-lead form palette: pale blue page, white fields with soft blue borders, deep teal-blue actions.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", red: "#d6334f" };
 
 function LabeledInput({ label, required, value, onChangeText, placeholder, error, helperText, multiline, numberOfLines, ...inputProps }: {
   label: string; required?: boolean; value: string; onChangeText: (value: string) => void; placeholder?: string;
@@ -48,7 +64,7 @@ function LabeledInput({ label, required, value, onChangeText, placeholder, error
       <View style={[styles.inputBox, multiline && styles.inputBoxMultiline, error && styles.inputError]}>
         <RNTextInput
           style={[styles.inputBoxText, multiline && styles.inputBoxTextMultiline]}
-          value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.textMuted}
+          value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={UI.muted}
           multiline={multiline} numberOfLines={numberOfLines} textAlignVertical={multiline ? "top" : "center"}
           {...inputProps}
         />
@@ -85,6 +101,8 @@ export default function TemplatesScreen() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [channelFilter, setChannelFilter] = useState<"all" | TemplateChannel>("all");
+  const [listQuery, setListQuery] = useState("");
 
   // `silent` refreshes the list in place (after save/delete/send) so the list keeps its scroll position.
   async function load(silent = false) {
@@ -135,6 +153,10 @@ export default function TemplatesScreen() {
     }, 300);
     return () => { cancelled = true; if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [leadQuery, sendOpen]);
+
+  // The Content Library's "New" shortcut opens the creator straight away.
+  const { action } = useLocalSearchParams<{ action?: string }>();
+  useEffect(() => { if (action === "new") { router.setParams({ action: undefined }); openCreate(); } }, [action]);
 
   function openCreate() {
     setEditing(null); setName(""); setCategory(""); setChannel("whatsapp"); setMessage(""); setFormError(""); setFieldErrors({});
@@ -214,53 +236,83 @@ export default function TemplatesScreen() {
     } finally { setSending(false); }
   }
 
+  const needle = listQuery.trim().toLowerCase();
+  const visibleTemplates = templates.filter((item) =>
+    (channelFilter === "all" || item.channel === channelFilter)
+    && (!needle || item.name.toLowerCase().includes(needle) || (item.message || "").toLowerCase().includes(needle) || (item.category || "").toLowerCase().includes(needle)));
+
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Templates" titleStyle={styles.headerTitle} />
-        <Appbar.Action icon="plus" color={colors.primary} onPress={openCreate} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back"><Ionicons name="chevron-back" size={20} color={LIST.ink} /></Pressable>
+        <Text style={styles.headerTitle} numberOfLines={1}>Templates</Text>
+        <Pressable onPress={openCreate} style={[styles.headerButton, styles.headerAdd]} accessibilityRole="button" accessibilityLabel="New template"><Ionicons name="add" size={22} color="#ffffff" /></Pressable>
+      </View>
 
       {loading ? (
-        <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>
+        <View style={styles.state}><ActivityIndicator size="large" color={LIST.accent} /></View>
       ) : error ? (
         <View style={styles.state}>
           <Text style={styles.errorText}>{error}</Text>
-          <Button mode="contained" onPress={() => load()} style={styles.retry}>Try again</Button>
+          <Button mode="contained" buttonColor={LIST.accent} onPress={() => load()} style={styles.retry}>Try again</Button>
         </View>
       ) : (
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(true); }} tintColor={colors.primary} colors={[colors.primary]} />}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(true); }} tintColor={LIST.accent} colors={[LIST.accent]} />}
         >
-          {templates.length ? templates.map((template) => {
+          <View style={styles.segmented}>
+            {[{ key: "all" as const, label: "All" }, ...CHANNELS.map((item) => ({ key: item.key, label: item.label }))].map((item) => {
+              const active = channelFilter === item.key;
+              return (
+                <Pressable key={item.key} onPress={() => setChannelFilter(item.key)} style={[styles.segOption, active && styles.segOptionActive]} accessibilityRole="button" accessibilityState={{ selected: active }}>
+                  <Text style={[styles.segText, active && styles.segTextActive]} numberOfLines={1}>{item.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={styles.searchBox}>
+            <Ionicons name="search" size={16} color={LIST.sub} />
+            <RNTextInput value={listQuery} onChangeText={setListQuery} placeholder="Search templates" placeholderTextColor={LIST.muted} style={styles.listSearchInput} />
+            {listQuery ? <Pressable onPress={() => setListQuery("")} hitSlop={8}><Ionicons name="close-circle" size={16} color={LIST.muted} /></Pressable> : null}
+          </View>
+
+          {visibleTemplates.length ? visibleTemplates.map((template) => {
             const channel = CHANNELS.find((item) => item.key === template.channel) || CHANNELS[0];
             return (
-              <Card key={template.id} mode="outlined" style={styles.card} onPress={() => openEdit(template)}>
-                <Card.Content>
-                  <View style={styles.cardTopRow}>
-                    <View style={styles.cardTags}>
-                      <View style={[styles.channelTag, { backgroundColor: `${channel.color}1A` }]}>
-                        <Ionicons name={channel.icon} size={12} color={channel.color} />
-                        <Text style={[styles.channelTagText, { color: channel.color }]}>{channel.label}</Text>
-                      </View>
-                      {template.category ? <Text style={styles.categoryTag} numberOfLines={1}>{template.category}</Text> : null}
-                    </View>
-                    <View style={styles.cardActions}>
-                      <IconButton icon="send-outline" size={16} iconColor={colors.primary} style={styles.iconButton} onPress={() => openSend(template)} />
-                      <IconButton icon="trash-can-outline" size={16} iconColor={colors.danger} style={styles.iconButton} onPress={() => confirmDelete(template)} />
-                    </View>
+              <Pressable key={template.id} style={styles.card} onPress={() => openEdit(template)}>
+                <View style={styles.cardTags}>
+                  <View style={[styles.channelTag, { backgroundColor: `${channel.color}1A` }]}>
+                    <Ionicons name={channel.icon} size={12} color={channel.color} />
+                    <Text style={[styles.channelTagText, { color: channel.color }]}>{channel.label}</Text>
                   </View>
-                  <Text style={styles.cardName}>{template.name}</Text>
-                  <Text style={styles.cardMessage} numberOfLines={2}>{template.message}</Text>
-                  <Text style={styles.cardMeta}>Used {template.use_count || 0} times · Updated {relativeTime(template.updated_at)}</Text>
-                </Card.Content>
-              </Card>
+                  {template.category ? <Text style={styles.categoryTag} numberOfLines={1}>{template.category}</Text> : null}
+                </View>
+                <Text style={styles.cardName} numberOfLines={1}>{template.name}</Text>
+                <MessagePreview text={template.message} />
+                <View style={styles.cardFooter}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardMeta}>Used {template.use_count || 0} times</Text>
+                    <Text style={styles.cardMeta}>Updated {relativeTime(template.updated_at)}</Text>
+                  </View>
+                  <Pressable style={styles.sendButton} onPress={() => openSend(template)} accessibilityRole="button" accessibilityLabel={`Send ${template.name}`}>
+                    <Ionicons name="paper-plane-outline" size={15} color={LIST.accent} />
+                    <Text style={styles.sendText}>Send</Text>
+                  </Pressable>
+                  <Pressable style={styles.deleteButton} onPress={() => confirmDelete(template)} accessibilityRole="button" accessibilityLabel={`Delete ${template.name}`}>
+                    <Ionicons name="trash-outline" size={16} color={LIST.red} />
+                  </Pressable>
+                </View>
+              </Pressable>
             );
-          }) : (
+          }) : templates.length ? (
             <View style={styles.empty}>
-              <View style={styles.emptyIcon}><Ionicons name="chatbubbles-outline" size={30} color={colors.primary} /></View>
+              <Text style={styles.emptyTitle}>No templates match</Text>
+              <Button mode="outlined" onPress={() => { setChannelFilter("all"); setListQuery(""); }} style={styles.emptyButton}>Clear filters</Button>
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <View style={styles.emptyIcon}><Ionicons name="chatbubbles-outline" size={30} color={LIST.accent} /></View>
               <Text style={styles.emptyTitle}>No Templates Available</Text>
               <Button mode="outlined" onPress={openCreate} style={styles.emptyButton}>Tap to create your first template</Button>
             </View>
@@ -296,8 +348,11 @@ export default function TemplatesScreen() {
                   <Chip
                     key={item.key} selected={channel === item.key} onPress={() => setChannel(item.key)}
                     mode={channel === item.key ? "flat" : "outlined"}
+                    showSelectedCheck={false}
+                    style={[styles.channelChip, channel === item.key && styles.channelChipActive]}
+                    textStyle={{ color: channel === item.key ? UI.teal : UI.sub, fontWeight: channel === item.key ? "800" : "600" }}
                     // Paper's Chip expects Material icon names, so draw the Ionicons glyph ourselves (the names showed as "?").
-                    icon={({ size, color }) => <Ionicons name={item.icon} size={size} color={color} />}
+                    icon={({ size }) => <Ionicons name={item.icon} size={size} color={channel === item.key ? UI.teal : UI.sub} />}
                   >
                     {item.label}
                   </Chip>
@@ -310,7 +365,7 @@ export default function TemplatesScreen() {
               />
               <Text style={styles.hint}>Use {"{{name}}"}, {"{{phone}}"}, {"{{email}}"}, {"{{city}}"} or {"{{source}}"} — filled in automatically when you send.</Text>
             </ScrollView>
-            <Button mode="contained" onPress={save} loading={saving} disabled={saving} style={styles.sheetPrimaryButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
+            <Button mode="contained" buttonColor={UI.teal} onPress={save} loading={saving} disabled={saving} style={styles.sheetPrimaryButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
           </Pressable>
         </Pressable>
       ) : null}
@@ -343,51 +398,64 @@ export default function TemplatesScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
+  screen: { flex: 1, backgroundColor: LIST.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingBottom: 8, backgroundColor: LIST.bg },
+  headerButton: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, borderColor: LIST.line, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  headerAdd: { backgroundColor: LIST.accent, borderColor: LIST.accent },
+  headerTitle: { flex: 1, color: LIST.ink, fontSize: 24, fontWeight: "800" },
   state: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30 },
-  errorText: { color: colors.danger, fontSize: 13, textAlign: "center" },
+  errorText: { color: LIST.red, fontSize: 13, textAlign: "center" },
   retry: { marginTop: 14 },
-  content: { padding: 18 },
+  content: { paddingHorizontal: 14, paddingTop: 2, gap: 10 },
+  segmented: { flexDirection: "row", backgroundColor: LIST.track, borderRadius: 12, padding: 3 },
+  segOption: { flex: 1, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 9 },
+  segOptionActive: { backgroundColor: "#ffffff" },
+  segText: { color: LIST.sub, fontSize: 12, fontWeight: "600" },
+  segTextActive: { color: LIST.ink, fontWeight: "800" },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, height: 38, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: LIST.line, backgroundColor: "#ffffff" },
+  listSearchInput: { flex: 1, color: LIST.ink, fontSize: 13, paddingVertical: 0 },
 
-  card: { marginBottom: 12 },
-  cardTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  cardTags: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
+  card: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: LIST.line, padding: 12 },
+  cardTags: { flexDirection: "row", alignItems: "center", gap: 8 },
   channelTag: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   channelTagText: { fontSize: 11, fontWeight: "800" },
-  categoryTag: { flexShrink: 1, color: colors.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
-  cardActions: { flexDirection: "row" },
-  iconButton: { margin: 0 },
-  cardName: { color: colors.text, fontSize: 16, fontWeight: "800", marginTop: 10 },
-  cardMessage: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 4 },
-  cardMeta: { color: colors.textMuted, fontSize: 11, marginTop: 8 },
+  categoryTag: { flexShrink: 1, overflow: "hidden", backgroundColor: LIST.chip, color: LIST.sub, fontSize: 10, fontWeight: "800", textTransform: "uppercase", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  cardName: { color: LIST.ink, fontSize: 15, fontWeight: "800", marginTop: 8 },
+  cardMessage: { color: LIST.sub, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  variable: { backgroundColor: LIST.accentSoft, color: "#3a35b8", fontWeight: "800" },
+  cardMeta: { color: LIST.sub, fontSize: 11, lineHeight: 16 },
+  cardFooter: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
+  sendButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 36, paddingHorizontal: 16, borderRadius: 12, backgroundColor: LIST.accentSoft },
+  sendText: { color: LIST.accent, fontSize: 13, fontWeight: "800" },
+  deleteButton: { width: 36, height: 36, borderRadius: 12, backgroundColor: LIST.redSoft, alignItems: "center", justifyContent: "center" },
 
   empty: { alignItems: "center", paddingTop: 60 },
-  emptyIcon: { width: 60, height: 60, borderRadius: 18, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  emptyIcon: { width: 60, height: 60, borderRadius: 18, backgroundColor: LIST.accentSoft, alignItems: "center", justifyContent: "center" },
   emptyTitle: { color: colors.text, fontSize: 15, fontWeight: "800", marginTop: 14 },
   emptyButton: { marginTop: 12 },
 
-  sheetBackdrop: { ...StyleSheet.absoluteFill, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
-  sheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden" },
+  sheetBackdrop: { ...StyleSheet.absoluteFill, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,0.45)" },
+  sheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: UI.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden" },
   fullSheet: { flex: 1 },
-  sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
-  sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 14 },
+  sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: UI.line, marginBottom: 14 },
+  sheetTitle: { color: UI.ink, fontSize: 18, fontWeight: "800", marginBottom: 14 },
   sheetHeaderRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
   sheetBackButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
-  sheetSectionLabel: { color: colors.text, fontSize: 12, fontWeight: "700", marginTop: 14, marginBottom: 8 },
+  sheetSectionLabel: { color: UI.ink, fontSize: 13, fontWeight: "800", marginTop: 14, marginBottom: 8 },
   sheetError: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, marginBottom: 6, borderRadius: 8, backgroundColor: colors.dangerSoft },
   sheetErrorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "700" },
-  fieldLabel: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 7, marginTop: 14 },
-  required: { color: colors.danger },
-  inputBox: { minHeight: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, justifyContent: "center" },
+  fieldLabel: { color: UI.ink, fontSize: 13, fontWeight: "800", marginBottom: 7, marginTop: 14 },
+  required: { color: UI.red },
+  inputBox: { minHeight: 48, borderRadius: 10, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, justifyContent: "center" },
   inputBoxMultiline: { paddingVertical: 12, minHeight: 110 },
-  inputBoxText: { color: colors.text, fontSize: 14 },
+  inputBoxText: { color: UI.ink, fontSize: 14 },
   inputBoxTextMultiline: { minHeight: 90 },
-  inputError: { borderColor: colors.danger },
-  hint: { color: colors.textMuted, fontSize: 11, marginTop: 6, lineHeight: 16 },
+  inputError: { borderColor: UI.red },
+  hint: { color: UI.muted, fontSize: 11, marginTop: 6, lineHeight: 16 },
   chipRow: { flexDirection: "row", gap: 8, marginTop: 4, marginBottom: 12 },
-  sheetPrimaryButton: { marginTop: 20 },
+  channelChip: { backgroundColor: "#ffffff", borderColor: UI.line, borderWidth: 1.5 },
+  channelChipActive: { backgroundColor: UI.tealSoft, borderColor: UI.teal },
+  sheetPrimaryButton: { marginTop: 20, borderRadius: 12 },
   sheetPrimaryButtonContent: { height: 48 },
 
   searchInput: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8 },
