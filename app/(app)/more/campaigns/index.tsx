@@ -22,6 +22,7 @@ import { fetchGoogleAdsIntegrations, fetchIntegrationSettings, IntegrationSettin
 // The add forms' palette: pale blue page, white cards with soft blue borders, deep teal-blue actions.
 const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7" };
 const PAGE_SIZE = 20;
+const ACTION_BLUE = "#1d4fd8";
 
 const PERIODS: { value: CampaignPeriod; label: string }[] = [
   { value: "today", label: "Today" },
@@ -29,6 +30,13 @@ const PERIODS: { value: CampaignPeriod; label: string }[] = [
   { value: "this_month", label: "This month" },
   { value: "last_month", label: "Last month" },
   { value: "this_year", label: "This year" },
+];
+
+const PERIOD_TABS: { value: CampaignPeriod; label: string }[] = [
+  { value: "today", label: "Today" },
+  { value: "this_week", label: "Week" },
+  { value: "this_month", label: "Month" },
+  { value: "last_month", label: "Last month" },
 ];
 
 type ManagerTab = "campaigns" | "meta" | "google" | "forms";
@@ -405,11 +413,11 @@ export default function CampaignsScreen() {
     <View style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
-          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+          <Ionicons name="arrow-back" size={20} color={UI.ink} />
         </Pressable>
         <Text style={styles.headerTitle}>Ads Manager</Text>
         <Pressable onPress={handleSync} disabled={syncing} hitSlop={10} style={[styles.headerButton, syncing && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel="Sync">
-          <Ionicons name="sync" size={20} color={UI.teal} />
+          <Ionicons name="sync" size={18} color={UI.teal} />
         </Pressable>
       </View>
 
@@ -427,17 +435,29 @@ export default function CampaignsScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load({ refresh: true })} tintColor={UI.teal} colors={[UI.teal]} />}
         >
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.managerTabs}>
+          <View style={styles.segmented}>
             {MANAGER_TABS.map((item) => {
               const active = managerTab === item.value;
               return (
-                <Pressable key={item.value} onPress={() => setManagerTab(item.value)} style={[styles.managerTab, active && styles.managerTabActive]}>
-                  <Ionicons name={item.icon} size={15} color={active ? "#ffffff" : UI.sub} />
-                  <Text style={[styles.managerTabText, active && styles.managerTabTextActive]}>{item.label}</Text>
+                <Pressable key={item.value} onPress={() => setManagerTab(item.value)} style={[styles.segOption, active && styles.segOptionActive]} accessibilityRole="tab" accessibilityState={{ selected: active }}>
+                  <Text style={[styles.segText, active && styles.segTextActive]} numberOfLines={1}>{item.label}</Text>
                 </Pressable>
               );
             })}
-          </ScrollView>
+          </View>
+
+          {managerTab === "campaigns" || managerTab === "meta" ? (
+            <View style={styles.segmented}>
+              {PERIOD_TABS.map((item) => {
+                const active = period === item.value;
+                return (
+                  <Pressable key={item.value} onPress={() => choosePeriod(item.value)} style={[styles.segOption, active && styles.segOptionActive]} accessibilityRole="button" accessibilityState={{ selected: active }}>
+                    <Text style={[styles.segText, active && styles.segTextActive]} numberOfLines={1}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
 
           {managerTab === "meta" ? (
             <>
@@ -454,35 +474,32 @@ export default function CampaignsScreen() {
                 </View>
                 <View style={styles.metaActionRow}>
                   <Pressable style={styles.aiAction} onPress={() => router.push("/(app)/more/campaigns/ai")}>
-                    <Ionicons name="sparkles-outline" size={16} color="#ffffff" />
-                    <Text style={styles.aiActionText}>Create with AI</Text>
+                    <Ionicons name="add" size={22} color="#ffffff" />
+                    <Text style={styles.aiActionText}>Create ad</Text>
                   </Pressable>
                   <Pressable style={styles.metaOutlineAction} onPress={handleSync} disabled={syncing}>
-                    {syncing ? <ActivityIndicator size="small" color={UI.teal} /> : <Ionicons name="sync-outline" size={16} color={UI.teal} />}
+                    {syncing ? <ActivityIndicator size="small" color={ACTION_BLUE} /> : <Ionicons name="sync-outline" size={16} color={ACTION_BLUE} />}
                     <Text style={styles.outlineActionText}>Sync now</Text>
                   </Pressable>
                   <Pressable style={styles.metaOutlineAction} onPress={() => router.push("/(app)/more/integrations")}>
-                    <Ionicons name="settings-outline" size={16} color={UI.teal} />
+                    <Ionicons name="link-outline" size={16} color={ACTION_BLUE} />
                     <Text style={styles.outlineActionText}>{settings?.meta_configured ? "Reconnect" : "Connect"}</Text>
                   </Pressable>
                 </View>
               </View>
 
               <View style={styles.metaTilesGrid}>
-                <View style={styles.metaTile}><Text style={styles.tileLabel}>Spend</Text><Text style={styles.metaTileValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>{money(metaSpend)}</Text></View>
-                <View style={styles.metaTile}><Text style={styles.tileLabel}>Reported</Text><Text style={styles.metaTileValue}>{num(metaLeads)}</Text></View>
-                <View style={styles.metaTile}><Text style={styles.tileLabel}>Won</Text><Text style={styles.metaTileValue}>{num(metaWon)}</Text></View>
-                <View style={styles.metaTile}><Text style={styles.tileLabel}>CPL</Text><Text style={styles.metaTileValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>{metaCpl ? money(metaCpl) : "-"}</Text></View>
+                <View style={styles.metaTile}><Text style={styles.metaTileLabel}>Spend</Text><Text style={styles.metaTileValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>{money(metaSpend)}</Text></View>
+                <View style={styles.metaTile}><Text style={styles.metaTileLabel}>Reported</Text><Text style={styles.metaTileValue}>{num(metaLeads)}</Text></View>
+                <View style={styles.metaTile}><Text style={styles.metaTileLabel}>Won</Text><Text style={styles.metaTileValue}>{num(metaWon)}</Text></View>
+                <View style={styles.metaTile}><Text style={styles.metaTileLabel}>CPL</Text><Text style={styles.metaTileValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>{metaCpl ? money(metaCpl) : "-"}</Text></View>
               </View>
 
               <Text style={styles.sectionTitle}>Campaigns</Text>
               {metaCampaigns.length ? metaCampaigns.map((c) => (
                 <Pressable key={c.id} style={styles.simpleCard} onPress={() => router.push(`/(app)/more/campaigns/${c.id}`)}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.simpleTitle} numberOfLines={2}>{c.name}</Text>
-                    <Text style={styles.simpleMeta}>{num(c.impressions)} impressions - {num(c.clicks)} clicks - {num(c.total_leads)} leads</Text>
-                  </View>
-                  <Text style={styles.simpleAmount}>{money(c.actual_spend)}</Text>
+                  <Text style={[styles.simpleTitle, { flex: 1 }]} numberOfLines={1}>{c.name}</Text>
+                  <Ionicons name="chevron-forward" size={18} color={UI.sub} />
                 </Pressable>
               )) : (
                 <View style={styles.empty}>
@@ -494,15 +511,15 @@ export default function CampaignsScreen() {
             </>
           ) : managerTab === "google" ? (
             <View style={styles.connectionCard}>
-              <View style={styles.centerIcon}><Ionicons name="trending-up-outline" size={34} color={UI.teal} /></View>
-              <Text style={styles.emptyTitle}>Connect Google Ads</Text>
-              <Text style={styles.emptyText}>See cost, clicks and conversions for Google Ads campaigns once reporting is available. Lead form connections are checked from the backend.</Text>
-              <View style={[styles.connectionPill, googleActive > 0 ? styles.pillConnected : styles.pillMuted, { alignSelf: "center" }]}>
-                <Text style={[styles.connectionPillText, { color: googleActive > 0 ? "#15803d" : "#64748b" }]}>{googleActive > 0 ? `${googleActive} active` : "Coming soon"}</Text>
+              <View style={styles.googleIcon}><Ionicons name="trending-up-outline" size={26} color="#1d5fa8" /></View>
+              <Text style={styles.googleTitle}>Connect Google Ads</Text>
+              <Text style={styles.connectionSub}>See cost, clicks and conversions for Google Ads campaigns once reporting is available. Lead form connections are checked from the backend.</Text>
+              <View style={[styles.connectionPill, googleActive > 0 ? styles.pillConnected : styles.pillMuted, { alignSelf: "flex-start" }]}>
+                <Text style={[styles.connectionPillText, { color: googleActive > 0 ? "#0f6b57" : "#64748b" }]}>{googleActive > 0 ? `${googleActive} active` : "Coming soon"}</Text>
               </View>
-              <Pressable style={[styles.outlineAction, { alignSelf: "center" }]} onPress={() => router.push("/(app)/more/integrations")}>
-                <Ionicons name="settings-outline" size={16} color={UI.teal} />
-                <Text style={styles.outlineActionText}>Open integrations</Text>
+              <Pressable style={styles.aiAction} onPress={() => router.push("/(app)/more/integrations")}>
+                <Ionicons name="settings-outline" size={18} color="#ffffff" />
+                <Text style={styles.aiActionText}>Open integrations</Text>
               </Pressable>
             </View>
           ) : managerTab === "forms" ? (
@@ -521,37 +538,25 @@ export default function CampaignsScreen() {
                   <Text style={styles.simpleTitle}>Score new Meta leads instantly</Text>
                   <Text style={styles.simpleMeta}>Every new lead gets a hot, warm or cold score as soon as it arrives.</Text>
                 </View>
-                <Ionicons name="checkmark-circle" size={28} color="#22c55e" />
+                <View style={styles.checkCircle}><Ionicons name="checkmark" size={18} color="#ffffff" /></View>
               </View>
               <View style={styles.formSetting}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.simpleTitle}>Lead quality feedback to Meta</Text>
                   <Text style={styles.simpleMeta}>{settings?.meta_configured ? "Enabled when Meta Conversions API dataset and token are configured on web." : "Connect Meta first, then add dataset ID and token from the web dashboard."}</Text>
                 </View>
-                <Pressable onPress={() => router.push("/(app)/more/integrations")} hitSlop={8}>
+                <Pressable onPress={() => router.push("/(app)/more/integrations")} hitSlop={8} style={styles.setupButton}>
                   <Text style={styles.linkText}>Setup</Text>
                 </Pressable>
               </View>
             </>
           ) : (
             <>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.periodRow}>
-            {PERIODS.map((item) => {
-              const active = period === item.value;
-              return (
-                <Pressable key={item.value} onPress={() => choosePeriod(item.value)} style={[styles.periodChip, active && styles.periodChipActive]}>
-                  <Text style={[styles.periodText, active && styles.periodTextActive]}>{item.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          <View style={styles.tilesRow}>
-            {tiles.map((tile) => (
-              <View key={tile.label} style={styles.tile}>
-                <View style={[styles.tileIcon, { backgroundColor: tile.bg }]}><Ionicons name={tile.icon} size={17} color={tile.tint} /></View>
-                <Text style={styles.tileValue}>{tile.value}</Text>
-                <Text style={styles.tileLabel} numberOfLines={1}>{tile.label}</Text>
+          <View style={styles.statsCard}>
+            {tiles.map((tile, index) => (
+              <View key={tile.label} style={[styles.statCell, index > 0 && styles.statDivider]}>
+                <Text style={[styles.statNumber, tile.label === "Won" && { color: "#0f6b57" }]}>{tile.value}</Text>
+                <Text style={styles.statCaption} numberOfLines={1}>{tile.label}</Text>
               </View>
             ))}
           </View>
@@ -559,23 +564,19 @@ export default function CampaignsScreen() {
           {syncing ? <Text style={styles.syncingText}>Syncing ad insights…</Text> : null}
 
           {focusCampaigns.length ? (
-            <View style={styles.focusCard}>
-              <View style={styles.focusHeading}>
-                <Ionicons name="locate-outline" size={16} color={colors.text} />
-                <Text style={styles.focusTitle}>Where to focus</Text>
-              </View>
+            <View style={{ gap: 8 }}>
+              <Text style={styles.focusTitle}>Where to focus</Text>
               {focusCampaigns.map((c) => {
                 const isGood = c.verdict === "high_quality";
                 return (
-                  <Pressable
-                    key={c.id} style={[styles.focusRow, { backgroundColor: isGood ? "#dcfce7" : "#fef3c7" }]}
-                    onPress={() => router.push(`/(app)/more/campaigns/${c.id}`)}
-                  >
-                    <Text style={styles.focusEmoji}>{isGood ? "🎯" : "⚠️"}</Text>
-                    <View style={styles.focusCopy}>
-                      <Text style={[styles.focusName, { color: isGood ? "#15803d" : "#b45309" }]} numberOfLines={1}>{c.name}</Text>
-                      <Text style={[styles.focusReason, { color: isGood ? "#15803d" : "#b45309" }]}>{c.verdict_reason}</Text>
+                  <Pressable key={c.id} style={styles.focusRow} onPress={() => router.push(`/(app)/more/campaigns/${c.id}`)}>
+                    <View style={styles.focusTop}>
+                      <Text style={styles.focusName} numberOfLines={1}>{c.name}</Text>
+                      <View style={[styles.focusBadge, { backgroundColor: isGood ? "#d9efe8" : "#fbe8c8" }]}>
+                        <Text style={[styles.focusBadgeText, { color: isGood ? "#0f6b57" : "#8a5a12" }]}>{isGood ? "Scale up" : "Review"}</Text>
+                      </View>
                     </View>
+                    <Text style={styles.focusReason}>{c.verdict_reason}</Text>
                   </Pressable>
                 );
               })}
@@ -979,41 +980,36 @@ export default function CampaignsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: UI.bg },
   header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
-  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
   headerTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
-  content: { padding: 14, gap: 12 },
+  content: { padding: 12, gap: 10 },
   state: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30, gap: 8 },
   errorText: { color: UI.sub, textAlign: "center" },
   retry: { marginTop: 6 },
 
-  managerTabs: { gap: 8, paddingVertical: 2, paddingRight: 14 },
-  managerTab: { minWidth: 118, height: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 12, borderRadius: 12, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
-  managerTabActive: { backgroundColor: UI.teal, borderColor: UI.teal },
-  managerTabText: { color: UI.sub, fontSize: 13, fontWeight: "800" },
-  managerTabTextActive: { color: "#ffffff" },
   connectionCard: { backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: UI.line, padding: 14, gap: 12 },
   connectionTop: { flexDirection: "row", alignItems: "center", gap: 12 },
   connectionIcon: { width: 48, height: 48, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  connectionTitle: { color: colors.text, fontSize: 16, fontWeight: "900" },
-  connectionSub: { color: UI.sub, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  connectionTitle: { color: UI.ink, fontSize: 16, fontWeight: "800" },
+  connectionSub: { color: "#4a6a61", fontSize: 12, lineHeight: 18, marginTop: 2 },
   connectionPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
-  pillConnected: { backgroundColor: "#dcfce7" },
+  pillConnected: { backgroundColor: "#d9efe8" },
   pillMuted: { backgroundColor: "#eef2f6" },
   connectionPillText: { fontSize: 11, fontWeight: "900" },
-  metaActionRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  aiAction: { width: "100%", minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, backgroundColor: UI.teal, paddingHorizontal: 13 },
-  aiActionText: { color: "#ffffff", fontSize: 15, fontWeight: "900" },
-  metaOutlineAction: { flexGrow: 1, flexBasis: "47%", minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 10 },
+  metaActionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  aiAction: { width: "100%", minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, backgroundColor: ACTION_BLUE, paddingHorizontal: 13 },
+  aiActionText: { color: "#ffffff", fontSize: 14, fontWeight: "800" },
+  metaOutlineAction: { flex: 1, minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 10 },
   outlineAction: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 13 },
-  outlineActionText: { color: UI.teal, fontSize: 13, fontWeight: "900" },
-  sectionTitle: { color: colors.text, fontSize: 15, fontWeight: "900", marginTop: 2 },
-  simpleCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 14 },
-  simpleTitle: { color: colors.text, fontSize: 14, fontWeight: "900" },
-  simpleMeta: { color: UI.sub, fontSize: 12, lineHeight: 17, marginTop: 4 },
+  outlineActionText: { color: UI.ink, fontSize: 13, fontWeight: "800" },
+  sectionTitle: { color: UI.ink, fontSize: 14, fontWeight: "800", marginTop: 2 },
+  simpleCard: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: UI.line, paddingHorizontal: 14, paddingVertical: 12 },
+  simpleTitle: { color: UI.ink, fontSize: 14, fontWeight: "800" },
+  simpleMeta: { color: "#4a6a61", fontSize: 12, lineHeight: 17, marginTop: 3 },
   simpleAmount: { color: colors.text, fontSize: 14, fontWeight: "900" },
   centerIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center", alignSelf: "center", marginTop: 10 },
-  formSetting: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 14 },
-  linkText: { color: UI.teal, fontSize: 13, fontWeight: "900" },
+  formSetting: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, paddingHorizontal: 14, paddingVertical: 12 },
+  linkText: { color: ACTION_BLUE, fontSize: 13, fontWeight: "800" },
 
   aiScreen: { flex: 1, backgroundColor: "#ffffff" },
   aiHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
@@ -1074,30 +1070,36 @@ const styles = StyleSheet.create({
   successBox: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, backgroundColor: "#dcfce7", padding: 12 },
   successText: { flex: 1, color: "#15803d", fontSize: 13, fontWeight: "800" },
 
-  periodRow: { gap: 8, paddingVertical: 2 },
-  periodChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
-  periodChipActive: { backgroundColor: UI.teal, borderColor: UI.teal },
-  periodText: { color: UI.sub, fontSize: 13, fontWeight: "700" },
-  periodTextActive: { color: "#ffffff" },
 
-  tilesRow: { flexDirection: "row", gap: 8 },
-  tile: { flex: 1, backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, paddingVertical: 12, paddingHorizontal: 6, alignItems: "center" },
-  tileIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  tileValue: { color: colors.text, fontSize: 18, fontWeight: "900", marginTop: 8 },
+  segmented: { flexDirection: "row", backgroundColor: "#e4ece9", borderRadius: 12, padding: 3 },
+  segOption: { flex: 1, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 9, paddingHorizontal: 2 },
+  segOptionActive: { backgroundColor: "#ffffff" },
+  segText: { color: "#4a6a61", fontSize: 12, fontWeight: "600" },
+  segTextActive: { color: UI.ink, fontWeight: "800" },
+  statsCard: { flexDirection: "row", backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: UI.line, paddingVertical: 10 },
+  statCell: { flex: 1, alignItems: "center" },
+  statDivider: { borderLeftWidth: 1, borderLeftColor: UI.line },
+  statNumber: { color: UI.ink, fontSize: 18, fontWeight: "800" },
+  statCaption: { color: "#4a6a61", fontSize: 11, fontWeight: "600", marginTop: 1 },
   tileLabel: { color: UI.sub, fontSize: 11, fontWeight: "700", marginTop: 1 },
-  metaTilesGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  metaTile: { width: "48%", flexGrow: 1, minHeight: 96, backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, paddingVertical: 14, paddingHorizontal: 10, alignItems: "center", justifyContent: "center" },
-  metaTileValue: { color: colors.text, fontSize: 22, fontWeight: "900", marginTop: 8, textAlign: "center" },
+  metaTilesGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  metaTile: { width: "48%", flexGrow: 1, backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: UI.line, paddingVertical: 10, paddingHorizontal: 12 },
+  metaTileLabel: { color: "#4a6a61", fontSize: 11, fontWeight: "700" },
+  googleIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: "#dde9f8", alignItems: "center", justifyContent: "center" },
+  googleTitle: { color: UI.ink, fontSize: 17, fontWeight: "800" },
+  checkCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#0f7b67", alignItems: "center", justifyContent: "center" },
+  setupButton: { backgroundColor: "#e9f0fe", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 },
+  metaTileValue: { color: UI.ink, fontSize: 18, fontWeight: "800", marginTop: 2 },
   syncingText: { color: UI.teal, fontSize: 12, fontWeight: "700", textAlign: "center" },
 
-  focusCard: { backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: UI.line, padding: 14, gap: 10 },
-  focusHeading: { flexDirection: "row", alignItems: "center", gap: 8 },
-  focusTitle: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  focusRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 12, padding: 10 },
-  focusEmoji: { fontSize: 14, marginTop: 1 },
+  focusTitle: { color: UI.ink, fontSize: 14, fontWeight: "800", marginTop: 2 },
+  focusRow: { backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: UI.line, paddingHorizontal: 12, paddingVertical: 10 },
+  focusTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  focusBadge: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
+  focusBadgeText: { fontSize: 10, fontWeight: "800" },
   focusCopy: { flex: 1 },
-  focusName: { fontSize: 13, fontWeight: "800" },
-  focusReason: { fontSize: 11, marginTop: 2 },
+  focusName: { flex: 1, color: UI.ink, fontSize: 13, fontWeight: "700" },
+  focusReason: { color: "#4a6a61", fontSize: 11, lineHeight: 16, marginTop: 4 },
 
   segment: { flexDirection: "row", backgroundColor: "#eaf1f7", borderRadius: 14, padding: 4 },
   segmentButton: { flex: 1, alignItems: "center", justifyContent: "center", height: 38, borderRadius: 11 },
