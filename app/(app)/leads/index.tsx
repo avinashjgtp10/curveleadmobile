@@ -421,10 +421,14 @@ export default function LeadsScreen() {
   useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); }, []);
 
   useEffect(() => {
+    // The list waits for this so hidden stages never flash, but on a slow connection it must not hold the list back
+    // for the whole request timeout. After 3 seconds the list loads anyway and reloads if the preference arrives late.
+    const giveUp = setTimeout(() => setPrefsReady(true), 3000);
     fetchPreferences()
       .then((prefs) => setHiddenStages(prefs.hidden_lead_stages || []))
       .catch(() => {})
-      .finally(() => setPrefsReady(true));
+      .finally(() => { clearTimeout(giveUp); setPrefsReady(true); });
+    return () => clearTimeout(giveUp);
   }, []);
 
   function toggleHiddenStage(stageName: string) {

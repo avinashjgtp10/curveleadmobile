@@ -29,6 +29,11 @@ interface Item {
 const toItem = (tool: AppTool): Item => ({ icon: tool.icon, label: tool.label, href: tool.href, tint: TOOL_TONES[tool.tone] });
 const toolsIn = (group: ToolGroup, role?: UserRole) => APP_TOOLS.filter((tool) => tool.group === group && toolVisible(tool, role)).map(toItem);
 
+// The seat numbers change rarely, but this effect used to run two requests on every visit to the tab.
+// Keep the last answer for a few minutes so switching tabs doesn't spend the server's request budget.
+const SEATS_TTL_MS = 5 * 60 * 1000;
+let seatsCache: { at: number; planName: string; used: number | null; limit: number | null | undefined } | null = null;
+
 function dateText(value?: string | null) {
   if (!value) return "";
   const date = new Date(value);
@@ -71,24 +76,32 @@ export default function MoreScreen() {
   const isAdmin = can(["admin", "super_admin"]);
 
   // Team seats: people on the team vs. what the plan allows (admins only, same sources as Team and Billing).
-  const [seatsUsed, setSeatsUsed] = useState<number | null>(null);
-  const [seatLimit, setSeatLimit] = useState<number | null | undefined>(undefined);
-
   const status = (tenant?.subscriptionStatus || "trial").toLowerCase();
   // Like Billing: a trial counts as the Free plan, otherwise the plan that was paid for.
   const planName = status === "trial" ? "Free" : tenant?.planName || "—";
+  const cached = seatsCache && seatsCache.planName === planName ? seatsCache : null;
+  const [seatsUsed, setSeatsUsed] = useState<number | null>(cached?.used ?? null);
+  const [seatLimit, setSeatLimit] = useState<number | null | undefined>(cached ? cached.limit : undefined);
 
   // Showing the More menu means features opened from here go Back to here, not to Home.
   useFocusEffect(useCallback(() => {
     homeOrigin.current = false;
     if (!isAdmin) return undefined;
+    if (seatsCache && seatsCache.planName === planName && Date.now() - seatsCache.at < SEATS_TTL_MS) return undefined;
     let cancelled = false;
-    fetchStaff().then((members) => { if (!cancelled) setSeatsUsed(members.filter((member) => member.is_active !== false).length); }).catch(() => {});
-    fetchPlans().then((plans) => {
-      if (cancelled) return;
-      const plan = plans.find((item) => item.name === planName);
-      setSeatLimit(plan ? plan.max_users ?? null : undefined);
-    }).catch(() => {});
+    // One after the other, and the cache is only written once both answers are in.
+    (async () => {
+      try {
+        const members = await fetchStaff();
+        const used = members.filter((member) => member.is_active !== false).length;
+        if (!cancelled) setSeatsUsed(used);
+        const plans = await fetchPlans();
+        const plan = plans.find((item) => item.name === planName);
+        const limit = plan ? plan.max_users ?? null : undefined;
+        seatsCache = { at: Date.now(), planName, used, limit };
+        if (!cancelled) setSeatLimit(limit);
+      } catch { /* keep whatever is already showing */ }
+    })();
     return () => { cancelled = true; };
   }, [isAdmin, planName]));
 
