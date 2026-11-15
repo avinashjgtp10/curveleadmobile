@@ -117,7 +117,10 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 429 && !error.response.data?.rate_limited && !isAuthCall) {
       blockedUntil = Date.now() + blockedForMs(error.response.headers);
     }
-    if (error.response?.status === 401) {
+    // Some endpoints relay a third party's 401 (e.g. Google rejecting a stale Business Profile token). That says nothing
+    // about this person's CurveLead session, so it must not sign them out.
+    const thirdPartyAuth = /\/gmb\/(profiles|refresh|insights)/.test(String(error.config?.url ?? ""));
+    if (error.response?.status === 401 && !thirdPartyAuth) {
       await clearStoredToken();
       unauthorizedHandler?.();
     }

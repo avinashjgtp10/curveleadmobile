@@ -4,6 +4,7 @@ export interface IntegrationSettings {
   meta_page_id: string;
   meta_page_name: string;
   meta_configured: boolean;
+  meta_ad_account_id?: string;
   google_configured: boolean;
   api_key: string | null;
   api_key_created_at: string | null;
@@ -22,6 +23,8 @@ export async function fetchIntegrationSettings() {
 export interface UpdateIntegrationSettingsInput {
   whatsapp_phone_number_id?: string;
   whatsapp_access_token?: string;
+  meta_page_id?: string;
+  meta_ad_account_id?: string;
 }
 
 export async function updateIntegrationSettings(input: UpdateIntegrationSettingsInput) {
@@ -54,6 +57,13 @@ export async function connectFacebookPage(page: FacebookPage) {
   const { data } = await apiClient.post<{ message: string; webhook_status: string }>("/integrations/facebook/connect-page", {
     page_id: page.id, page_access_token: page.access_token, page_name: page.name,
   });
+  return data;
+}
+
+export interface FacebookSyncStatus { configured: boolean; last_synced_at: string | null }
+
+export async function fetchFacebookSyncStatus() {
+  const { data } = await apiClient.get<FacebookSyncStatus>("/integrations/facebook/sync-status");
   return data;
 }
 
