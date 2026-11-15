@@ -284,8 +284,7 @@ const ALL_TOOLS: GridItem[] = APP_TOOLS.map((tool) => ({
 }));
 
 // Everyday tools shown on the dashboard, in this order. Everything else lives in the More tab.
-const DASHBOARD_TOOLS = ["Leads", "Follow-ups", "WhatsApp", "Appointments", "Quotations", "Brochures", "Ads Manager", "Lead Automation", "AI Agent", "Reports", "Team"];
-const MORE_TILE: GridItem = { icon: "grid-outline", label: "More", bg: TOOL_TONES.gray.bg, iconColor: TOOL_TONES.gray.fg, href: "/(app)/more" };
+const DASHBOARD_TOOLS = ["Leads", "Follow-ups", "WhatsApp", "Calling", "Appointments", "Quotations", "Brochures", "Ads Manager", "Lead Automation", "AI Agent", "Reports", "Team"];
 
 function openGridItem(item: GridItem) {
   // Features under More open inside the More tab's stack; remember they came from Home so Back returns here
@@ -359,11 +358,8 @@ export default function DashboardScreen() {
   // The search offers every tool this person may use (Team, Integrations and Billing are admin-only).
   const visibleTools = ALL_TOOLS.filter((item) => !item.roles || (!!user?.role && item.roles.includes(user.role)));
   const searchItems = visibleTools;
-  // The grid shows the everyday tools; the rest are one tap away in More (the last tile).
-  const manageItems = [
-    ...DASHBOARD_TOOLS.map((label) => visibleTools.find((item) => item.label === label)).filter((item): item is GridItem => !!item),
-    MORE_TILE,
-  ];
+  // The grid shows the everyday tools; the rest are in the More tab.
+  const manageItems = DASHBOARD_TOOLS.map((label) => visibleTools.find((item) => item.label === label)).filter((item): item is GridItem => !!item);
   const insets = useSafeAreaInsets();
   const [period, setPeriod] = useState<DashboardPeriod>("last_7_days");
   const [periodOpen, setPeriodOpen] = useState(false);
