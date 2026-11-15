@@ -127,9 +127,14 @@ export default function LoginScreen() {
   const passwordProblem = mode === "password" ? fieldErrors.password : "";
   const otpProblem = mode === "otp" ? fieldErrors.otp : "";
 
-  function scrollToField(y: number) {
+  // Where the card and each field sit, so a focused field is scrolled to its real position instead of a guessed offset.
+  const layoutY = useRef({ card: 0, email: 0, secret: 0 });
+  function scrollToField(field: "email" | "secret") {
     // Wait for the keyboard resize animation before moving the field into view.
-    setTimeout(() => scrollRef.current?.scrollTo({ y, animated: true }), 120);
+    setTimeout(() => {
+      const { card, email, secret } = layoutY.current;
+      scrollRef.current?.scrollTo({ y: Math.max(0, card + (field === "email" ? email : secret) - 90), animated: true });
+    }, 250);
   }
 
   function updateMode(nextMode: LoginMode) {
@@ -214,7 +219,7 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.screen}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
     >
       <View style={styles.shape} pointerEvents="none" />
@@ -233,7 +238,7 @@ export default function LoginScreen() {
           <Text style={styles.logoText}>curvelead</Text>
         </View>
 
-        <View style={styles.card}>
+        <View style={styles.card} onLayout={(event) => { layoutY.current.card = event.nativeEvent.layout.y; }}>
           <Text style={styles.title}>Welcome back</Text>
           <Text style={styles.subtitle}>{mode === "password" ? "Sign in to your Curvelead account" : "Sign in with a one-time code sent to your email."}</Text>
 
@@ -255,6 +260,7 @@ export default function LoginScreen() {
           {error ? <View style={[styles.message, styles.errorBox]}><Ionicons name="alert-circle" size={16} color={colors.danger} /><Text style={styles.errorText}>{error}</Text></View> : null}
           {notice ? <View style={[styles.message, styles.noticeBox]}><Ionicons name="checkmark-circle" size={16} color={colors.success} /><Text style={styles.noticeText}>{notice}</Text></View> : null}
 
+          <View onLayout={(event) => { layoutY.current.email = event.nativeEvent.layout.y; }} />
           <Text style={styles.label}>Email address <Text style={styles.required}>*</Text></Text>
           <TextInput
             style={styles.field} dense mode="outlined" outlineStyle={styles.fieldOutline} activeOutlineColor={NAVY}
@@ -262,12 +268,12 @@ export default function LoginScreen() {
             value={email} onChangeText={updateEmail} keyboardType="email-address"
             autoCapitalize="none" autoCorrect={false} autoComplete="email" disabled={loading}
             left={<TextInput.Icon icon="email-outline" />}
-            onFocus={() => scrollToField(220)}
+            onFocus={() => scrollToField("email")}
           />
           {emailProblem ? <FieldError message={emailProblem} /> : null}
 
           {mode === "password" ? (
-            <View>
+            <View onLayout={(event) => { layoutY.current.secret = event.nativeEvent.layout.y; }}>
               <Text style={styles.label}>Password <Text style={styles.required}>*</Text></Text>
               <TextInput
                 style={styles.field} dense mode="outlined" outlineStyle={styles.fieldOutline} activeOutlineColor={NAVY}
@@ -277,7 +283,7 @@ export default function LoginScreen() {
                 returnKeyType="go" onSubmitEditing={handleSubmit} disabled={loading}
                 left={<TextInput.Icon icon="lock-outline" />}
                 right={<TextInput.Icon icon={showPassword ? "eye-off-outline" : "eye-outline"} onPress={() => setShowPassword((value) => !value)} forceTextInputFocus={false} />}
-                onFocus={() => scrollToField(310)}
+                onFocus={() => scrollToField("secret")}
               />
               {passwordProblem ? <FieldError message={passwordProblem} /> : null}
               <Pressable onPress={() => router.push("/(auth)/forgot-password")} hitSlop={10} style={styles.forgotLinkWrap}>
@@ -285,7 +291,7 @@ export default function LoginScreen() {
               </Pressable>
             </View>
           ) : (
-            <View>
+            <View onLayout={(event) => { layoutY.current.secret = event.nativeEvent.layout.y; }}>
               <View style={styles.otpLabelRow}>
                 <Text style={styles.label}>One-time code <Text style={styles.required}>*</Text></Text>
                 <Pressable onPress={handleRequestOtp} disabled={loading || !email.trim() || lockRemaining > 0} hitSlop={10}>
@@ -302,7 +308,7 @@ export default function LoginScreen() {
                   ref={otpInputRef} value={otp} editable={otpSent && !loading}
                   onChangeText={(value) => { setOtp(value.replace(/\D/g, "").slice(0, 6)); clearFieldError("otp"); setError(""); }}
                   keyboardType="number-pad" maxLength={6} textContentType="oneTimeCode" autoComplete="sms-otp"
-                  returnKeyType="go" onSubmitEditing={handleSubmit} onFocus={() => scrollToField(310)}
+                  returnKeyType="go" onSubmitEditing={handleSubmit} onFocus={() => scrollToField("secret")}
                   style={styles.otpHidden}
                 />
               </Pressable>
@@ -326,10 +332,6 @@ export default function LoginScreen() {
             <Pressable style={styles.socialButton} onPress={() => comingSoon("Google")} accessibilityRole="button" accessibilityLabel="Continue with Google">
               <GoogleLogo size={18} />
               <Text style={styles.socialText}>Google</Text>
-            </Pressable>
-            <Pressable style={styles.socialButton} onPress={() => comingSoon("Apple")} accessibilityRole="button" accessibilityLabel="Continue with Apple">
-              <Ionicons name="logo-apple" size={18} color="#0f172a" />
-              <Text style={styles.socialText}>Apple</Text>
             </Pressable>
           </View>
 
