@@ -13,6 +13,8 @@ export default function FacebookIdScreen() {
   const [adAccount, setAdAccount] = useState("");
   const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Saving before the current values arrive would overwrite the real page and ad account IDs with blanks.
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const [settings, sync] = await Promise.all([fetchIntegrationSettings(), fetchFacebookSyncStatus()]);
@@ -22,6 +24,7 @@ export default function FacebookIdScreen() {
     setPageName(settings.meta_page_name || "");
     setAdAccount(settings.meta_ad_account_id || "");
     setLastSynced(sync.last_synced_at);
+    setLoaded(true);
     return isConnected;
   }, []);
   useFocusEffect(useCallback(() => { load().catch(() => {}); }, [load]));
@@ -37,6 +40,7 @@ export default function FacebookIdScreen() {
 
   // Saves the two IDs the backend stores in the workspace's integration settings (PUT /integrations/settings).
   async function save() {
+    if (!loaded) { Alert.alert("Still loading", "Your current Facebook details haven't loaded yet. Check your connection and try again."); return; }
     const page = pageId.trim(), account = adAccount.trim();
     if (page && !/^\d+$/.test(page)) { Alert.alert("Check the page ID", "A Facebook page ID is numbers only."); return; }
     setBusy(true);

@@ -193,7 +193,7 @@ function AgentsTab({ rows }: { rows: AgentReportRow[] }) {
 
 // ---- Wallet -------------------------------------------------------------------------------------------------------
 
-function WalletTab({ wallet, transactions, isAdmin, onChanged }: { wallet: VoiceWallet | null; transactions: WalletTransaction[]; isAdmin: boolean; onChanged: () => void }) {
+function WalletTab({ wallet, transactions, transactionsError, isAdmin, onChanged }: { wallet: VoiceWallet | null; transactions: WalletTransaction[]; transactionsError?: string; isAdmin: boolean; onChanged: () => void }) {
   const { user } = useAuth();
   const [amount, setAmount] = useState("1000");
   const [busy, setBusy] = useState(false);
@@ -265,14 +265,14 @@ function WalletTab({ wallet, transactions, isAdmin, onChanged }: { wallet: Voice
           </View>
           <Text style={styles.txAmount}>{formatMinor(tx.amount, tx.currency)}</Text>
         </View>
-      )) : <Text style={styles.footnote}>No wallet activity yet.</Text>}
+      )) : <Text style={styles.footnote}>{transactionsError || "No wallet activity yet."}</Text>}
     </View>
   );
 }
 
 // ---- Rates --------------------------------------------------------------------------------------------------------
 
-function RatesTab({ numbers, rates }: { numbers: VoiceNumber[]; rates: VoiceRate[] }) {
+function RatesTab({ numbers, rates, numbersError, ratesError }: { numbers: VoiceNumber[]; rates: VoiceRate[]; numbersError?: string; ratesError?: string }) {
   return (
     <View style={styles.stack}>
       <Text style={styles.sectionTitle}>Authorized caller IDs</Text>
@@ -284,7 +284,7 @@ function RatesTab({ numbers, rates }: { numbers: VoiceNumber[]; rates: VoiceRate
           </View>
           <Pill tone={n.verification_status === "verified" ? "ok" : "warn"} label={n.verification_status === "verified" ? "Verified" : n.verification_status.replace(/_/g, " ")} />
         </View>
-      )) : <Message text="No caller IDs yet. Caller IDs are added and verified by CurveLead support." />}
+      )) : <Message text={numbersError || "No caller IDs yet. Caller IDs are added and verified by CurveLead support."} />}
 
       <Text style={[styles.sectionTitle, { marginTop: 6 }]}>Countries &amp; rates</Text>
       {rates.length ? rates.map((rate, index) => (
@@ -295,7 +295,7 @@ function RatesTab({ numbers, rates }: { numbers: VoiceNumber[]; rates: VoiceRate
           </View>
           <Text style={styles.txAmount}>{rate.display}</Text>
         </View>
-      )) : <Message text="No routes are enabled for your workspace yet. Countries are enabled after provider and compliance review." />}
+      )) : <Message text={ratesError || "No routes are enabled for your workspace yet. Countries are enabled after provider and compliance review."} />}
     </View>
   );
 }
@@ -309,7 +309,7 @@ export default function CallingScreen() {
   const [tab, setTab] = useState<TabKey>("history");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
+  const [failed, setFailed] = useState<Record<string, string>>({});
   const [calls, setCalls] = useState<VoiceCall[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
   const [wallet, setWallet] = useState<VoiceWallet | null>(null);
@@ -322,25 +322,27 @@ export default function CallingScreen() {
   // Each request is independent: one failing (or the workspace not having calling set up) never blanks the others.
   // They run one after another so opening the screen doesn't burst the server's rate limit.
   const load = useCallback(async () => {
-    setError("");
-    let firstError = "";
-    const run = async <T,>(fn: () => Promise<T>, apply: (value: T) => void) => {
-      try { apply(await fn()); } catch (e) { firstError = firstError || errorText(e, "Couldn't load calling details."); }
+    const problems: Record<string, string> = {};
+    // A failed request is recorded under its own name, so a tab can say "couldn't load" instead of looking empty.
+    const run = async <T,>(key: string, fn: () => Promise<T>, apply: (value: T) => void) => {
+      try { apply(await fn()); } catch (e) { problems[key] = errorText(e, "Couldn't load this. Please try again."); }
     };
-    await run(fetchVoiceStatus, setStatus);
-    await run(fetchVoiceWallet, setWallet);
-    await run(() => fetchVoiceCalls(200), setCalls);
-    await run(fetchWalletTransactions, setTransactions);
-    await run(fetchVoiceNumbers, setNumbers);
-    await run(fetchVoiceRates, setRates);
+    await run("status", fetchVoiceStatus, setStatus);
+    await run("wallet", fetchVoiceWallet, setWallet);
+    await run("calls", () => fetchVoiceCalls(200), setCalls);
+    await run("transactions", fetchWalletTransactions, setTransactions);
+    await run("numbers", fetchVoiceNumbers, setNumbers);
+    await run("rates", fetchVoiceRates, setRates);
     if (isAdmin) {
-      await run(fetchAgentReport, setReport);
-      await run(fetchStaff, (staff) => setNames(Object.fromEntries(staff.map((member) => [member.id, member.name]))));
+      await run("report", fetchAgentReport, setReport);
+      await run("names", fetchStaff, (staff) => setNames(Object.fromEntries(staff.map((member) => [member.id, member.name]))));
     }
-    setError(firstError);
+    setFailed(problems);
     setLoading(false); setRefreshing(false);
   }, [isAdmin]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const retry = () => { setLoading(true); load(); };
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "history", label: "History" }, ...(isAdmin ? [{ key: "agents" as const, label: "Agents" }] : []),
@@ -380,11 +382,10 @@ export default function CallingScreen() {
           <>
             {status && !status.enabled ? <View style={styles.notice}><Text style={styles.noticeText}>Calling isn't switched on for your workspace yet. Contact CurveLead support to enable it.</Text></View> : null}
             {status?.enabled && !status.canCall ? <View style={styles.notice}><Text style={styles.noticeText}>Your account can view calling, but isn't allowed to place calls. Ask an admin for access.</Text></View> : null}
-            {error && !calls.length && !wallet ? <Message text={error} onRetry={() => { setLoading(true); load(); }} /> : null}
-            {tab === "history" && !(error && !calls.length && !wallet) ? <HistoryTab isAdmin={isAdmin} calls={calls} names={names} /> : null}
-            {tab === "agents" ? <AgentsTab rows={report} /> : null}
-            {tab === "wallet" ? <WalletTab wallet={wallet} transactions={transactions} isAdmin={isAdmin} onChanged={load} /> : null}
-            {tab === "rates" ? <RatesTab numbers={numbers} rates={rates} /> : null}
+            {tab === "history" ? (failed.calls && !calls.length ? <Message text={failed.calls} onRetry={retry} /> : <HistoryTab isAdmin={isAdmin} calls={calls} names={names} />) : null}
+            {tab === "agents" ? (failed.report && !report.length ? <Message text={failed.report} onRetry={retry} /> : <AgentsTab rows={report} />) : null}
+            {tab === "wallet" ? (failed.wallet && !wallet ? <Message text={failed.wallet} onRetry={retry} /> : <WalletTab wallet={wallet} transactions={transactions} transactionsError={transactions.length ? undefined : failed.transactions} isAdmin={isAdmin} onChanged={load} />) : null}
+            {tab === "rates" ? <RatesTab numbers={numbers} rates={rates} numbersError={numbers.length ? undefined : failed.numbers} ratesError={rates.length ? undefined : failed.rates} /> : null}
           </>
         )}
       </ScrollView>
