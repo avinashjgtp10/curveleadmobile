@@ -10,6 +10,9 @@ import {
   createStage, createStatus, deleteStage, deleteStatus, fetchPipeline, LeadStage, LeadStatus, SaveStageInput, updateStage, updateStatus,
 } from "@/api/stages";
 
+// Same palette as the Add lead form.
+const UI = { line: "#cfe3f1", ink: "#0f172a", teal: "#0b6b97", tealSoft: "#e1eef7" };
+
 const COLOR_HEX: Record<string, string> = {
   blue: "#60a5fa", green: "#4ade80", yellow: "#facc15", orange: "#fb923c", red: "#f87171",
   purple: "#c084fc", pink: "#f472b6", gray: "#9ca3af", cyan: "#22d3ee", amber: "#fbbf24",
@@ -109,7 +112,7 @@ export function PipelineSection() {
     ]);
   }
 
-  if (loading) return <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>;
+  if (loading) return <View style={styles.center}><ActivityIndicator color={UI.teal} /></View>;
   if (error && !stages.length) {
     return (
       <View style={styles.center}>
@@ -124,7 +127,7 @@ export function PipelineSection() {
     return (
       <View style={styles.stack}>
         <Pressable style={styles.backRow} onPress={() => setMode({ kind: "list" })} hitSlop={8}>
-          <Ionicons name="arrow-back" size={18} color={colors.primary} />
+          <Ionicons name="arrow-back" size={18} color={UI.teal} />
           <Text style={styles.backText}>Back to pipeline</Text>
         </Pressable>
         <View style={styles.box}>
@@ -174,7 +177,7 @@ export function PipelineSection() {
     return (
       <View style={styles.stack}>
         <Pressable style={styles.backRow} onPress={() => setMode({ kind: "list" })} hitSlop={8}>
-          <Ionicons name="arrow-back" size={18} color={colors.primary} />
+          <Ionicons name="arrow-back" size={18} color={UI.teal} />
           <Text style={styles.backText}>Back to pipeline</Text>
         </Pressable>
         <View style={styles.box}>
@@ -198,7 +201,7 @@ export function PipelineSection() {
         <Text style={styles.hint}>Stages = where a lead is. Statuses = what's happening within that stage.</Text>
         {isAdmin ? (
           <Pressable style={styles.addButton} onPress={() => openStage(null)}>
-            <Ionicons name="add" size={18} color={colors.primary} />
+            <Ionicons name="add" size={18} color={UI.teal} />
             <Text style={styles.addText}>Add stage</Text>
           </Pressable>
         ) : <Text style={styles.noteBox}>Only admins can change the pipeline.</Text>}
@@ -224,17 +227,17 @@ export function PipelineSection() {
                       <Text style={styles.statusName} numberOfLines={1}>{status.name}</Text>
                       {isAdmin ? (
                         <>
-                          <Pressable hitSlop={6} style={styles.iconBtn} onPress={() => openStatus(stage, status)}><Ionicons name="create-outline" size={16} color={colors.primary} /></Pressable>
-                          <Pressable hitSlop={6} style={styles.iconBtn} onPress={() => removeStatus(status)}><Ionicons name="trash-outline" size={16} color={status.is_default ? colors.border : colors.danger} /></Pressable>
+                          <Pressable hitSlop={6} style={styles.iconBtn} onPress={() => openStatus(stage, status)}><Ionicons name="create-outline" size={16} color={UI.teal} /></Pressable>
+                          <Pressable hitSlop={6} style={[styles.iconBtn, { backgroundColor: colors.dangerSoft }]} onPress={() => removeStatus(status)} accessibilityLabel="Delete status"><Ionicons name="trash-outline" size={16} color={colors.danger} /></Pressable>
                         </>
                       ) : null}
                     </View>
                   )) : <Text style={styles.hint}>No statuses yet.</Text>}
                   {isAdmin ? (
                     <View style={styles.stageActions}>
-                      <Pressable style={styles.smallButton} onPress={() => openStatus(stage, null)}><Ionicons name="pricetag-outline" size={14} color={colors.primary} /><Text style={styles.smallText}>Add status</Text></Pressable>
-                      <Pressable style={styles.smallButton} onPress={() => openStage(stage)}><Ionicons name="create-outline" size={14} color={colors.primary} /><Text style={styles.smallText}>Edit stage</Text></Pressable>
-                      <Pressable style={[styles.smallButton, { backgroundColor: colors.dangerSoft }]} onPress={() => removeStage(stage)}><Ionicons name="trash-outline" size={14} color={stage.is_default ? colors.border : colors.danger} /><Text style={[styles.smallText, { color: stage.is_default ? colors.border : colors.danger }]}>Delete</Text></Pressable>
+                      <Pressable style={styles.smallButton} onPress={() => openStatus(stage, null)}><Ionicons name="pricetag-outline" size={14} color={UI.teal} /><Text style={styles.smallText}>Add status</Text></Pressable>
+                      <Pressable style={styles.smallButton} onPress={() => openStage(stage)}><Ionicons name="create-outline" size={14} color={UI.teal} /><Text style={styles.smallText}>Edit stage</Text></Pressable>
+                      <Pressable style={[styles.smallButton, { backgroundColor: colors.dangerSoft }]} onPress={() => removeStage(stage)} accessibilityLabel="Delete stage"><Ionicons name="trash-outline" size={14} color={colors.danger} /><Text style={[styles.smallText, { color: colors.danger }]}>Delete</Text></Pressable>
                     </View>
                   ) : null}
                 </View>
@@ -250,7 +253,7 @@ export function PipelineSection() {
 function PrimaryButton({ label, onPress, busy }: { label: string; onPress: () => void; busy?: boolean }) {
   return (
     <Pressable onPress={onPress} disabled={busy} style={[{ marginTop: 18 }, busy && { opacity: 0.6 }]}>
-      <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primary}>
+      <LinearGradient colors={[UI.teal, UI.teal]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primary}>
         {busy ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="checkmark" size={18} color="#fff" />}
         <Text style={styles.primaryText}>{label}</Text>
       </LinearGradient>
@@ -261,53 +264,53 @@ function PrimaryButton({ label, onPress, busy }: { label: string; onPress: () =>
 const styles = StyleSheet.create({
   stack: { gap: 14 },
   center: { minHeight: 180, alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 20 },
-  retry: { backgroundColor: colors.primary, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 9 },
+  retry: { backgroundColor: UI.teal, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 9 },
   retryText: { color: "#fff", fontSize: 13, fontWeight: "800" },
-  box: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: "#e2eef7", padding: 14 },
+  box: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: UI.line, padding: 14 },
   title: { color: colors.text, fontSize: 16, fontWeight: "900" },
   hint: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
-  label: { color: colors.text, fontSize: 13, fontWeight: "800", marginTop: 14, marginBottom: 6 },
+  label: { color: UI.ink, fontSize: 12, fontWeight: "700", marginTop: 14, marginBottom: 6 },
   noteBox: { color: colors.textSecondary, fontSize: 12, backgroundColor: "#fff7ed", borderRadius: 12, padding: 10, marginTop: 8 },
   noneText: { color: colors.textMuted, fontSize: 13, textAlign: "center", paddingVertical: 16 },
   errorBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 10, marginTop: 8 },
   errorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600" },
 
   backRow: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start" },
-  backText: { color: colors.primary, fontSize: 13, fontWeight: "800" },
-  input: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#f8fbfd", paddingHorizontal: 14, justifyContent: "center" },
+  backText: { color: UI.teal, fontSize: 13, fontWeight: "800" },
+  input: { minHeight: 46, borderRadius: 10, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, justifyContent: "center" },
   inputText: { color: colors.text, fontSize: 14, paddingVertical: 8 },
 
   colorRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   swatchWrap: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: "transparent", alignItems: "center", justifyContent: "center" },
-  swatchActive: { borderColor: "#4f46e5" },
+  swatchActive: { borderColor: UI.teal },
   swatch: { width: 30, height: 30, borderRadius: 15 },
   flagRow: { flexDirection: "row", gap: 10, marginTop: 14 },
-  flag: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: "#e2eef7", backgroundColor: "#f8fbfd" },
+  flag: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
   flagWon: { backgroundColor: "#f0fdf4", borderColor: "#86efac" },
   flagLost: { backgroundColor: "#fef2f2", borderColor: "#fca5a5" },
   flagText: { fontSize: 13, fontWeight: "800" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, backgroundColor: "#f4f9fc", borderWidth: 1, borderColor: "#d7e6f1" },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chip: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
+  chipActive: { backgroundColor: UI.teal, borderColor: UI.teal },
   chipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
   chipTextActive: { color: "#fff" },
 
-  addButton: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", marginTop: 12, marginBottom: 4, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.primarySoft },
-  addText: { color: colors.primary, fontSize: 13, fontWeight: "800" },
+  addButton: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", marginTop: 12, marginBottom: 4, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: UI.tealSoft },
+  addText: { color: UI.teal, fontSize: 13, fontWeight: "800" },
 
-  stageCard: { marginTop: 10, borderRadius: 16, borderWidth: 1, borderColor: "#e2eef7", backgroundColor: "#ffffff", overflow: "hidden" },
+  stageCard: { marginTop: 10, borderRadius: 16, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", overflow: "hidden" },
   stageRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12 },
   dot: { width: 14, height: 14, borderRadius: 7 },
   stageName: { color: colors.text, fontSize: 15, fontWeight: "800" },
   tag: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
   tagText: { fontSize: 10, fontWeight: "900" },
-  stageBody: { paddingHorizontal: 12, paddingBottom: 12, gap: 6, backgroundColor: "#f8fbfd", borderTopWidth: 1, borderTopColor: "#eef4f9" },
+  stageBody: { paddingHorizontal: 12, paddingBottom: 12, gap: 6, backgroundColor: "#ffffff", borderTopWidth: 1, borderTopColor: UI.tealSoft },
   statusRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
   statusName: { flex: 1, color: colors.text, fontSize: 13, fontWeight: "600" },
-  iconBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: "#eef4f9", alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center" },
   stageActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
-  smallButton: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.primarySoft },
-  smallText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
+  smallButton: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: UI.tealSoft },
+  smallText: { color: UI.teal, fontSize: 12, fontWeight: "800" },
 
   primary: { height: 50, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   primaryText: { color: "#fff", fontSize: 15, fontWeight: "800" },
