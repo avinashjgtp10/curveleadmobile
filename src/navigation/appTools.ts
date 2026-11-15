@@ -37,6 +37,7 @@ export const APP_TOOLS: AppTool[] = [
   { icon: "folder-open-outline", label: "Brochures", href: "/(app)/more/brochures", tone: "orange", group: "tools" },
   { icon: "trending-up-outline", label: "Ads Manager", href: "/(app)/more/campaigns", tone: "green", group: "tools" },
   { icon: "sparkles-outline", label: "AI Agent", href: "/(app)/more/ai-tools", tone: "purple", group: "agent", badge: "AI" },
+  { icon: "call-outline", label: "Calling", href: "/(app)/more/calling", tone: "indigo", group: "tools" },
   { icon: "logo-whatsapp", label: "WhatsApp", href: "/(app)/more/whatsapp", tone: "green", group: "tools" },
   { icon: "location-outline", label: "GMB", href: "/(app)/more/gmb", tone: "pink", group: "tools" },
   { icon: "calendar-outline", label: "Appointments", href: "/(app)/more/appointments", tone: "blue", group: "tools" },
