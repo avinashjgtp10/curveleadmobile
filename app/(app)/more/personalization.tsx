@@ -61,6 +61,7 @@ export default function PersonalizationScreen() {
   const [startScreen, setStartScreen] = useState("dashboard");
   const [compact, setCompact] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -71,10 +72,12 @@ export default function PersonalizationScreen() {
       if (typeof prefs.start_screen === "string") setStartScreen(prefs.start_screen);
       if (typeof prefs.compact_lists === "boolean") setCompact(prefs.compact_lists);
       if (typeof prefs.language === "string") setLang(prefs.language);
-    }).catch(() => {}).finally(() => setLoading(false));
+    }).catch(() => setLoadFailed(true)).finally(() => setLoading(false));
   }, []);
 
   async function save() {
+    if (loading) return; // saving before the stored choices arrive would overwrite them with the defaults
+    if (loadFailed) { setMessage("Your saved choices didn't load, so saving now would replace them. Go back and reopen this screen."); return; }
     setSaving(true); setMessage("");
     setLanguage(lang); // takes effect on this phone straight away
     try {
