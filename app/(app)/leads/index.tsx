@@ -623,7 +623,8 @@ export default function LeadsScreen() {
             {router.canGoBack() ? <IconButton icon="arrow-left" size={22} onPress={() => router.back()} style={styles.backButton} /> : null}
             <View>
               <Text style={styles.title}>{t("Leads")}</Text>
-              <Text style={styles.count}>{total.toLocaleString("en-IN")} {t("total contacts")}</Text>
+              {/* A failed load leaves total at 0, which would read as "you have no leads". */}
+              <Text style={styles.count}>{error && !leads.length ? "—" : total.toLocaleString("en-IN")} {t("total contacts")}</Text>
             </View>
           </View>
           <Pressable style={styles.settingsSquare} onPress={() => setSettingsSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Lead settings">
