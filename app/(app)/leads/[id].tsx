@@ -485,9 +485,14 @@ export default function LeadDetailScreen() {
   const stage = lead.stage || "";
   const stageColors = colorFor(stage);
   const currentStage = stages.find((item) => item.name.toLowerCase() === stage.toLowerCase());
-  const TAB_ORDER: Tab[] = ["overview", "details", "activities"];
-  const nextTab = TAB_ORDER[TAB_ORDER.indexOf(tab) + 1];
-  const prevTab = TAB_ORDER[TAB_ORDER.indexOf(tab) - 1];
+  // Chat isn't a tab of this screen: it opens the WhatsApp conversation, so it is the last stop of the arrows.
+  const TAB_ORDER = [["overview", "Overview"], ["details", "Details"], ["activities", "Activities"], ["chat", "Chat"]] as const;
+  const tabIndex = TAB_ORDER.findIndex(([key]) => key === tab);
+  const prevTab = TAB_ORDER[tabIndex - 1];
+  const nextTab = TAB_ORDER[tabIndex + 1];
+  const openTab = (key: (typeof TAB_ORDER)[number][0]) => key === "chat"
+    ? router.push({ pathname: "/(app)/more/whatsapp", params: { leadId: lead.id, name: lead.name, phone: lead.phone, openAt: String(Date.now()) } })
+    : setTab(key);
 
   const availableStatuses = statusesFor(stage);
   const pendingFollowups = followups.filter((item) => !item.is_completed);
@@ -497,11 +502,13 @@ export default function LeadDetailScreen() {
   return (
     <View style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable onPress={() => prevTab ? setTab(prevTab) : router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+        <Pressable onPress={() => prevTab ? openTab(prevTab[0]) : router.back()} hitSlop={10} style={[styles.navButton, styles.navLeft]} accessibilityRole="button" accessibilityLabel={prevTab ? `Previous: ${prevTab[1]}` : "Back to leads"}>
           <Ionicons name="chevron-back" size={20} color={UI.ink} />
+          <Text style={styles.navName} numberOfLines={1}>{prevTab ? prevTab[1] : "Leads"}</Text>
         </Pressable>
         <Text style={styles.headerTitle}>Lead details</Text>
-        <Pressable onPress={() => nextTab && setTab(nextTab)} disabled={!nextTab} hitSlop={10} style={[styles.headerButton, !nextTab && { opacity: 0.35 }]} accessibilityRole="button" accessibilityLabel="Next tab">
+        <Pressable onPress={() => nextTab && openTab(nextTab[0])} disabled={!nextTab} hitSlop={10} style={[styles.navButton, styles.navRight, !nextTab && { opacity: 0.35 }]} accessibilityRole="button" accessibilityLabel={nextTab ? `Next: ${nextTab[1]}` : "Next"}>
+          {nextTab ? <Text style={styles.navName} numberOfLines={1}>{nextTab[1]}</Text> : null}
           <Ionicons name="chevron-forward" size={20} color={UI.ink} />
         </Pressable>
       </View>
@@ -551,9 +558,7 @@ export default function LeadDetailScreen() {
             return (
               <Pressable
                 key={key} style={[styles.tabButton, active && styles.tabButtonActive]} accessibilityRole="tab" accessibilityState={{ selected: active }}
-                onPress={() => key === "chat"
-                  ? router.push({ pathname: "/(app)/more/whatsapp", params: { leadId: lead.id, name: lead.name, phone: lead.phone, openAt: String(Date.now()) } })
-                  : setTab(key)}
+                onPress={() => openTab(key)}
               >
                 <Text style={[styles.tabText, active && styles.tabTextActive]}>{label}</Text>
               </Pressable>
@@ -895,6 +900,10 @@ const styles = StyleSheet.create({
 
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 10 },
   headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  navButton: { flex: 1, flexDirection: "row", alignItems: "center", height: 32, gap: 2 },
+  navLeft: { justifyContent: "flex-start" },
+  navRight: { justifyContent: "flex-end" },
+  navName: { flexShrink: 1, color: UI.sub, fontSize: 12, fontWeight: "600" },
   headerTitle: { color: UI.ink, fontSize: 15, fontWeight: "800" },
 
   leadCard: { marginHorizontal: 16, marginBottom: 12, padding: 14, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, gap: 12 },
