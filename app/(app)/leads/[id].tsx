@@ -214,23 +214,27 @@ function EmptyState({ icon, title, text }: { icon: IconName; title: string; text
   );
 }
 
+// Details already opened this session, so reopening a lead shows it at once while a fresh copy loads.
+const detailCache = new Map<string, Awaited<ReturnType<typeof fetchLeadDetails>>>();
+
 export default function LeadDetailScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ id: string; name?: string; phone?: string; stage?: string; source?: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  const [lead, setLead] = useState<LeadDetails | null>(() => params.name && params.phone ? {
+  const saved = id ? detailCache.get(id) : undefined;
+  const [lead, setLead] = useState<LeadDetails | null>(() => saved ? saved.lead : params.name && params.phone ? {
     id, name: params.name, phone: params.phone, stage: params.stage || "new", source: params.source,
     created_at: "",
   } : null);
-  const [activities, setActivities] = useState<LeadActivity[]>([]);
-  const [followups, setFollowups] = useState<LeadFollowup[]>([]);
+  const [activities, setActivities] = useState<LeadActivity[]>(saved?.activities ?? []);
+  const [followups, setFollowups] = useState<LeadFollowup[]>(saved?.followups ?? []);
   const [tab, setTab] = useState<Tab>("overview");
-  const [loading, setLoading] = useState(!params.name);
+  const [loading, setLoading] = useState(!params.name && !saved);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [notFound, setNotFound] = useState(false);
   // False while only the name/phone/stage passed from the previous screen are known.
-  const [detailsLoaded, setDetailsLoaded] = useState(false);
+  const [detailsLoaded, setDetailsLoaded] = useState(!!saved);
 
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0);
@@ -285,10 +289,12 @@ export default function LeadDetailScreen() {
 
   const load = useCallback(async (refresh = false) => {
     if (!id) { setError("This lead link is invalid."); setLoading(false); return; }
-    refresh ? setRefreshing(true) : setLoading(true);
+    if (refresh) setRefreshing(true); else if (!detailCache.has(id)) setLoading(true);
     setError(""); setNotFound(false);
     try {
       const result = await fetchLeadDetails(id);
+      detailCache.set(id, result);
+      if (detailCache.size > 30) detailCache.delete(detailCache.keys().next().value as string);
       setLead(result.lead); setActivities(result.activities); setFollowups(result.followups);
       setDetailsLoaded(true);
     } catch (loadError) {

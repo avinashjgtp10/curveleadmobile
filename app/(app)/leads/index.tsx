@@ -23,12 +23,15 @@ import { openPhoneWhatsapp } from "@/api/openWhatsapp";
 import {
   bulkDeleteLeads, bulkUpdateLeads, fetchLeads, LeadListItem, trackContactActivity,
 } from "@/api/leads";
+import { useAuth } from "@/contexts/AuthContext";
 import { fetchStaff, StaffMember } from "@/api/staff";
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
 import { notifyLeadsDeleted } from "@/api/notifications";
 import { FilterDateField, formatYmd, toYmd } from "@/components/FilterDateField";
 
 const PAGE_SIZE = 25;
+// The unfiltered first page from the last visit, so the list opens with leads on screen instead of a spinner.
+let leadsCache: { userId: string; leads: LeadListItem[]; total: number; pages: number } | null = null;
 // With a status, follow-up or reply-window filter on, this many leads are fetched at once and filtered on the phone.
 const LOCAL_FILTER_LIMIT = 500;
 const FILTERS = [
@@ -280,6 +283,9 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
 }
 
 export default function LeadsScreen() {
+  const { user } = useAuth();
+  const cached = leadsCache && leadsCache.userId === user?.id ? leadsCache : null;
+  const firstLoad = useRef(true);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { isAdmin } = usePermission();
@@ -287,16 +293,16 @@ export default function LeadsScreen() {
   const { stages, colorFor, findStage } = useStages();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestId = useRef(0);
-  const [leads, setLeads] = useState<LeadListItem[]>([]);
-  const [total, setTotal] = useState(0);
+  const [leads, setLeads] = useState<LeadListItem[]>(cached?.leads ?? []);
+  const [total, setTotal] = useState(cached?.total ?? 0);
   const [page, setPage] = useState(1);
   const pageRef = useRef(1);
   const [prefsReady, setPrefsReady] = useState(false);
-  const [pages, setPages] = useState(1);
+  const [pages, setPages] = useState(cached?.pages ?? 1);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [score, setScore] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -389,6 +395,8 @@ export default function LeadsScreen() {
       setPage(shownPages);
       setPages(silent ? Math.max(1, Math.ceil(result.pagination.total / PAGE_SIZE)) : result.pagination.pages);
       setTotal(result.pagination.total);
+      const unfiltered = !query && !score && !filterStage && !filterSource && !filterAssignedTo && !filterDateFrom && !filterDateTo && !hiddenStages.length;
+      if (unfiltered && !append && user?.id) leadsCache = { userId: user.id, leads: result.leads, total: result.pagination.total, pages: Math.max(1, Math.ceil(result.pagination.total / PAGE_SIZE)) };
     } catch (loadError) {
       if (id !== requestId.current) return;
       setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string" ? loadError.response.data.error : "Could not load leads.");
@@ -399,7 +407,14 @@ export default function LeadsScreen() {
   }, [query, score, filterStage, filterStatus, filterHealth, filterSla, filterSource, filterAssignedTo, filterDateFrom, filterDateTo, hiddenStages]);
 
   // First load and any filter/search change. It waits for the hidden-stages preference so those stages never flash.
-  useEffect(() => { if (prefsReady) load(); }, [load, prefsReady]);
+  // With a saved list on screen, the first refresh runs quietly instead of replacing it with a spinner.
+  useEffect(() => {
+    if (!prefsReady) return;
+    const quiet = firstLoad.current && !!cached;
+    firstLoad.current = false;
+    load(1, false, quiet);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load, prefsReady]);
 
   // If the list couldn't load because the server is rate limiting, try again by itself once the wait is over.
   useEffect(() => {

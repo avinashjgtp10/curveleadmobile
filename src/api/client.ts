@@ -25,6 +25,7 @@ function webStorage() {
 
 export async function setStoredToken(token: string) {
   memoryToken = token;
+  recent.clear();
   if (isWeb) { webStorage()?.setItem(TOKEN_KEY, token); return; }
   await SecureStore.setItemAsync(TOKEN_KEY, token);
 }
@@ -40,6 +41,7 @@ export async function getStoredToken() {
 
 export async function clearStoredToken() {
   memoryToken = null;
+  recent.clear();
   if (isWeb) { webStorage()?.removeItem(TOKEN_KEY); return; }
   await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
@@ -97,15 +99,33 @@ if (__DEV__) {
 
 // Two screens asking for the same thing at the same moment (e.g. notifications, leads) share one request.
 const inFlight = new Map<string, Promise<unknown>>();
+const RECENT_TTL_MS = 15_000;
+const recent = new Map<string, { at: number; response: unknown }>();
+// Live data that is polled or must always be current is never served from the cache.
+const UNCACHED = /\/(whatsapp|notifications|auth)(\/|\?|$)/;
 const rawGet = apiClient.get.bind(apiClient) as (url: string, config?: object) => Promise<unknown>;
 (apiClient as unknown as { get: typeof rawGet }).get = (url, config) => {
   const key = `${url}|${JSON.stringify((config as { params?: unknown } | undefined)?.params ?? {})}`;
   const existing = inFlight.get(key);
   if (existing) return existing;
-  const request = rawGet(url, config).finally(() => inFlight.delete(key));
+  // A response from the last few seconds is reused, so going back to a page shows its data at once instead of waiting on the server.
+  const hit = recent.get(key);
+  if (hit && Date.now() - hit.at < RECENT_TTL_MS) return Promise.resolve(hit.response);
+  const request = rawGet(url, config)
+    .then((response) => {
+      if (!UNCACHED.test(url)) recent.set(key, { at: Date.now(), response });
+      return response;
+    })
+    .finally(() => inFlight.delete(key));
   inFlight.set(key, request);
   return request;
 };
+
+// Anything that changes data throws the cache away, so a screen never shows what it just edited as it was before.
+apiClient.interceptors.request.use((config) => {
+  if ((config.method || "get").toLowerCase() !== "get") recent.clear();
+  return config;
+});
 
 export const OFFLINE_MESSAGE = "No internet connection. Check your network and try again.";
 export const TIMEOUT_MESSAGE = "The server took too long to respond. Please try again.";
