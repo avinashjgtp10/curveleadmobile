@@ -348,6 +348,8 @@ function sourceBarColor(source: string) {
 }
 
 const LEAD_SOURCES_TTL_MS = 5 * 60_000;
+// The last dashboard that loaded (default period), so Home opens with numbers on screen instead of a spinner.
+let dashboardCache: { userId: string; data: DashboardSummary; followups: TodayFollowup[] } | null = null;
 let leadSourcesCache: { at: number; rows: LeadSourceRow[] } | null = null;
 
 export default function DashboardScreen() {
@@ -364,14 +366,15 @@ export default function DashboardScreen() {
   const [period, setPeriod] = useState<DashboardPeriod>("last_7_days");
   const [periodOpen, setPeriodOpen] = useState(false);
   const periodLabel = PERIOD_OPTIONS.find((item) => item.key === period)?.label || "Last 7 days";
-  const [data, setData] = useState<DashboardSummary | null>(null);
+  const cached = dashboardCache && dashboardCache.userId === user?.id ? dashboardCache : null;
+  const [data, setData] = useState<DashboardSummary | null>(cached?.data ?? null);
   const dataRef = useRef<DashboardSummary | null>(null);
   dataRef.current = data;
-  const [upcomingFollowups, setUpcomingFollowups] = useState<TodayFollowup[]>([]);
+  const [upcomingFollowups, setUpcomingFollowups] = useState<TodayFollowup[]>(cached?.followups ?? []);
   const [notificationCount, setNotificationCount] = useState(0);
   // Keep the number on the app icon equal to the unread count the bell shows.
   useEffect(() => { setAppBadge(notificationCount); }, [notificationCount]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   // Counts failed loads, so the auto-retry below runs again even when a retry fails with the same message.
@@ -447,6 +450,7 @@ export default function DashboardScreen() {
         fetchTodayFollowups().catch(() => null),
       ]);
       setData(summary);
+      if (user?.id && period === "last_7_days") dashboardCache = { userId: user.id, data: summary, followups: todayFollowups ?? dashboardCache?.followups ?? [] };
       // A failed follow-ups request keeps the last list instead of showing "No upcoming follow-ups".
       if (todayFollowups) setUpcomingFollowups(todayFollowups);
       // The focus effect below already fetches notifications on first open; only pull-to-refresh needs it here.
@@ -466,9 +470,16 @@ export default function DashboardScreen() {
       // With no numbers on screen the "Couldn't load dashboard" state already shows the error, so an alert on top would just repeat it.
       if (refresh && dataRef.current) Alert.alert("Couldn't refresh", message);
     } finally { setLoading(false); setRefreshing(false); }
-  }, [period]);
+  }, [period, user?.id]);
 
-  useEffect(() => { load(); }, [load]);
+  // With saved numbers on screen, the first refresh runs quietly instead of showing a spinner.
+  const firstLoad = useRef(true);
+  useEffect(() => {
+    const quiet = firstLoad.current && !!cached && period === "last_7_days";
+    firstLoad.current = false;
+    load(false, quiet);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load]);
 
   // Coming back to Home (e.g. after completing follow-ups): refresh the numbers quietly so they aren't stale.
   const focusedOnce = useRef(false);

@@ -4,6 +4,7 @@ import {
 } from "react-native";
 import { ActivityIndicator, Button, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
+import { useAuth } from "@/contexts/AuthContext";
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -32,6 +33,7 @@ const AVATAR_COLORS = ["#c8294a", "#d98a0b", "#2457e6", "#0f7b5f", "#7c3aed", "#
 
 // Two menu items (~44 each) plus padding.
 const POPOVER_HEIGHT = 96;
+let followupsCache: { userId: string; list: TodayFollowup[] } | null = null;
 const DAYS_BEFORE_TODAY = 60;
 const DAYS_AFTER_TODAY = 90;
 // One request covers everything the screen groups: overdue (earlier days), today and what's coming up.
@@ -157,6 +159,8 @@ function FollowupCard({ item, overdue, completing, onComplete, onPress, colorFor
 }
 
 export default function FollowupsScreen() {
+  const { user } = useAuth();
+  const cached = followupsCache && followupsCache.userId === user?.id ? followupsCache.list : null;
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { colorFor, findStage } = useStages();
@@ -167,8 +171,9 @@ export default function FollowupsScreen() {
   // Seven days fit across the card.
   const dayWidth = Math.floor((screenWidth - 32 - 16) / 7);
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
-  const [followups, setFollowups] = useState<TodayFollowup[]>([]);
-  const [loading, setLoading] = useState(true);
+  // The last list that loaded is shown at once while a fresh one is fetched, so the tab never opens on a bare spinner.
+  const [followups, setFollowups] = useState<TodayFollowup[]>(cached ?? []);
+  const [loading, setLoading] = useState(!cached);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [completingId, setCompletingId] = useState<string | null>(null);
@@ -214,6 +219,7 @@ export default function FollowupsScreen() {
       const to = startOfDay(new Date()); to.setDate(to.getDate() + DAYS_AFTER_TODAY);
       const result = await fetchTodayFollowups({ date_from: ymd(from), date_to: ymd(to) });
       if (id !== requestId.current) return;
+      if (user?.id) followupsCache = { userId: user.id, list: result };
       setFollowups(result);
     } catch (loadError) {
       if (id !== requestId.current) return;
@@ -221,9 +227,10 @@ export default function FollowupsScreen() {
     } finally {
       if (id === requestId.current) { setLoading(false); setRefreshing(false); }
     }
-  }, []);
+  }, [user?.id]);
 
-  useEffect(() => { load(); }, [load]);
+  // With a cached list on screen, the first refresh runs quietly instead of replacing it with a spinner.
+  useEffect(() => { load(false, !!cached); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The tab stays mounted, so follow-ups completed or added elsewhere (a lead's page, Appointments) would stay stale.
   // Refresh quietly whenever the tab is shown again.
