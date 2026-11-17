@@ -271,6 +271,7 @@ export default function LeadDetailScreen() {
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
+  const [followupSheetOpen, setFollowupSheetOpen] = useState(false);
   const [typePickerOpen, setTypePickerOpen] = useState(false);
   const [followupType, setFollowupType] = useState<FollowupType>("call");
   const [followupAt, setFollowupAt] = useState(defaultFollowupDate());
@@ -451,8 +452,11 @@ export default function LeadDetailScreen() {
         meeting_url: followupType === "demo" ? followupMeetingUrl.trim() || undefined : undefined,
       });
       setFollowups((current) => [created, ...current.map((item) => ({ ...item, is_completed: true }))]);
+      const message = `${FOLLOWUP_TYPES.find((item) => item.key === followupType)?.label || "Follow-up"} on ${dateTime(followupAt.toISOString())}.`;
       setFollowupNotes(""); setFollowupMeetingUrl(""); setFollowupAt(defaultFollowupDate());
-      Alert.alert("Follow-up scheduled", `${FOLLOWUP_TYPES.find((item) => item.key === followupType)?.label || "Follow-up"} on ${dateTime(followupAt.toISOString())}.`);
+      setFollowupSheetOpen(false);
+      // Android drops an Alert fired while the sheet is still closing.
+      setTimeout(() => Alert.alert("Follow-up scheduled", message), 350);
     } catch (followupError) {
       Alert.alert("Couldn't schedule follow-up", errorMessage(followupError, "Please try again."));
     } finally { setSchedulingFollowup(false); }
@@ -574,34 +578,29 @@ export default function LeadDetailScreen() {
 
         {tab === "overview" ? (
           <View style={styles.body}>
+            {nextFollowup ? (() => {
+              const overdue = new Date(nextFollowup.next_followup_at).getTime() < Date.now();
+              const tone = overdue ? colors.danger : UI.blue;
+              return (
+                <Pressable style={[styles.followupBanner, { borderColor: overdue ? "#f4b4b4" : "#bcd0f5", backgroundColor: overdue ? "#fff5f5" : "#f3f7ff" }]} onPress={() => setFollowupSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Schedule a follow-up">
+                  <Ionicons name={overdue ? "alert-circle-outline" : "calendar-outline"} size={24} color={tone} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.followupBannerTitle, { color: tone }]}>{overdue ? "FOLLOW UP OVERDUE" : "NEXT FOLLOW-UP"}</Text>
+                    <Text style={[styles.followupBannerDate, { color: tone }]}>{dateTime(nextFollowup.next_followup_at)}</Text>
+                  </View>
+                  <Ionicons name="chevron-up" size={20} color={UI.sub} />
+                </Pressable>
+              );
+            })() : null}
+
             <View style={styles.card}>
               <View style={styles.cardTitleRow}>
                 <Ionicons name="calendar-outline" size={16} color={UI.ink} />
                 <Text style={styles.cardTitle}>Schedule Follow-up</Text>
               </View>
-              {nextFollowup ? <Text style={styles.cardHint}>Next follow-up: {dateTime(nextFollowup.next_followup_at)}</Text> : null}
-
-              <Text style={styles.fieldLabel}>Date &amp; Time<Text style={styles.required}> *</Text></Text>
-              <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
-
-              <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Type</Text>
-              <Pressable style={styles.selectField} onPress={() => setTypePickerOpen(true)} accessibilityRole="button" accessibilityLabel="Follow-up type">
-                <Text style={styles.selectText}>{FOLLOWUP_TYPES.find((item) => item.key === followupType)?.label}</Text>
-                <Ionicons name="chevron-down" size={16} color={UI.sub} />
-              </Pressable>
-
-              {followupType === "demo" ? (
-                <>
-                  <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Meeting link (optional)</Text>
-                  <RNTextInput style={styles.textField} value={followupMeetingUrl} onChangeText={setFollowupMeetingUrl} placeholder="https://meet.google.com/…" placeholderTextColor={UI.muted} autoCapitalize="none" keyboardType="url" />
-                </>
-              ) : null}
-
-              <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Notes (optional)</Text>
-              <RNTextInput style={styles.textField} value={followupNotes} onChangeText={setFollowupNotes} placeholder="e.g. Discuss pricing" placeholderTextColor={UI.muted} onFocus={() => revealInScroll(null)} />
-
-              <Pressable style={[styles.primaryButton, schedulingFollowup && { opacity: 0.7 }]} onPress={scheduleFollowup} disabled={schedulingFollowup} accessibilityRole="button">
-                {schedulingFollowup ? <ActivityIndicator size="small" color="#fff" /> : null}
+              <Text style={styles.cardHint}>Pick a date, type and notes for the next follow-up.</Text>
+              <Pressable style={styles.primaryButton} onPress={() => setFollowupSheetOpen(true)} accessibilityRole="button">
+                <Ionicons name="add" size={18} color="#fff" />
                 <Text style={styles.primaryButtonText}>Schedule Follow-up</Text>
               </Pressable>
             </View>
@@ -824,21 +823,53 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={typePickerOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setTypePickerOpen(false)}>
-        <Pressable style={styles.pickerBackdrop} onPress={() => setTypePickerOpen(false)}>
-          <Pressable style={styles.pickerCard} onPress={() => {}}>
-            <Text style={styles.pickerTitle}>Follow-up type</Text>
-            {FOLLOWUP_TYPES.map((item) => {
-              const selected = item.key === followupType;
-              return (
-                <Pressable key={item.key} style={[styles.pickerItem, selected && styles.pickerItemSelected]} onPress={() => { setFollowupType(item.key); setTypePickerOpen(false); }}>
-                  <Text style={[styles.pickerItemText, selected && { color: UI.blue, fontWeight: "800" }]}>{item.label}</Text>
-                  {selected ? <Ionicons name="checkmark" size={16} color={UI.blue} /> : null}
-                </Pressable>
-              );
-            })}
+      <Modal visible={followupSheetOpen} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => { Keyboard.dismiss(); if (!schedulingFollowup) setFollowupSheetOpen(false); }}>
+          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) + keyboardHeight }]} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Schedule Follow-up</Text>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1 }}>
+              <Text style={styles.fieldLabel}>Date &amp; Time<Text style={styles.required}> *</Text></Text>
+              <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
+
+              <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Type</Text>
+              <Pressable style={[styles.selectField, typePickerOpen && { borderColor: UI.blue }]} onPress={() => { Keyboard.dismiss(); setTypePickerOpen((open) => !open); }} accessibilityRole="button" accessibilityLabel="Follow-up type" accessibilityState={{ expanded: typePickerOpen }}>
+                <Text style={styles.selectText}>{FOLLOWUP_TYPES.find((item) => item.key === followupType)?.label}</Text>
+                <Ionicons name={typePickerOpen ? "chevron-up" : "chevron-down"} size={16} color={UI.sub} />
+              </Pressable>
+              {typePickerOpen ? (
+                <View style={styles.dropdownList}>
+                  {FOLLOWUP_TYPES.map((item, index) => {
+                    const selected = item.key === followupType;
+                    return (
+                      <Pressable key={item.key} style={[styles.dropdownItem, index > 0 && styles.dropdownItemDivider, selected && styles.pickerItemSelected]} onPress={() => { setFollowupType(item.key); setTypePickerOpen(false); }} accessibilityRole="menuitem">
+                        <Text style={[styles.pickerItemText, selected && { color: UI.blue, fontWeight: "800" }]}>{item.label}</Text>
+                        {selected ? <Ionicons name="checkmark" size={16} color={UI.blue} /> : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              {followupType === "demo" ? (
+                <>
+                  <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Meeting link (optional)</Text>
+                  <RNTextInput style={styles.textField} value={followupMeetingUrl} onChangeText={setFollowupMeetingUrl} placeholder="https://meet.google.com/…" placeholderTextColor={UI.muted} autoCapitalize="none" keyboardType="url" />
+                </>
+              ) : null}
+
+              <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Notes (optional)</Text>
+              <RNTextInput style={styles.textField} value={followupNotes} onChangeText={setFollowupNotes} placeholder="e.g. Discuss pricing" placeholderTextColor={UI.muted} />
+            </ScrollView>
+
+            <Pressable style={[styles.primaryButton, schedulingFollowup && { opacity: 0.7 }]} onPress={scheduleFollowup} disabled={schedulingFollowup} accessibilityRole="button">
+              {schedulingFollowup ? <ActivityIndicator size="small" color="#fff" /> : null}
+              <Text style={styles.primaryButtonText}>Schedule Follow-up</Text>
+            </Pressable>
+            <Button mode="outlined" onPress={() => setFollowupSheetOpen(false)} disabled={schedulingFollowup} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
           </Pressable>
         </Pressable>
+
       </Modal>
 
       <Modal visible={fabOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setFabOpen(false)}>
@@ -931,6 +962,12 @@ const styles = StyleSheet.create({
   selectText: { color: UI.ink, fontSize: 13, fontWeight: "600" },
   textField: { height: 42, borderRadius: 10, borderWidth: 1, borderColor: UI.field, backgroundColor: "#ffffff", paddingHorizontal: 12, color: UI.ink, fontSize: 13 },
   primaryButton: { height: 44, borderRadius: 10, backgroundColor: UI.blue, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 16 },
+  followupBanner: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 12 },
+  dropdownList: { marginTop: 6, borderWidth: 1, borderColor: UI.line, borderRadius: 10, backgroundColor: "#ffffff", overflow: "hidden" },
+  dropdownItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 12 },
+  dropdownItemDivider: { borderTopWidth: 1, borderTopColor: UI.line },
+  followupBannerTitle: { fontSize: 13, fontWeight: "800" },
+  followupBannerDate: { fontSize: 13, marginTop: 2 },
   primaryButtonText: { color: "#ffffff", fontSize: 14, fontWeight: "800" },
   detailRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: UI.line, marginBottom: 12 },
   detailLabel: { color: UI.sub, fontSize: 11, marginBottom: 3 },
