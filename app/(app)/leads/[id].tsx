@@ -454,7 +454,7 @@ export default function LeadDetailScreen() {
       setFollowups((current) => [created, ...current.map((item) => ({ ...item, is_completed: true }))]);
       const message = `${FOLLOWUP_TYPES.find((item) => item.key === followupType)?.label || "Follow-up"} on ${dateTime(followupAt.toISOString())}.`;
       setFollowupNotes(""); setFollowupMeetingUrl(""); setFollowupAt(defaultFollowupDate());
-      setFollowupSheetOpen(false);
+      setFollowupSheetOpen(false); setTypePickerOpen(false);
       // Android drops an Alert fired while the sheet is still closing.
       setTimeout(() => Alert.alert("Follow-up scheduled", message), 350);
     } catch (followupError) {
@@ -578,32 +578,24 @@ export default function LeadDetailScreen() {
 
         {tab === "overview" ? (
           <View style={styles.body}>
-            {nextFollowup ? (() => {
-              const overdue = new Date(nextFollowup.next_followup_at).getTime() < Date.now();
+            {(() => {
+              const overdue = !!nextFollowup && new Date(nextFollowup.next_followup_at).getTime() < Date.now();
               const tone = overdue ? colors.danger : UI.blue;
               return (
-                <Pressable style={[styles.followupBanner, { borderColor: overdue ? "#f4b4b4" : "#bcd0f5", backgroundColor: overdue ? "#fff5f5" : "#f3f7ff" }]} onPress={() => setFollowupSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Schedule a follow-up">
+                <Pressable
+                  style={[styles.followupBanner, { borderColor: overdue ? "#f4b4b4" : "#bcd0f5", backgroundColor: overdue ? "#fff0f0" : "#f3f7ff" }]}
+                  onPress={() => { Keyboard.dismiss(); setTypePickerOpen(false); setFollowupSheetOpen(true); }}
+                  accessibilityRole="button" accessibilityLabel="Schedule a follow-up" accessibilityHint="Opens the follow-up form"
+                >
                   <Ionicons name={overdue ? "alert-circle-outline" : "calendar-outline"} size={24} color={tone} />
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.followupBannerTitle, { color: tone }]}>{overdue ? "FOLLOW UP OVERDUE" : "NEXT FOLLOW-UP"}</Text>
-                    <Text style={[styles.followupBannerDate, { color: tone }]}>{dateTime(nextFollowup.next_followup_at)}</Text>
+                    <Text style={[styles.followupBannerTitle, { color: tone }]}>{overdue ? "FOLLOW UP OVERDUE" : nextFollowup ? "NEXT FOLLOW-UP" : "SCHEDULE FOLLOW-UP"}</Text>
+                    {nextFollowup ? <Text style={[styles.followupBannerDate, { color: tone }]}>{dateTime(nextFollowup.next_followup_at)}</Text> : <Text style={[styles.followupBannerDate, { color: UI.sub }]}>No follow-up planned yet</Text>}
                   </View>
                   <Ionicons name="chevron-up" size={20} color={UI.sub} />
                 </Pressable>
               );
-            })() : null}
-
-            <View style={styles.card}>
-              <View style={styles.cardTitleRow}>
-                <Ionicons name="calendar-outline" size={16} color={UI.ink} />
-                <Text style={styles.cardTitle}>Schedule Follow-up</Text>
-              </View>
-              <Text style={styles.cardHint}>Pick a date, type and notes for the next follow-up.</Text>
-              <Pressable style={styles.primaryButton} onPress={() => setFollowupSheetOpen(true)} accessibilityRole="button">
-                <Ionicons name="add" size={18} color="#fff" />
-                <Text style={styles.primaryButtonText}>Schedule Follow-up</Text>
-              </Pressable>
-            </View>
+            })()}
 
             <LeadNotes leadId={lead.id} refreshSignal={notesSignal} onAdded={() => load(true)} onFormOpen={revealInScroll} />
 
