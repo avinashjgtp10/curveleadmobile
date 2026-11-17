@@ -24,16 +24,22 @@ function webStorage() {
 }
 
 export async function setStoredToken(token: string) {
+  memoryToken = token;
   if (isWeb) { webStorage()?.setItem(TOKEN_KEY, token); return; }
   await SecureStore.setItemAsync(TOKEN_KEY, token);
 }
 
+// Reading the secure store on every request is slow; keep the token in memory once it's known.
+let memoryToken: string | null | undefined;
+
 export async function getStoredToken() {
-  if (isWeb) return webStorage()?.getItem(TOKEN_KEY) ?? null;
-  return SecureStore.getItemAsync(TOKEN_KEY);
+  if (memoryToken !== undefined) return memoryToken;
+  memoryToken = isWeb ? webStorage()?.getItem(TOKEN_KEY) ?? null : await SecureStore.getItemAsync(TOKEN_KEY);
+  return memoryToken;
 }
 
 export async function clearStoredToken() {
+  memoryToken = null;
   if (isWeb) { webStorage()?.removeItem(TOKEN_KEY); return; }
   await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
@@ -77,8 +83,17 @@ apiClient.interceptors.request.use(async (config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  if (__DEV__) (config as { _t?: number })._t = Date.now();
   return config;
 });
+
+// Development only: shows which calls are slow in the Metro console.
+if (__DEV__) {
+  apiClient.interceptors.response.use(
+    (response) => { console.log(`[api] ${response.config.method?.toUpperCase()} ${response.config.url} ${Date.now() - ((response.config as { _t?: number })._t ?? Date.now())}ms`); return response; },
+    (error) => { const c = error?.config as { _t?: number; method?: string; url?: string } | undefined; if (c) console.log(`[api] ${c.method?.toUpperCase()} ${c.url} failed after ${Date.now() - (c._t ?? Date.now())}ms`); return Promise.reject(error); }
+  );
+}
 
 // Two screens asking for the same thing at the same moment (e.g. notifications, leads) share one request.
 const inFlight = new Map<string, Promise<unknown>>();

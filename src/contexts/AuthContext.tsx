@@ -73,6 +73,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       const token = await getStoredToken();
       if (token) {
+        // Open straight into the app with the last known profile instead of holding the splash for a network round trip.
+        // The server check below still runs; a rejected token (401) signs the user out through the handler.
+        try {
+          const cached = await AsyncStorage.getItem(SESSION_CACHE_KEY);
+          if (cached) {
+            const session = JSON.parse(cached) as { user: AuthUser; tenant: Tenant };
+            setUser(session.user);
+            setTenant(session.tenant);
+            setIsLoading(false);
+          }
+        } catch { /* no usable cache: wait for the server */ }
         try {
           const { data } = await apiClient.get<{ user: AuthUser; tenant: Tenant }>(
             "/auth/me"
