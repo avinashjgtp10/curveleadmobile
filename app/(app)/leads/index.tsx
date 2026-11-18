@@ -157,14 +157,29 @@ function dateBucket(value: string) {
   return "Earlier";
 }
 
-function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDelete, colorFor, findStage }: {
-  lead: LeadListItem; selectMode: boolean; selected: boolean; onToggleSelect: () => void; onLongPress: () => void;
-  /** Omitted for users who can't delete, which hides the Delete item. */
-  onDelete?: () => void;
+// The handlers live in a ref the screen keeps current, so the row's props stay the same between renders and React.memo
+// can skip it — typing in search or opening a sheet no longer re-renders every row.
+interface RowActions {
+  toggleSelect: (id: string) => void;
+  enterSelectMode: (id: string) => void;
+  confirmDelete: (lead: LeadListItem) => void;
   colorFor: (stage?: string) => { bg: string; text: string };
   findStage: (name?: string) => { name: string } | undefined;
+}
+
+const LeadRow = React.memo(function LeadRow({ lead, selectMode, selected, canDelete, actions }: {
+  lead: LeadListItem; selectMode: boolean; selected: boolean;
+  /** False for users who can't delete, which hides the Delete item. */
+  canDelete: boolean;
+  /** Also stands in for the stage list: a new array means stage names/colors changed, so the row redraws. */
+  stages: unknown;
+  actions: React.MutableRefObject<RowActions>;
 }) {
   const { t } = useT();
+  const onToggleSelect = () => actions.current.toggleSelect(lead.id);
+  const onLongPress = () => actions.current.enterSelectMode(lead.id);
+  const onDelete = canDelete ? () => actions.current.confirmDelete(lead) : undefined;
+  const { colorFor, findStage } = actions.current;
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ y: 0, right: 16 });
   const anchorRef = useRef<View>(null);
@@ -262,7 +277,7 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
           </Pressable>
           {/* A plain Modal popover: Paper's Menu swallowed taps here. Actions run after it closes,
               because Android drops navigation/Alerts fired while a Modal is still dismissing. */}
-          <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={closeMenu}>
+          {menuOpen ? <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={closeMenu}>
             <Pressable style={StyleSheet.absoluteFill} onPress={closeMenu}>
               <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
                 <Pressable style={styles.popoverItem} onPress={() => runAfterClose(openLead)}>
@@ -277,12 +292,12 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
                 ) : null}
               </View>
             </Pressable>
-          </Modal>
+          </Modal> : null}
         </View>
       ) : null}
     </Pressable>
   );
-}
+});
 
 export default function LeadsScreen() {
   const { user } = useAuth();
@@ -554,6 +569,9 @@ export default function LeadsScreen() {
     });
   }
 
+  const rowActions = useRef<RowActions>({ toggleSelect, enterSelectMode, confirmDelete: confirmDeleteOne, colorFor, findStage });
+  rowActions.current = { toggleSelect, enterSelectMode, confirmDelete: confirmDeleteOne, colorFor, findStage };
+
   const selectedLeads = leads.filter((lead) => selectedIds.has(lead.id));
 
   async function openReassign() {
@@ -706,7 +724,7 @@ export default function LeadsScreen() {
         <SectionList
           sections={sections} keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <LeadRow lead={item} selectMode={selectMode} selected={selectedIds.has(item.id)} onToggleSelect={() => toggleSelect(item.id)} onLongPress={() => enterSelectMode(item.id)} onDelete={isAdmin ? () => confirmDeleteOne(item) : undefined} colorFor={colorFor} findStage={findStage} />
+            <LeadRow lead={item} selectMode={selectMode} selected={selectedIds.has(item.id)} canDelete={isAdmin} stages={stages} actions={rowActions} />
           )}
           renderSectionHeader={({ section }) => <Text style={styles.sectionHeader}>{t(section.title)}</Text>}
           ListHeaderComponent={header}
@@ -714,7 +732,9 @@ export default function LeadsScreen() {
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} colors={[colors.primary]} />}
-          onEndReached={() => { if (!loadingMore && page < pages) load(page + 1, true); }} onEndReachedThreshold={0.4}
+          onEndReached={() => { if (!loadingMore && page < pages) load(page + 1, true); }} onEndReachedThreshold={1.5}
+          // Rows are heavy (avatar, badges, two buttons), so draw a screenful first and a few at a time after that.
+          initialNumToRender={10} maxToRenderPerBatch={8} updateCellsBatchingPeriod={40} windowSize={9} removeClippedSubviews
           ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={styles.footerLoader} /> : leads.length ? <Text style={styles.endText}>{page >= pages ? t("All {n} leads loaded", { n: total }) : ""}</Text> : null}
           ListEmptyComponent={
             <View style={styles.empty}>
