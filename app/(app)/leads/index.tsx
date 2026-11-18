@@ -31,6 +31,8 @@ import { FilterDateField, formatYmd, toYmd } from "@/components/FilterDateField"
 
 const PAGE_SIZE = 25;
 // The unfiltered first page from the last visit, so the list opens with leads on screen instead of a spinner.
+// Hidden stages remembered for this session, so reopening the list doesn't wait on the preferences request first.
+let hiddenStagesCache: { userId: string; stages: string[] } | null = null;
 let leadsCache: { userId: string; leads: LeadListItem[]; total: number; pages: number } | null = null;
 // With a status, follow-up or reply-window filter on, this many leads are fetched at once and filtered on the phone.
 const LOCAL_FILTER_LIMIT = 500;
@@ -297,7 +299,7 @@ export default function LeadsScreen() {
   const [total, setTotal] = useState(cached?.total ?? 0);
   const [page, setPage] = useState(1);
   const pageRef = useRef(1);
-  const [prefsReady, setPrefsReady] = useState(false);
+  const [prefsReady, setPrefsReady] = useState(!!(hiddenStagesCache && hiddenStagesCache.userId === user?.id));
   const [pages, setPages] = useState(cached?.pages ?? 1);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -336,7 +338,8 @@ export default function LeadsScreen() {
   const [picker, setPicker] = useState<PickerKey | null>(null);
 
   const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
-  const [hiddenStages, setHiddenStages] = useState<string[]>([]);
+  const knownHidden = hiddenStagesCache && hiddenStagesCache.userId === user?.id ? hiddenStagesCache.stages : null;
+  const [hiddenStages, setHiddenStages] = useState<string[]>(knownHidden ?? []);
 
   useEffect(() => {
     const parent = navigation.getParent();
@@ -438,9 +441,14 @@ export default function LeadsScreen() {
   useEffect(() => {
     // The list waits for this so hidden stages never flash, but on a slow connection it must not hold the list back
     // for the whole request timeout. After 3 seconds the list loads anyway and reloads if the preference arrives late.
-    const giveUp = setTimeout(() => setPrefsReady(true), 3000);
+    const giveUp = setTimeout(() => setPrefsReady(true), 1200);
     fetchPreferences()
-      .then((prefs) => setHiddenStages(prefs.hidden_lead_stages || []))
+      .then((prefs) => {
+        const stagesNow = prefs.hidden_lead_stages || [];
+        if (user?.id) hiddenStagesCache = { userId: user.id, stages: stagesNow };
+        // Same list as before: keep the old array so the leads aren't fetched a second time for nothing.
+        setHiddenStages((current) => current.length === stagesNow.length && current.every((s, i) => s === stagesNow[i]) ? current : stagesNow);
+      })
       .catch(() => {})
       .finally(() => { clearTimeout(giveUp); setPrefsReady(true); });
     return () => clearTimeout(giveUp);
@@ -450,6 +458,7 @@ export default function LeadsScreen() {
     const key = stageName.toLowerCase();
     const next = hiddenStages.includes(key) ? hiddenStages.filter((s) => s !== key) : [...hiddenStages, key];
     setHiddenStages(next);
+    if (user?.id) hiddenStagesCache = { userId: user.id, stages: next };
     updatePreferences({ hidden_lead_stages: next }).catch(() => setHiddenStages(hiddenStages));
   }
 
