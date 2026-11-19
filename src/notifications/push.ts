@@ -94,7 +94,8 @@ const TYPE_TO_GROUP: Record<string, string> = {
 
 /** Honors the person's Notification Settings switches (cached on this phone by the settings screen). */
 async function isAlertEnabled(type?: string) {
-  const group = type ? TYPE_TO_GROUP[type] : undefined;
+  // Server notifications carry the settings key itself as their type (new_messages, hot_leads, ...), so it is honored too.
+  const group = type ? TYPE_TO_GROUP[type] ?? type : undefined;
   if (!group) return true;
   try {
     const raw = await AsyncStorage.getItem(NOTIFICATION_PREFS_CACHE_KEY);
