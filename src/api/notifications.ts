@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import { fetchTodayFollowups, TodayFollowup } from "./leads";
+import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "./leads";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { presentLocalNotification } from "@/notifications/push";
 
@@ -292,4 +292,110 @@ export async function notifyLeadsDeleted(leads: { id: string; name: string }[]) 
     leads.length === 1 ? "This lead was deleted." : "The selected leads were deleted.",
     { type: "lead_deleted" },
   );
+}
+
+const ALERTED_IDS_KEY = "curvelead_alerted_notification_ids";
+const MAX_ALERTED_IDS = 300;
+const MAX_INDIVIDUAL_ALERTS = 3;
+
+/**
+ * Notifications created by the server (leads from WhatsApp/Google/Facebook, follow-up and SLA reminders...) only ring if the
+ * backend also sends a push. While the app is open this checks the list and shows the pop-up + sound for each new unread
+ * one. The first check only remembers what is already there, so an existing backlog doesn't all ring at once.
+ */
+export async function alertNewServerNotifications() {
+  const { data } = await apiClient.get<{ notifications?: AppNotification[] } | AppNotification[]>("/notifications");
+  const items = (Array.isArray(data) ? data : data.notifications || [])
+    .map((item) => normalizeNotification(item as Partial<AppNotification> & Record<string, unknown>))
+    .filter((item) => !item.read_at);
+
+  const raw = await AsyncStorage.getItem(ALERTED_IDS_KEY);
+  const firstRun = raw === null;
+  let seen: string[] = [];
+  try { seen = raw ? (JSON.parse(raw) as string[]) : []; } catch { seen = []; }
+  const seenSet = new Set(seen);
+  const leadsSeen = await getSeenLeadIds();
+  // A "new lead" notification for a lead the lead check below already announced would ring a second time.
+  const coveredByLeadAlert = (item: AppNotification) => !!item.lead_id && NEW_LEAD_TYPE.test(item.type || "") && leadsSeen.has(item.lead_id);
+  const fresh = items.filter((item) => !seenSet.has(item.id));
+  if (!fresh.length) {
+    if (firstRun) await AsyncStorage.setItem(ALERTED_IDS_KEY, "[]");
+    return;
+  }
+  await AsyncStorage.setItem(ALERTED_IDS_KEY, JSON.stringify([...seen, ...fresh.map((item) => item.id)].slice(-MAX_ALERTED_IDS)));
+  if (firstRun) return;
+
+  // A push that arrived while the app was open was already shown (and mirrored locally) - don't ring for it twice.
+  const local = await getLocalNotifications();
+  const SAME_EVENT_MS = 2 * 60_000;
+  const alreadyShown = (item: AppNotification) => local.some((other) => {
+    if (other.title !== item.title || (other.message ?? "") !== (item.message ?? "")) return false;
+    const x = new Date(item.created_at || "").getTime();
+    const y = new Date(other.created_at || "").getTime();
+    return Number.isNaN(x) || Number.isNaN(y) || Math.abs(x - y) <= SAME_EVENT_MS;
+  });
+  const toShow = newestFirst(fresh.filter((item) => !alreadyShown(item) && !coveredByLeadAlert(item)));
+  if (!toShow.length) return;
+  if (toShow.length > MAX_INDIVIDUAL_ALERTS) {
+    await presentLocalNotification(`${toShow.length} new notifications`, toShow[0].title, { type: "summary" });
+    return;
+  }
+  for (const item of toShow) {
+    await presentLocalNotification(item.title, item.message, {
+      type: item.type, lead_id: item.lead_id, lead_name: item.lead_name, lead_phone: item.lead_phone, lead_stage: item.lead_stage,
+    });
+  }
+}
+
+const SEEN_LEADS_KEY = "curvelead_alerted_lead_ids";
+const MAX_SEEN_LEADS = 300;
+const NEW_LEAD_TYPE = /new.?lead|lead.?(created|added)/i;
+const NEW_LEAD_MAX_AGE_MS = 15 * 60_000;
+
+async function getSeenLeadIds() {
+  try {
+    const raw = await AsyncStorage.getItem(SEEN_LEADS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set<string>(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+/**
+ * Leads that arrive from WhatsApp, Google, Facebook, forms and the like are created by the server, so nothing on the phone
+ * rings for them unless the backend pushes. While the app is open this looks at the newest leads and shows the pop-up + sound
+ * for each one it hasn't announced yet. The first check only remembers the current leads.
+ */
+export async function alertNewLeads() {
+  const page = await fetchLeads({ page: 1, limit: 15 });
+  const newest = [...page.leads].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const raw = await AsyncStorage.getItem(SEEN_LEADS_KEY);
+  const firstRun = raw === null;
+  const seen = await getSeenLeadIds();
+  const fresh = newest.filter((lead) => !seen.has(lead.id));
+  if (!fresh.length) {
+    if (firstRun) await AsyncStorage.setItem(SEEN_LEADS_KEY, "[]");
+    return;
+  }
+  await AsyncStorage.setItem(SEEN_LEADS_KEY, JSON.stringify([...seen, ...fresh.map((lead) => lead.id)].slice(-MAX_SEEN_LEADS)));
+  if (firstRun) return;
+
+  // Leads added from this phone already rang through notifyLeadCreated / notifyLeadsAdded.
+  const local = await getLocalNotifications();
+  const madeHere = new Set(local.map((item) => item.lead_id).filter(Boolean));
+  const recent = fresh.filter((lead) => {
+    const age = Date.now() - new Date(lead.created_at).getTime();
+    return !madeHere.has(lead.id) && (Number.isNaN(age) || age <= NEW_LEAD_MAX_AGE_MS);
+  });
+  if (!recent.length) return;
+  if (recent.length > MAX_INDIVIDUAL_ALERTS) {
+    await presentLocalNotification(`${recent.length} new leads`, "Open Leads to see them.", { type: "lead_created" });
+    return;
+  }
+  for (const lead of recent) {
+    await presentLocalNotification(`New lead - ${lead.name}`, lead.source ? `Source: ${lead.source}` : "A new lead was added.", {
+      type: "lead_created", lead_id: lead.id, lead_name: lead.name, lead_phone: lead.phone, lead_stage: lead.stage,
+    });
+  }
 }

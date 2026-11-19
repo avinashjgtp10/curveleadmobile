@@ -6,7 +6,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { unregisterPushToken } from "@/api/pushTokens";
 import { rateLimitRemainingMs } from "@/api/client";
-import { saveIncomingPushNotification } from "@/api/notifications";
+import { alertNewLeads, alertNewServerNotifications, saveIncomingPushNotification } from "@/api/notifications";
 import { configureNotificationHandler, getNotificationPermission } from "./push";
 import { LAST_REGISTERED_TOKEN_KEY, getPushStatus, registerDevice } from "./pushStatus";
 import { navigateToNotification, NotificationRouteData } from "./navigateToNotification";
@@ -118,6 +118,23 @@ export function usePushNotifications(navigationReady: boolean) {
       tokenSub.remove();
       appSub.remove();
     };
+  }, [user, isLoading]);
+
+  // Server-made notifications (new leads from WhatsApp/Google/Facebook, reminders) ring while the app is open, even when the
+  // backend sent no push for them. Skipped while rate limited so it never adds to a "Too many requests" burst.
+  useEffect(() => {
+    if (isExpoGo || isLoading || !user) return;
+    let running = false;
+    const check = () => {
+      if (running || AppState.currentState !== "active" || rateLimitRemainingMs()) return;
+      running = true;
+      // Leads first, so a "new lead" notification for a lead just announced isn't announced again.
+      alertNewLeads().catch(() => {}).then(() => alertNewServerNotifications()).catch(() => {}).finally(() => { running = false; });
+    };
+    const first = setTimeout(check, 6000);
+    const timer = setInterval(check, 30000);
+    const sub = AppState.addEventListener("change", (state) => { if (state === "active") check(); });
+    return () => { clearTimeout(first); clearInterval(timer); sub.remove(); };
   }, [user, isLoading]);
 
   // Tap handling: foreground taps and background taps both fire this listener.
