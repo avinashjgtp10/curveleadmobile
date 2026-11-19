@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { fetchLeadDetails, fetchLeads, LeadListItem } from "@/api/leads";
 import { fetchTemplates, MessageTemplate } from "@/api/templates";
-import { notifyMessageSent } from "@/api/notifications";
+import { notifyMessageFailed, notifyMessageSent } from "@/api/notifications";
 import { MAX_ATTACHMENT_BYTES, uploadLeadAttachment } from "@/api/attachments";
 import {
   deleteConversation, fetchConversation, fetchInbox, fetchSendableWhatsAppTemplates, InboxConversation, markConversationsRead, replyWindowLeftMs,
@@ -467,10 +467,12 @@ export default function WhatsAppScreen() {
       setTab("chats");
       if (result.delivery?.success === false) {
         Alert.alert("Message not delivered", result.delivery.error || "WhatsApp rejected this template.");
+        notifyMessageFailed(templateLead, result.delivery.error).catch(() => {});
       } else {
         notifyMessageSent(templateLead).catch(() => {});
       }
     } catch {
+      notifyMessageFailed(templateLead, "Could not send this template.").catch(() => {});
       Alert.alert("Template not sent", "Could not send this template. Please check WhatsApp integration and try again.");
     } finally {
       setSendingTemplateId("");
@@ -490,10 +492,12 @@ export default function WhatsAppScreen() {
         setTab("chats");
         if (result.delivery?.success === false) {
           Alert.alert("Message not delivered", result.delivery.error || "WhatsApp rejected this message.");
+          notifyMessageFailed(templateLead, result.delivery.error).catch(() => {});
         } else {
           notifyMessageSent(templateLead).catch(() => {});
         }
       } catch {
+        notifyMessageFailed(templateLead, "This saved reply could not be sent.").catch(() => {});
         Alert.alert("Template not sent", "This saved reply could not be sent directly. Use an approved WhatsApp template to start a locked conversation.");
       } finally {
         setSendingTemplateId("");
@@ -554,11 +558,14 @@ export default function WhatsAppScreen() {
       setMessages((current) => current.map((item) => (item.id === pendingId ? result.message : item)));
       refreshInbox();
       loadConversation(leadId);
-      if (result.delivery?.success === false) Alert.alert("File not delivered", result.delivery.error || "WhatsApp rejected this file.");
-      else notifyMessageSent(selected).catch(() => {});
+      if (result.delivery?.success === false) {
+        Alert.alert("File not delivered", result.delivery.error || "WhatsApp rejected this file.");
+        notifyMessageFailed(selected, result.delivery.error).catch(() => {});
+      } else notifyMessageSent(selected).catch(() => {});
     } catch (sendError) {
       setMessages((current) => current.filter((item) => item.id !== pendingId));
       const detail = (sendError as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      notifyMessageFailed(selected, detail || "Could not send this file.").catch(() => {});
       Alert.alert("File not sent", detail || "Could not send this file. Please try again.");
     } finally {
       setSending(false);
@@ -591,10 +598,12 @@ export default function WhatsAppScreen() {
       loadConversation(leadId);
       if (result.delivery?.success === false) {
         Alert.alert("Message not delivered", result.delivery.error || "WhatsApp rejected this message.");
+        notifyMessageFailed(selected, result.delivery.error).catch(() => {});
       } else {
         notifyMessageSent(selected).catch(() => {});
       }
     } catch {
+      notifyMessageFailed(selected, "Could not send this message.").catch(() => {});
       setMessages((current) => current.filter((item) => item.id !== pendingId));
       setMessage(body);
       Alert.alert("Message not sent", "Could not send this message. Please try again.");
