@@ -1,5 +1,5 @@
 import { SvgCalendar } from "@/components/ReferenceIcons";
-import { AppNotification, fetchNotifications, markAllNotificationsRead, markNotificationRead } from "@/api/notifications";
+import { AppNotification, fetchNotifications, fetchSavedNotifications, getShownNotifications, setShownNotifications, markAllNotificationsRead, markNotificationRead } from "@/api/notifications";
 import { useT } from "@/i18n/LanguageContext";
 import { isMessageNotification, navigateToNotification } from "@/notifications/navigateToNotification";
 import { Ionicons } from "@expo/vector-icons";
@@ -65,19 +65,26 @@ export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const { t, language } = useT();
   const locale = language === "hi" ? "hi-IN" : "en-IN";
-  const [items, setItems] = useState<AppNotification[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<AppNotification[]>(getShownNotifications() ?? []);
+  const [loading, setLoading] = useState(!getShownNotifications());
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const unreadCount = useMemo(() => items.filter((item) => !item.read_at).length, [items]);
 
   const load = useCallback(async (refresh = false) => {
-    refresh ? setRefreshing(true) : setLoading(true);
+    refresh ? setRefreshing(true) : getShownNotifications() ? null : setLoading(true);
     setError("");
+    // Nothing on screen yet: show what is saved on the phone straight away, then the server's list when it arrives.
+    if (!refresh && !getShownNotifications()) {
+      fetchSavedNotifications().then((saved) => { if (saved.length && !getShownNotifications()) { setItems(saved); setLoading(false); } }).catch(() => {});
+    }
     try {
-      setItems(await fetchNotifications());
+      const latest = await fetchNotifications();
+      setShownNotifications(latest);
+      setItems(latest);
     } catch (loadError) {
+      if (getShownNotifications() && !refresh) return; // a quiet reload failed: keep the list that is already on screen
       setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string"
         ? loadError.response.data.error
         : t("Could not load notifications."));

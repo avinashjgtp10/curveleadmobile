@@ -157,6 +157,12 @@ async function rememberRead(ids: string[]) {
   await AsyncStorage.setItem(READ_IDS_KEY, JSON.stringify(Array.from(current).slice(-MAX_READ_IDS)));
 }
 
+/** The notifications saved on this phone (own alerts + mirrored pushes), instantly - no server call. */
+export async function fetchSavedNotifications() {
+  const [localNotifications, readIds] = await Promise.all([getLocalNotifications(), getReadIds()]);
+  return newestFirst(localNotifications.map((item) => item.read_at || !readIds.has(item.id) ? item : { ...item, read_at: new Date().toISOString() }));
+}
+
 export async function fetchNotifications() {
   const [localNotifications, readIds] = await Promise.all([getLocalNotifications(), getReadIds()]);
   const withReadState = (list: AppNotification[]) => list.map((item) => (
@@ -410,4 +416,19 @@ export async function alertNewLeads() {
 /** Signing out: the next person to sign in on this phone starts with a fresh "already announced" baseline. */
 export async function resetAlertBaseline() {
   await Promise.all([ALERTED_IDS_KEY, SEEN_LEADS_KEY, BULK_ADDED_AT_KEY].map((key) => AsyncStorage.removeItem(key).catch(() => {})));
+  await clearUserCaches();
+}
+
+// The list the Notifications screen showed last, kept so reopening it paints at once.
+let shownList: AppNotification[] | null = null;
+export const getShownNotifications = () => shownList;
+export const setShownNotifications = (list: AppNotification[]) => { shownList = list; };
+
+/**
+ * Signing out: everything saved on this phone for the previous person goes, so the next one to sign in never sees
+ * their notifications or WhatsApp chats - not even for a moment while the server answers.
+ */
+export async function clearUserCaches() {
+  shownList = null;
+  await Promise.all([LOCAL_NOTIFICATIONS_KEY, READ_IDS_KEY, "whatsapp_inbox_cache_v1"].map((key) => AsyncStorage.removeItem(key).catch(() => {})));
 }
