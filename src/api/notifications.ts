@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { presentLocalNotification } from "@/notifications/push";
 
 const LOCAL_NOTIFICATIONS_KEY = "curvelead_local_notifications";
+const BULK_ADDED_AT_KEY = "curvelead_bulk_leads_added_at";
 
 export interface NotificationGroup {
   key: string;
@@ -237,6 +238,8 @@ export async function notifyLeadCreated(lead: { id: string; name: string; phone?
 /** For leads that arrive in bulk (spreadsheet import, Facebook sync) rather than one at a time. */
 export async function notifyLeadsAdded(count: number, source: string) {
   if (count <= 0) return;
+  // Remember when, so the new-lead check doesn't announce these same leads a second time.
+  await AsyncStorage.setItem(BULK_ADDED_AT_KEY, String(Date.now())).catch(() => {});
   const input: LocalNotificationInput = {
     title: `${count} new ${count === 1 ? "lead" : "leads"} added`,
     message: `Source: ${source}`,
@@ -368,7 +371,7 @@ async function getSeenLeadIds() {
  * for each one it hasn't announced yet. The first check only remembers the current leads.
  */
 export async function alertNewLeads() {
-  const page = await fetchLeads({ page: 1, limit: 15 });
+  const page = await fetchLeads({ page: 1, limit: 10 });
   const newest = [...page.leads].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const raw = await AsyncStorage.getItem(SEEN_LEADS_KEY);
   const firstRun = raw === null;
@@ -384,8 +387,12 @@ export async function alertNewLeads() {
   // Leads added from this phone already rang through notifyLeadCreated / notifyLeadsAdded.
   const local = await getLocalNotifications();
   const madeHere = new Set(local.map((item) => item.lead_id).filter(Boolean));
+  const bulkAt = Number(await AsyncStorage.getItem(BULK_ADDED_AT_KEY).catch(() => null)) || 0;
   const recent = fresh.filter((lead) => {
-    const age = Date.now() - new Date(lead.created_at).getTime();
+    const createdAt = new Date(lead.created_at).getTime();
+    const age = Date.now() - createdAt;
+    // Imported / synced here: created before notifyLeadsAdded ran (small margin for clock differences).
+    if (createdAt <= bulkAt + 5000) return false;
     return !madeHere.has(lead.id) && (Number.isNaN(age) || age <= NEW_LEAD_MAX_AGE_MS);
   });
   if (!recent.length) return;
