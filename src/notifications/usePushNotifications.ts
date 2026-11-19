@@ -132,7 +132,7 @@ export function usePushNotifications(navigationReady: boolean) {
       alertNewLeads().catch(() => {}).then(() => alertNewServerNotifications()).catch(() => {}).finally(() => { running = false; });
     };
     const first = setTimeout(check, 6000);
-    const timer = setInterval(check, 60000);
+    const timer = setInterval(check, 30000);
     const sub = AppState.addEventListener("change", (state) => { if (state === "active") check(); });
     return () => { clearTimeout(first); clearInterval(timer); sub.remove(); };
   }, [user, isLoading]);

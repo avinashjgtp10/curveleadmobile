@@ -190,11 +190,7 @@ export default function NewLeadScreen() {
         // Say so instead of letting the person believe the follow-up exists; they can add it from the lead's page.
         Alert.alert("Lead created, follow-up not saved", "The lead was added, but the follow-up couldn't be scheduled. Open the lead and add it again.");
       }
-      // Pass what we already know so the lead page shows at once instead of a blank "Loading lead…".
-      router.replace({
-        pathname: "/(app)/leads/[id]",
-        params: { id: lead.id, name: form.name.trim(), phone: `${country.dial}${localNumber()}`, stage: "new", source: form.source },
-      });
+      router.replace(`/(app)/leads/${lead.id}`);
     } catch (saveError) {
       if (axios.isAxiosError(saveError)) {
         const message = typeof saveError.response?.data?.error === "string" ? saveError.response.data.error : "Could not create this lead.";

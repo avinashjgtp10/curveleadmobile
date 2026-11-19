@@ -234,27 +234,7 @@ export default function FollowupsScreen() {
   }, [user?.id]);
 
   // With a cached list on screen, the first refresh runs quietly instead of replacing it with a spinner.
-  // With nothing saved yet, a small window (last week to two weeks ahead) is fetched first so the screen appears quickly;
-  // the full range then fills in quietly behind it.
-  useEffect(() => {
-    if (cached) { load(false, true); return; }
-    let cancelled = false;
-    const id = ++requestId.current;
-    setLoading(true); setError("");
-    const from = startOfDay(new Date()); from.setDate(from.getDate() - 7);
-    const to = startOfDay(new Date()); to.setDate(to.getDate() + 14);
-    let quickOk = false;
-    fetchTodayFollowups({ date_from: ymd(from), date_to: ymd(to) })
-      .then((result) => { quickOk = true; if (!cancelled && id === requestId.current) setFollowups(result); })
-      .catch(() => {})
-      .finally(() => {
-        if (cancelled) return;
-        if (quickOk && id === requestId.current) setLoading(false);
-        // Quiet when the quick window is already showing; a normal load (with its error + retry) when it failed.
-        load(false, quickOk).catch(() => {});
-      });
-    return () => { cancelled = true; };
-  }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(false, !!cached); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The tab stays mounted, so follow-ups completed or added elsewhere (a lead's page, Appointments) would stay stale.
   // Refresh quietly whenever the tab is shown again.
