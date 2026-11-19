@@ -264,6 +264,23 @@ export async function notifyMessageSent(lead: { id: string; name: string; phone?
   });
 }
 
+/** A WhatsApp message could not be sent or was rejected: saved in the list and shown as a pop-up with sound. */
+export async function notifyMessageFailed(lead: { id: string; name: string; phone?: string; stage?: string }, reason?: string) {
+  const input: LocalNotificationInput = {
+    title: `Failed to send - ${lead.name}`,
+    message: reason || "Your message could not be sent.",
+    type: "message_failed",
+    lead_id: lead.id,
+    lead_name: lead.name,
+    lead_phone: lead.phone,
+    lead_stage: lead.stage,
+  };
+  await saveLocalNotification(input);
+  await presentLocalNotification(input.title, input.message, {
+    type: input.type, lead_id: input.lead_id, lead_name: input.lead_name, lead_phone: input.lead_phone, lead_stage: input.lead_stage,
+  });
+}
+
 export async function notifyLeadsDeleted(leads: { id: string; name: string }[]) {
   if (!leads.length) return;
   // One entry and one alert for the whole batch: separate entries would flood the 100-item list and push out older ones.
