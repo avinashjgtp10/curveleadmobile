@@ -1,7 +1,7 @@
 import { SvgCalendar } from "@/components/ReferenceIcons";
 import { AppNotification, fetchNotifications, markAllNotificationsRead, markNotificationRead } from "@/api/notifications";
 import { useT } from "@/i18n/LanguageContext";
-import { navigateToNotification } from "@/notifications/navigateToNotification";
+import { isMessageNotification, navigateToNotification } from "@/notifications/navigateToNotification";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import { router, useFocusEffect } from "expo-router";
@@ -153,12 +153,20 @@ export default function NotificationsScreen() {
 
           {items.map((item) => {
             const unread = !item.read_at;
+            const isChat = isMessageNotification(item.type);
             return (
               <Pressable key={item.id} style={[styles.card, unread && styles.cardUnread]} onPress={() => handlePress(item)}>
-                <View style={styles.iconWrap}><SvgCalendar color="#f59e0b" /></View>
+                {isChat
+                  ? <View style={[styles.iconWrap, styles.chatIcon]}><Ionicons name="logo-whatsapp" size={20} color="#ffffff" /></View>
+                  : <View style={styles.iconWrap}><SvgCalendar color="#f59e0b" /></View>}
                 <View style={styles.notificationCopy}>
                   <Text style={styles.notificationTitle} numberOfLines={2}>{translateText(item.title, t)}</Text>
-                  {item.message ? <Text style={styles.notificationDate}>{formatDate(item.message, locale) === item.message ? translateText(item.message, t) : formatDate(item.message, locale)}</Text> : null}
+                  {item.message ? (
+                    isChat
+                      // Chat preview: the message text itself, like a WhatsApp notification.
+                      ? <Text style={styles.chatPreview} numberOfLines={2}>{translateText(item.message, t)}</Text>
+                      : <Text style={styles.notificationDate}>{formatDate(item.message, locale) === item.message ? translateText(item.message, t) : formatDate(item.message, locale)}</Text>
+                  ) : null}
                   <Text style={styles.notificationTime}>{relativeTime(item.created_at || item.message, t)}</Text>
                 </View>
                 {unread ? <View style={styles.unreadDot} /> : null}
@@ -195,6 +203,8 @@ const styles = StyleSheet.create({
   card: { flexDirection: "row", alignItems: "flex-start", gap: 12, padding: 14, marginBottom: 10, backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line },
   cardUnread: { borderColor: UI.teal, backgroundColor: "#f7fbfe" },
   iconWrap: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#fff4e0", alignItems: "center", justifyContent: "center" },
+  chatIcon: { backgroundColor: "#25d366" },
+  chatPreview: { color: UI.sub, fontSize: 13, lineHeight: 18, marginTop: 2 },
   notificationCopy: { flex: 1 },
   notificationTitle: { color: UI.ink, fontSize: 14, lineHeight: 20, fontWeight: "700" },
   notificationDate: { color: UI.sub, fontSize: 13, lineHeight: 18, marginTop: 2 },
