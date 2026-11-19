@@ -293,3 +293,53 @@ export async function notifyLeadsDeleted(leads: { id: string; name: string }[]) 
     { type: "lead_deleted" },
   );
 }
+
+const ALERTED_IDS_KEY = "curvelead_alerted_notification_ids";
+const MAX_ALERTED_IDS = 300;
+const MAX_INDIVIDUAL_ALERTS = 3;
+
+/**
+ * Notifications created by the server (leads from WhatsApp/Google/Facebook, follow-up and SLA reminders...) only ring if the
+ * backend also sends a push. While the app is open this checks the list and shows the pop-up + sound for each new unread
+ * one. The first check only remembers what is already there, so an existing backlog doesn't all ring at once.
+ */
+export async function alertNewServerNotifications() {
+  const { data } = await apiClient.get<{ notifications?: AppNotification[] } | AppNotification[]>("/notifications");
+  const items = (Array.isArray(data) ? data : data.notifications || [])
+    .map((item) => normalizeNotification(item as Partial<AppNotification> & Record<string, unknown>))
+    .filter((item) => !item.read_at);
+
+  const raw = await AsyncStorage.getItem(ALERTED_IDS_KEY);
+  const firstRun = raw === null;
+  let seen: string[] = [];
+  try { seen = raw ? (JSON.parse(raw) as string[]) : []; } catch { seen = []; }
+  const seenSet = new Set(seen);
+  const fresh = items.filter((item) => !seenSet.has(item.id));
+  if (!fresh.length) {
+    if (firstRun) await AsyncStorage.setItem(ALERTED_IDS_KEY, "[]");
+    return;
+  }
+  await AsyncStorage.setItem(ALERTED_IDS_KEY, JSON.stringify([...seen, ...fresh.map((item) => item.id)].slice(-MAX_ALERTED_IDS)));
+  if (firstRun) return;
+
+  // A push that arrived while the app was open was already shown (and mirrored locally) - don't ring for it twice.
+  const local = await getLocalNotifications();
+  const SAME_EVENT_MS = 2 * 60_000;
+  const alreadyShown = (item: AppNotification) => local.some((other) => {
+    if (other.title !== item.title || (other.message ?? "") !== (item.message ?? "")) return false;
+    const x = new Date(item.created_at || "").getTime();
+    const y = new Date(other.created_at || "").getTime();
+    return Number.isNaN(x) || Number.isNaN(y) || Math.abs(x - y) <= SAME_EVENT_MS;
+  });
+  const toShow = newestFirst(fresh.filter((item) => !alreadyShown(item)));
+  if (!toShow.length) return;
+  if (toShow.length > MAX_INDIVIDUAL_ALERTS) {
+    await presentLocalNotification(`${toShow.length} new notifications`, toShow[0].title, { type: "summary" });
+    return;
+  }
+  for (const item of toShow) {
+    await presentLocalNotification(item.title, item.message, {
+      type: item.type, lead_id: item.lead_id, lead_name: item.lead_name, lead_phone: item.lead_phone, lead_stage: item.lead_stage,
+    });
+  }
+}
