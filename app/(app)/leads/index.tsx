@@ -314,7 +314,8 @@ export default function LeadsScreen() {
   const [total, setTotal] = useState(cached?.total ?? 0);
   const [page, setPage] = useState(1);
   const pageRef = useRef(1);
-  const [prefsReady, setPrefsReady] = useState(!!(hiddenStagesCache && hiddenStagesCache.userId === user?.id));
+  // The list loads straight away; if the hidden-stages preference arrives different, `load` changes and it reloads once.
+  const [prefsReady, setPrefsReady] = useState(true);
   const [pages, setPages] = useState(cached?.pages ?? 1);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -454,9 +455,6 @@ export default function LeadsScreen() {
   useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); }, []);
 
   useEffect(() => {
-    // The list waits for this so hidden stages never flash, but on a slow connection it must not hold the list back
-    // for the whole request timeout. After 3 seconds the list loads anyway and reloads if the preference arrives late.
-    const giveUp = setTimeout(() => setPrefsReady(true), 1200);
     fetchPreferences()
       .then((prefs) => {
         const stagesNow = prefs.hidden_lead_stages || [];
@@ -465,8 +463,7 @@ export default function LeadsScreen() {
         setHiddenStages((current) => current.length === stagesNow.length && current.every((s, i) => s === stagesNow[i]) ? current : stagesNow);
       })
       .catch(() => {})
-      .finally(() => { clearTimeout(giveUp); setPrefsReady(true); });
-    return () => clearTimeout(giveUp);
+      .finally(() => setPrefsReady(true));
   }, []);
 
   function toggleHiddenStage(stageName: string) {
