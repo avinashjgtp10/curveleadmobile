@@ -6,7 +6,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { unregisterPushToken } from "@/api/pushTokens";
 import { rateLimitRemainingMs } from "@/api/client";
-import { alertNewLeads, alertNewServerNotifications, saveIncomingPushNotification } from "@/api/notifications";
+import { alertNewLeads, alertNewServerNotifications, resetAlertBaseline, saveIncomingPushNotification } from "@/api/notifications";
 import { configureNotificationHandler, getNotificationPermission } from "./push";
 import { LAST_REGISTERED_TOKEN_KEY, getPushStatus, registerDevice } from "./pushStatus";
 import { navigateToNotification, NotificationRouteData } from "./navigateToNotification";
@@ -69,6 +69,7 @@ export function usePushNotifications(navigationReady: boolean) {
     if (isExpoGo || isLoading) return;
 
     if (!user) {
+      resetAlertBaseline().catch(() => {});
       // Logged out: best-effort unregister this device's token so the backend stops
       // sending pushes to a session that's no longer signed in, then forget it locally
       // regardless of whether the network call succeeded (don't get stuck retrying

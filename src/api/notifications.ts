@@ -406,3 +406,8 @@ export async function alertNewLeads() {
     });
   }
 }
+
+/** Signing out: the next person to sign in on this phone starts with a fresh "already announced" baseline. */
+export async function resetAlertBaseline() {
+  await Promise.all([ALERTED_IDS_KEY, SEEN_LEADS_KEY, BULK_ADDED_AT_KEY].map((key) => AsyncStorage.removeItem(key).catch(() => {})));
+}
