@@ -6,7 +6,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { unregisterPushToken } from "@/api/pushTokens";
 import { rateLimitRemainingMs } from "@/api/client";
-import { alertNewServerNotifications, saveIncomingPushNotification } from "@/api/notifications";
+import { alertNewLeads, alertNewServerNotifications, saveIncomingPushNotification } from "@/api/notifications";
 import { configureNotificationHandler, getNotificationPermission } from "./push";
 import { LAST_REGISTERED_TOKEN_KEY, getPushStatus, registerDevice } from "./pushStatus";
 import { navigateToNotification, NotificationRouteData } from "./navigateToNotification";
@@ -128,7 +128,8 @@ export function usePushNotifications(navigationReady: boolean) {
     const check = () => {
       if (running || AppState.currentState !== "active" || rateLimitRemainingMs()) return;
       running = true;
-      alertNewServerNotifications().catch(() => {}).finally(() => { running = false; });
+      // Leads first, so a "new lead" notification for a lead just announced isn't announced again.
+      alertNewLeads().catch(() => {}).then(() => alertNewServerNotifications()).catch(() => {}).finally(() => { running = false; });
     };
     const first = setTimeout(check, 6000);
     const timer = setInterval(check, 30000);
