@@ -34,6 +34,7 @@ const AVATAR_COLORS = ["#c8294a", "#d98a0b", "#2457e6", "#0f7b5f", "#7c3aed", "#
 // Two menu items (~44 each) plus padding.
 const POPOVER_HEIGHT = 96;
 let followupsCache: { userId: string; list: TodayFollowup[] } | null = null;
+const SHOW_STEP = 30; // cards rendered per section before "Show more"
 const DAYS_BEFORE_TODAY = 60;
 const DAYS_AFTER_TODAY = 90;
 // One request covers everything the screen groups: overdue (earlier days), today and what's coming up.
@@ -71,11 +72,13 @@ function whenLabel(value: string) {
   return `${date.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · ${date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true }).toUpperCase()}`;
 }
 
-function FollowupCard({ item, overdue, completing, onComplete, onPress, colorFor, findStage }: {
-  item: TodayFollowup; overdue: boolean; completing: boolean; onComplete: () => void; onPress: () => void;
+const FollowupCard = React.memo(function FollowupCard({ item, overdue, completing, onComplete: completeItem, onPress: openItem, colorFor, findStage }: {
+  item: TodayFollowup; overdue: boolean; completing: boolean; onComplete: (item: TodayFollowup) => void; onPress: (item: TodayFollowup) => void;
   colorFor: (stage?: string) => { bg: string; text: string };
   findStage: (name?: string) => { name: string } | undefined;
 }) {
+  const onComplete = () => completeItem(item);
+  const onPress = () => openItem(item);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ y: 0, right: 16 });
   const anchorRef = useRef<View>(null);
@@ -137,7 +140,7 @@ function FollowupCard({ item, overdue, completing, onComplete, onPress, colorFor
                 <Ionicons name="ellipsis-vertical" size={16} color={UI.sub} />
               </Pressable>
             </View>
-            <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMenuOpen(false)}>
+            {menuOpen ? <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMenuOpen(false)}>
               <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
                 <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
                   <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onPress)}>
@@ -150,13 +153,13 @@ function FollowupCard({ item, overdue, completing, onComplete, onPress, colorFor
                   </Pressable>
                 </View>
               </Pressable>
-            </Modal>
+            </Modal> : null}
           </View>
         )}
       </View>
     </Pressable>
   );
-}
+});
 
 export default function FollowupsScreen() {
   const { user } = useAuth();
@@ -178,6 +181,7 @@ export default function FollowupsScreen() {
   const [error, setError] = useState("");
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const [shown, setShown] = useState(SHOW_STEP);
   // Opened from a dashboard tile (Follow-ups, Overdue): start on that group.
   const { filter: startFilter, filterAt } = useLocalSearchParams<{ filter?: string; filterAt?: string }>();
   useEffect(() => {
@@ -286,7 +290,7 @@ export default function FollowupsScreen() {
     setSelectedDate(next < first ? first : next > last ? last : next);
   }
 
-  async function handleComplete(item: TodayFollowup) {
+  const handleComplete = useCallback(async (item: TodayFollowup) => {
     setCompletingId(item.id);
     try {
       await completeLeadFollowup(item.id);
@@ -295,7 +299,11 @@ export default function FollowupsScreen() {
       // An alert, not the screen-level error, so one failed tap doesn't replace the whole list.
       Alert.alert("Couldn't complete follow-up", errorMessage(completeError, "Could not update this follow-up."));
     } finally { setCompletingId(null); }
-  }
+  }, []);
+
+  const openLead = useCallback((item: TodayFollowup) => {
+    router.push({ pathname: "/(app)/leads/[id]", params: { id: item.lead_id, name: item.lead_name, phone: item.lead_phone, stage: item.lead_stage || "new" } });
+  }, []);
 
   function openAdd() {
     setLeadQuery(""); setLeadResults([]); setSelectedLead(null);
@@ -334,14 +342,19 @@ export default function FollowupsScreen() {
 
   // Grouping is by the phone's real "today": earlier days are overdue, the picked day is its own group,
   // and later days are upcoming.
-  const todayStart = startOfDay(new Date());
-  const byTime = (a: TodayFollowup, b: TodayFollowup) => new Date(a.next_followup_at).getTime() - new Date(b.next_followup_at).getTime();
-  const overdueList = followups.filter((item) => new Date(item.next_followup_at) < todayStart).sort(byTime);
-  const dayList = followups.filter((item) => isSameDay(new Date(item.next_followup_at), selectedDate)).sort(byTime);
-  const upcomingList = followups.filter((item) => {
-    const due = new Date(item.next_followup_at);
-    return due >= todayStart && !isSameDay(due, selectedDate) && due > selectedDate;
-  }).sort(byTime);
+  const { overdueList, dayList, upcomingList } = useMemo(() => {
+    const todayStart = startOfDay(new Date());
+    const byTime = (a: TodayFollowup, b: TodayFollowup) => new Date(a.next_followup_at).getTime() - new Date(b.next_followup_at).getTime();
+    return {
+      overdueList: followups.filter((item) => new Date(item.next_followup_at) < todayStart).sort(byTime),
+      dayList: followups.filter((item) => isSameDay(new Date(item.next_followup_at), selectedDate)).sort(byTime),
+      upcomingList: followups.filter((item) => {
+        const due = new Date(item.next_followup_at);
+        return due >= todayStart && !isSameDay(due, selectedDate) && due > selectedDate;
+      }).sort(byTime),
+    };
+  }, [followups, selectedDate]);
+  useEffect(() => { setShown(SHOW_STEP); }, [filter, selectedDate]);
   const selectedIsToday = isSameDay(selectedDate, new Date());
   const dayTitle = selectedIsToday ? "Today" : selectedDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
   const dayDateLabel = selectedDate.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
@@ -436,13 +449,17 @@ export default function FollowupsScreen() {
                 <View style={{ flex: 1 }} />
                 {section.right ? <Text style={styles.sectionRight}>{section.right}</Text> : null}
               </View>
-              {section.items.map((item) => (
+              {section.items.slice(0, shown).map((item) => (
                 <FollowupCard
                   key={item.id} item={item} overdue={section.overdue} completing={completingId === item.id}
-                  onComplete={() => handleComplete(item)} colorFor={colorFor} findStage={findStage}
-                  onPress={() => router.push({ pathname: "/(app)/leads/[id]", params: { id: item.lead_id, name: item.lead_name, phone: item.lead_phone, stage: item.lead_stage || "new" } })}
+                  onComplete={handleComplete} colorFor={colorFor} findStage={findStage} onPress={openLead}
                 />
               ))}
+              {section.items.length > shown ? (
+                <Pressable style={styles.showMore} onPress={() => setShown((n) => n + SHOW_STEP)} accessibilityRole="button">
+                  <Text style={styles.showMoreText}>Show more ({section.items.length - shown})</Text>
+                </Pressable>
+              ) : null}
             </View>
           ))
         ) : (
@@ -555,6 +572,8 @@ const styles = StyleSheet.create({
   dayNumberTextActive: { color: "#ffffff" },
 
   chipScroll: { flexGrow: 0 },
+  showMore: { alignSelf: "center", paddingVertical: 10, paddingHorizontal: 18 },
+  showMoreText: { color: UI.green, fontWeight: "600" },
   chipRow: { gap: 8, paddingHorizontal: 16, paddingBottom: 12, alignItems: "center" },
   chip: { flexDirection: "row", alignItems: "center", gap: 6, height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
   chipActive: { backgroundColor: UI.green, borderColor: UI.green },
