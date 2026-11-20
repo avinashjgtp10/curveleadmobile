@@ -13,7 +13,7 @@ import { colors } from "@/theme";
 import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboard";
 import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads } from "@/api/integrations";
-import { fetchNotifications, notifyLeadsAdded } from "@/api/notifications";
+import { fetchNotifications, notifyLeadsAdded, setShownNotifications } from "@/api/notifications";
 import { fetchByStaff, StaffPerformance } from "@/api/reports";
 import { rateLimitRemainingMs } from "@/api/client";
 import { APP_TOOLS, TOOL_TONES } from "@/navigation/appTools";
@@ -348,6 +348,7 @@ function sourceBarColor(source: string) {
 }
 
 const LEAD_SOURCES_TTL_MS = 5 * 60_000;
+const LEAD_SOURCES_STORAGE_KEY = "curvelead_lead_sources";
 // The last dashboard that loaded (default period), so Home opens with numbers on screen instead of a spinner.
 let dashboardCache: { userId: string; data: DashboardSummary; followups: TodayFollowup[] } | null = null;
 let leadSourcesCache: { at: number; rows: LeadSourceRow[] } | null = null;
@@ -407,8 +408,23 @@ export default function DashboardScreen() {
     // Reuse the last result for a few minutes: this is a 500-lead download and every Home visit was repeating it.
     if (leadSourcesCache && Date.now() - leadSourcesCache.at < LEAD_SOURCES_TTL_MS) return;
     let cancelled = false;
+    // After an app restart the in-memory copy is gone: use the copy saved on the phone, and skip the download if it is recent.
+    const storageKey = `${LEAD_SOURCES_STORAGE_KEY}:${user?.id ?? ""}`;
+    const restored = !leadSourcesCache
+      ? AsyncStorage.getItem(storageKey).then((raw) => {
+        if (!raw || cancelled) return false;
+        const saved = JSON.parse(raw) as { at: number; rows: LeadSourceRow[] };
+        if (!saved || !Array.isArray(saved.rows)) return false;
+        leadSourcesCache = { at: saved.at, rows: saved.rows };
+        setLeadSources(saved.rows);
+        return Date.now() - saved.at < LEAD_SOURCES_TTL_MS;
+      }).catch(() => false)
+      : Promise.resolve(false);
     // A short delay lets the dashboard paint first (InteractionManager is deprecated).
-    const task = setTimeout(() => {
+    let task: ReturnType<typeof setTimeout> | undefined;
+    restored.then((fresh) => {
+      if (fresh || cancelled) return;
+      task = setTimeout(() => {
       fetchLeads({ limit: 500 }).then((page) => {
         if (cancelled) return;
         const bySource = new Map<string, { leads: number; won: number }>();
@@ -424,10 +440,12 @@ export default function DashboardScreen() {
           .sort((a, b) => b.leads - a.leads);
         leadSourcesCache = { at: Date.now(), rows };
         setLeadSources(rows);
+        AsyncStorage.setItem(storageKey, JSON.stringify(leadSourcesCache)).catch(() => {});
       }).catch(() => { /* keep the last breakdown on a failed refresh */ });
-    }, 300);
-    return () => { cancelled = true; clearTimeout(task); };
-  }, [dashboardReady, sourcesVersion]);
+      }, 300);
+    });
+    return () => { cancelled = true; if (task) clearTimeout(task); };
+  }, [dashboardReady, sourcesVersion, user?.id]);
 
   const [team, setTeam] = useState<StaffPerformance[] | null>(null);
   useEffect(() => {
@@ -458,7 +476,7 @@ export default function DashboardScreen() {
       if (refresh) {
         setSourcesVersion((version) => version + 1);
         fetchNotifications()
-          .then((latestNotifications) => setNotificationCount(latestNotifications.filter((item) => !item.read_at).length))
+          .then((latestNotifications) => { setShownNotifications(latestNotifications); setNotificationCount(latestNotifications.filter((item) => !item.read_at).length); })
           .catch(() => {});
       }
     } catch (loadError) {
@@ -493,7 +511,7 @@ export default function DashboardScreen() {
     let cancelled = false;
     fetchNotifications()
       .then((latestNotifications) => {
-        if (!cancelled) setNotificationCount(latestNotifications.filter((item) => !item.read_at).length);
+        if (!cancelled) { setShownNotifications(latestNotifications); setNotificationCount(latestNotifications.filter((item) => !item.read_at).length); }
       })
       .catch(() => {});
     return () => { cancelled = true; };

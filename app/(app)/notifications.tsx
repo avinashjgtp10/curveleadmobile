@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { ActivityIndicator, Button } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -61,6 +61,31 @@ function openNotification(item: AppNotification) {
   if (item.type?.startsWith("lead") || /lead/i.test(item.title)) router.push("/(app)/leads");
 }
 
+const NotificationCard = React.memo(function NotificationCard({ item, locale, t, onPress }: {
+  item: AppNotification; locale: string; t: Translate; onPress: (item: AppNotification) => void;
+}) {
+  const unread = !item.read_at;
+  const isChat = isMessageNotification(item.type);
+  return (
+    <Pressable style={[styles.card, unread && styles.cardUnread]} onPress={() => onPress(item)}>
+      {isChat
+        ? <View style={[styles.iconWrap, styles.chatIcon]}><Ionicons name="logo-whatsapp" size={20} color="#ffffff" /></View>
+        : <View style={styles.iconWrap}><SvgCalendar color="#f59e0b" /></View>}
+      <View style={styles.notificationCopy}>
+        <Text style={styles.notificationTitle} numberOfLines={2}>{translateText(item.title, t)}</Text>
+        {item.message ? (
+          isChat
+            // Chat preview: the message text itself, like a WhatsApp notification.
+            ? <Text style={styles.chatPreview} numberOfLines={2}>{translateText(item.message, t)}</Text>
+            : <Text style={styles.notificationDate}>{formatDate(item.message, locale) === item.message ? translateText(item.message, t) : formatDate(item.message, locale)}</Text>
+        ) : null}
+        <Text style={styles.notificationTime}>{relativeTime(item.created_at || item.message, t)}</Text>
+      </View>
+      {unread ? <View style={styles.unreadDot} /> : null}
+    </Pressable>
+  );
+});
+
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const { t, language } = useT();
@@ -98,7 +123,8 @@ export default function NotificationsScreen() {
   // or leads added since then (and new pushes) never show up.
   const firstFocus = useRef(true);
   useFocusEffect(useCallback(() => {
-    load(!firstFocus.current);
+    // Quiet reload (no pull-to-refresh spinner): the list already on screen stays until the new one arrives.
+    load(false);
     firstFocus.current = false;
   }, [load]));
 
@@ -113,13 +139,13 @@ export default function NotificationsScreen() {
     }
   }
 
-  async function handlePress(item: AppNotification) {
+  const handlePress = useCallback((item: AppNotification) => {
     if (!item.read_at) {
       setItems((current) => current.map((currentItem) => currentItem.id === item.id ? { ...currentItem, read_at: new Date().toISOString() } : currentItem));
       markNotificationRead(item.id).catch(() => {});
     }
     openNotification(item);
-  }
+  }, []);
 
   return (
     <View style={styles.screen}>
@@ -145,49 +171,31 @@ export default function NotificationsScreen() {
           <Button mode="contained" onPress={() => load()} style={styles.retry} buttonColor={UI.teal}>{t("Try again")}</Button>
         </View>
       ) : (
-        <ScrollView
+        <FlatList
+          data={items}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <NotificationCard item={item} locale={locale} t={t} onPress={handlePress} />}
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={UI.teal} colors={[UI.teal]} />}
           showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.topRow}>
-            <Text style={styles.subtitle}>{unreadCount ? t("{n} unread", { n: unreadCount }) : t("You're all caught up")}</Text>
-            <Pressable style={styles.markReadButton} onPress={handleMarkAllRead} disabled={!unreadCount}>
-              <Ionicons name="checkmark-done" size={15} color={unreadCount ? UI.teal : UI.muted} />
-              <Text style={[styles.markReadText, !unreadCount && styles.disabledText]}>{t("Mark all read")}</Text>
-            </Pressable>
-          </View>
-
-          {items.map((item) => {
-            const unread = !item.read_at;
-            const isChat = isMessageNotification(item.type);
-            return (
-              <Pressable key={item.id} style={[styles.card, unread && styles.cardUnread]} onPress={() => handlePress(item)}>
-                {isChat
-                  ? <View style={[styles.iconWrap, styles.chatIcon]}><Ionicons name="logo-whatsapp" size={20} color="#ffffff" /></View>
-                  : <View style={styles.iconWrap}><SvgCalendar color="#f59e0b" /></View>}
-                <View style={styles.notificationCopy}>
-                  <Text style={styles.notificationTitle} numberOfLines={2}>{translateText(item.title, t)}</Text>
-                  {item.message ? (
-                    isChat
-                      // Chat preview: the message text itself, like a WhatsApp notification.
-                      ? <Text style={styles.chatPreview} numberOfLines={2}>{translateText(item.message, t)}</Text>
-                      : <Text style={styles.notificationDate}>{formatDate(item.message, locale) === item.message ? translateText(item.message, t) : formatDate(item.message, locale)}</Text>
-                  ) : null}
-                  <Text style={styles.notificationTime}>{relativeTime(item.created_at || item.message, t)}</Text>
-                </View>
-                {unread ? <View style={styles.unreadDot} /> : null}
+          initialNumToRender={10} maxToRenderPerBatch={8} windowSize={7} removeClippedSubviews
+          ListHeaderComponent={(
+            <View style={styles.topRow}>
+              <Text style={styles.subtitle}>{unreadCount ? t("{n} unread", { n: unreadCount }) : t("You're all caught up")}</Text>
+              <Pressable style={styles.markReadButton} onPress={handleMarkAllRead} disabled={!unreadCount}>
+                <Ionicons name="checkmark-done" size={15} color={unreadCount ? UI.teal : UI.muted} />
+                <Text style={[styles.markReadText, !unreadCount && styles.disabledText]}>{t("Mark all read")}</Text>
               </Pressable>
-            );
-          })}
-          {!items.length ? (
+            </View>
+          )}
+          ListEmptyComponent={(
             <View style={styles.emptyState}>
               <Ionicons name="notifications-outline" size={34} color={UI.muted} />
               <Text style={styles.stateTitle}>{t("No notifications yet")}</Text>
               <Text style={styles.stateText}>{t("Follow-up reminders and lead updates will appear here.")}</Text>
             </View>
-          ) : null}
-        </ScrollView>
+          )}
+        />
       )}
     </View>
   );

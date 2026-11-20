@@ -148,11 +148,12 @@ function EditableField({ icon, label, value, required, multiline, keyboardType, 
     if (required && !trimmed) { setError("This field is required."); return; }
     const validationError = validate?.(trimmed);
     if (validationError) { setError(validationError); return; }
-    setSaving(true); setError("");
+    // Close at once (the parent already shows the new value); reopen with the error if the server refuses.
+    setError(""); setEditing(false); setSaving(true);
     try {
       await onSave(trimmed);
-      setEditing(false);
     } catch (saveError) {
+      setDraft(trimmed); setEditing(true);
       setError(errorMessage(saveError, "Could not save. Please try again."));
     } finally { setSaving(false); }
   }
@@ -357,8 +358,16 @@ export default function LeadDetailScreen() {
   async function saveField(field: keyof UpdateLeadInput, value: string) {
     if (!lead) return;
     const payload = (field === "deal_value" ? { deal_value: value ? Number(value.replace(/[^\d.]/g, "")) : 0 } : { [field]: value }) as UpdateLeadInput;
-    const updated = await updateLeadDetails(lead.id, payload);
-    setLead((current) => current ? { ...current, ...updated } : updated);
+    const previous = lead;
+    setLead((current) => current ? { ...current, ...payload } as LeadDetails : current);
+    try {
+      const updated = await updateLeadDetails(lead.id, payload);
+      setLead((current) => current ? { ...current, ...updated } : updated);
+      detailCache.delete(lead.id);
+    } catch (saveError) {
+      setLead(previous);
+      throw saveError;
+    }
   }
 
   async function openAssignSheet() {
@@ -373,13 +382,15 @@ export default function LeadDetailScreen() {
   async function assignTo(member: StaffMember | null) {
     if (!lead || assigning) return;
     if ((member?.id || null) === (lead.assigned_to || null)) { setAssignSheetOpen(false); return; }
+    const previous = lead;
+    setLead({ ...lead, assigned_to: member?.id, assigned_to_name: member?.name });
+    setAssignSheetOpen(false);
     setAssigning(true);
     try {
       await updateLeadDetails(lead.id, { assigned_to: member ? member.id : null });
-      setLead((current) => current ? { ...current, assigned_to: member?.id, assigned_to_name: member?.name } : current);
-      setAssignSheetOpen(false);
-      load(true);
+      load();
     } catch (assignError) {
+      setLead(previous);
       Alert.alert("Couldn't assign lead", errorMessage(assignError, "You may not have permission to do this."));
     } finally { setAssigning(false); }
   }
@@ -397,12 +408,17 @@ export default function LeadDetailScreen() {
 
   async function applyStageChange(newStage: string, reason?: string) {
     if (!lead) return;
+    // Apply instantly and close the sheet; roll back if the server refuses.
+    const previous = lead;
+    setLead({ ...lead, stage: newStage, lead_status: "" });
+    setStageSheetOpen(false); setLostReasonStep(false);
     setUpdatingStage(true);
     try {
       const updated = await updateLeadStage(lead.id, newStage, reason);
       setLead((current) => current ? { ...current, ...updated, lead_status: "" } : updated);
-      setStageSheetOpen(false); setLostReasonStep(false);
+      load();
     } catch (stageError) {
+      setLead(previous);
       Alert.alert("Couldn't update stage", errorMessage(stageError, "Please try again."));
     } finally { setUpdatingStage(false); }
   }
@@ -427,12 +443,17 @@ export default function LeadDetailScreen() {
 
   async function changeStatus(status: string) {
     if (!lead) return;
+    // Apply instantly and close the sheet; roll back if the server refuses.
+    const previous = lead;
+    setLead({ ...lead, lead_status: status });
+    setStatusSheetOpen(false);
     setUpdatingStatus(true);
     try {
       const updated = await updateLeadStatus(lead.id, status);
       setLead((current) => current ? { ...current, ...updated } : updated);
-      setStatusSheetOpen(false);
+      load();
     } catch (statusError) {
+      setLead(previous);
       Alert.alert("Couldn't update status", errorMessage(statusError, "Please try again."));
     } finally { setUpdatingStatus(false); }
   }
@@ -597,7 +618,7 @@ export default function LeadDetailScreen() {
               );
             })()}
 
-            <LeadNotes leadId={lead.id} refreshSignal={notesSignal} onAdded={() => load(true)} onFormOpen={revealInScroll} />
+            <LeadNotes leadId={lead.id} refreshSignal={notesSignal} onAdded={() => load()} onFormOpen={revealInScroll} />
 
             <View style={styles.card}>
               <View style={styles.cardHeaderSplit}>
@@ -912,7 +933,7 @@ export default function LeadDetailScreen() {
         leadId={lead.id}
         leadName={lead.name}
         onClose={() => setActivitySheet(null)}
-        onSaved={(type) => { if (type === "note") setNotesSignal((value) => value + 1); load(true); }}
+        onSaved={(type) => { if (type === "note") setNotesSignal((value) => value + 1); load(); }}
       />
     </View>
   );

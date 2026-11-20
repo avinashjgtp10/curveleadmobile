@@ -52,22 +52,23 @@ export function useStages() {
     load();
   }, [load]);
 
-  function findStage(name?: string): LeadStage | undefined {
+  // Stable between renders (they only change when the stage list does), so memoized rows and effects that depend on
+  // them don't redraw every time the screen re-renders.
+  const findStage = useCallback((name?: string): LeadStage | undefined => {
     if (!name) return undefined;
-    return stages.find((stage) => stage.name.toLowerCase() === name.toLowerCase());
-  }
+    const lower = name.toLowerCase();
+    return stages.find((stage) => stage.name.toLowerCase() === lower);
+  }, [stages]);
 
-  function colorFor(stageName?: string) {
-    return colorForWord(findStage(stageName)?.color);
-  }
+  const colorFor = useCallback((stageName?: string) => colorForWord(findStage(stageName)?.color), [findStage]);
 
-  function statusesFor(stageName?: string): LeadStatus[] {
+  const statusesFor = useCallback((stageName?: string): LeadStatus[] => {
     const stage = findStage(stageName);
     if (stage?.statuses.length) return stage.statuses;
     // Fall back to every configured status when the current stage has none of its own —
     // mirrors the web app's behaviour (LeadDetailPage.jsx: `stageStatuses[...] || allStatuses`).
     return stages.flatMap((item) => item.statuses);
-  }
+  }, [stages, findStage]);
 
   return { stages, loading, error, reload: load, colorFor, statusesFor, findStage };
 }

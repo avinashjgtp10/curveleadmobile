@@ -29,7 +29,7 @@ import { fetchPreferences, updatePreferences } from "@/api/preferences";
 import { notifyLeadsDeleted } from "@/api/notifications";
 import { FilterDateField, formatYmd, toYmd } from "@/components/FilterDateField";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 10;
 // The unfiltered first page from the last visit, so the list opens with leads on screen instead of a spinner.
 // Hidden stages remembered for this session, so reopening the list doesn't wait on the preferences request first.
 let hiddenStagesCache: { userId: string; stages: string[] } | null = null;
@@ -729,10 +729,14 @@ export default function LeadsScreen() {
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} colors={[colors.primary]} />}
-          onEndReached={() => { if (!loadingMore && page < pages) load(page + 1, true); }} onEndReachedThreshold={1.5}
+          onEndReached={() => { if (!loadingMore && page < pages) load(page + 1, true); }} onEndReachedThreshold={0.2}
           // Rows are heavy (avatar, badges, two buttons), so draw a screenful first and a few at a time after that.
           initialNumToRender={10} maxToRenderPerBatch={8} updateCellsBatchingPeriod={40} windowSize={9} removeClippedSubviews
-          ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={styles.footerLoader} /> : leads.length ? <Text style={styles.endText}>{page >= pages ? t("All {n} leads loaded", { n: total }) : ""}</Text> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={styles.footerLoader} /> : leads.length ? (
+            page < pages
+              ? <Pressable style={styles.loadMoreButton} onPress={() => load(page + 1, true)}><Text style={styles.loadMoreText}>{t("Load more")} ({leads.length}/{total})</Text></Pressable>
+              : <Text style={styles.endText}>{t("All {n} leads loaded", { n: total })}</Text>
+          ) : null}
           ListEmptyComponent={
             <View style={styles.empty}>
               <View style={styles.emptyIcon}><Ionicons name="people-outline" size={26} color={colors.primary} /></View>
@@ -979,6 +983,8 @@ const styles = StyleSheet.create({
   selectHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16, minHeight: 52 },
   selectCount: { color: colors.text, fontSize: 14, fontWeight: "800" },
   searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  loadMoreButton: { alignSelf: "center", marginVertical: 14, paddingHorizontal: 22, height: 40, borderRadius: 999, backgroundColor: "#dbe8fb", alignItems: "center", justifyContent: "center" },
+  loadMoreText: { color: "#2457e6", fontSize: 13, fontWeight: "800" },
   searchBox: { flex: 1, height: 44, backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1, borderColor: "#e4e9e6", elevation: 0, shadowOpacity: 0 },
   filterButton: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e4e9e6", alignItems: "center", justifyContent: "center" },
   filterButtonActive: { backgroundColor: "#2457e6", borderColor: "#2457e6" },
