@@ -151,6 +151,22 @@ export async function getNotificationPermission(): Promise<NotificationPermissio
   }
 }
 
+/** Whether this phone will show the pop-up banner and play the sound for alerts (iOS reports each one separately). */
+export async function getAlertAbilities(): Promise<{ popup: boolean; sound: boolean }> {
+  if (isExpoGo || Platform.OS === "web") return { popup: false, sound: false };
+  try {
+    const result = await loadNotifications().getPermissionsAsync();
+    if (result.status !== "granted") return { popup: false, sound: false };
+    const ios = (result as { ios?: { allowsAlert?: boolean | null; allowsSound?: boolean | null } }).ios;
+    // Android has one switch (granted); iOS can allow banners and sound independently.
+    return Platform.OS === "ios" && ios
+      ? { popup: ios.allowsAlert !== false, sound: ios.allowsSound !== false }
+      : { popup: true, sound: true };
+  } catch {
+    return { popup: false, sound: false };
+  }
+}
+
 /** Asks for permission (the OS only shows its prompt while undecided) and makes sure the Android channels exist. */
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
   if (isExpoGo || Platform.OS === "web") return "unsupported";
