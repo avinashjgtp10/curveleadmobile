@@ -215,6 +215,93 @@ function EmptyState({ icon, title, text }: { icon: IconName; title: string; text
   );
 }
 
+type FollowupValues = { type: FollowupType; at: Date; notes: string; meetingUrl: string };
+
+// The follow-up form keeps what is being typed in its own state, so each keystroke redraws only this sheet and not the whole
+// lead page behind it.
+function FollowupSheet({ visible, initial, saving, bottomInset, onClose, onSubmit }: {
+  visible: boolean; initial: FollowupValues | null; saving: boolean; bottomInset: number;
+  onClose: () => void; onSubmit: (values: FollowupValues) => void;
+}) {
+  const [type, setType] = useState<FollowupType>("call");
+  const [at, setAt] = useState(defaultFollowupDate());
+  const [notes, setNotes] = useState("");
+  const [meetingUrl, setMeetingUrl] = useState("");
+  const [typePickerOpen, setTypePickerOpen] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Every open starts fresh, or with the values of a save that just failed.
+  useEffect(() => {
+    if (!visible) return;
+    setType(initial?.type ?? "call"); setAt(initial?.at ?? defaultFollowupDate());
+    setNotes(initial?.notes ?? ""); setMeetingUrl(initial?.meetingUrl ?? ""); setTypePickerOpen(false);
+  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (event) => setKeyboardHeight(event.endCoordinates.height));
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+
+  function submit() {
+    if (at.getTime() < Date.now() - 60000) {
+      Alert.alert("Choose a future time", "The follow-up date and time must be in the future.");
+      return;
+    }
+    onSubmit({ type, at, notes, meetingUrl });
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !saving && onClose()}>
+      <Pressable style={styles.sheetBackdrop} onPress={() => { Keyboard.dismiss(); if (!saving) onClose(); }}>
+        <Pressable style={[styles.sheet, { paddingBottom: bottomInset + keyboardHeight }]} onPress={() => {}}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>Schedule Follow-up</Text>
+          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1 }}>
+            <Text style={styles.fieldLabel}>Date &amp; Time<Text style={styles.required}> *</Text></Text>
+            <DateTimeField value={at} onChange={setAt} minimumDate={new Date()} />
+
+            <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Type</Text>
+            <Pressable style={[styles.selectField, typePickerOpen && { borderColor: UI.blue }]} onPress={() => { Keyboard.dismiss(); setTypePickerOpen((open) => !open); }} accessibilityRole="button" accessibilityLabel="Follow-up type" accessibilityState={{ expanded: typePickerOpen }}>
+              <Text style={styles.selectText}>{FOLLOWUP_TYPES.find((item) => item.key === type)?.label}</Text>
+              <Ionicons name={typePickerOpen ? "chevron-up" : "chevron-down"} size={16} color={UI.sub} />
+            </Pressable>
+            {typePickerOpen ? (
+              <View style={styles.dropdownList}>
+                {FOLLOWUP_TYPES.map((item, index) => {
+                  const selected = item.key === type;
+                  return (
+                    <Pressable key={item.key} style={[styles.dropdownItem, index > 0 && styles.dropdownItemDivider, selected && styles.pickerItemSelected]} onPress={() => { setType(item.key); setTypePickerOpen(false); }} accessibilityRole="menuitem">
+                      <Text style={[styles.pickerItemText, selected && { color: UI.blue, fontWeight: "800" }]}>{item.label}</Text>
+                      {selected ? <Ionicons name="checkmark" size={16} color={UI.blue} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            {type === "demo" ? (
+              <>
+                <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Meeting link (optional)</Text>
+                <RNTextInput style={styles.textField} value={meetingUrl} onChangeText={setMeetingUrl} placeholder="https://meet.google.com/…" placeholderTextColor={UI.muted} autoCapitalize="none" keyboardType="url" />
+              </>
+            ) : null}
+
+            <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Notes (optional)</Text>
+            <RNTextInput style={styles.textField} value={notes} onChangeText={setNotes} placeholder="e.g. Discuss pricing" placeholderTextColor={UI.muted} />
+          </ScrollView>
+
+          <Pressable style={[styles.primaryButton, saving && { opacity: 0.7 }]} onPress={submit} disabled={saving} accessibilityRole="button">
+            {saving ? <ActivityIndicator size="small" color="#fff" /> : null}
+            <Text style={styles.primaryButtonText}>Schedule Follow-up</Text>
+          </Pressable>
+          <Button mode="outlined" onPress={onClose} disabled={saving} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 // Details already opened this session, so reopening a lead shows it at once while a fresh copy loads.
 const detailCache = new Map<string, Awaited<ReturnType<typeof fetchLeadDetails>>>();
 
@@ -273,11 +360,8 @@ export default function LeadDetailScreen() {
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
   const [followupSheetOpen, setFollowupSheetOpen] = useState(false);
-  const [typePickerOpen, setTypePickerOpen] = useState(false);
-  const [followupType, setFollowupType] = useState<FollowupType>("call");
-  const [followupAt, setFollowupAt] = useState(defaultFollowupDate());
-  const [followupNotes, setFollowupNotes] = useState("");
-  const [followupMeetingUrl, setFollowupMeetingUrl] = useState("");
+  // What was typed in the follow-up form when a save failed, so the form can come back with it.
+  const [followupInitial, setFollowupInitial] = useState<FollowupValues | null>(null);
   const [schedulingFollowup, setSchedulingFollowup] = useState(false);
   const [emailSheetOpen, setEmailSheetOpen] = useState(false);
   const [emailDraft, setEmailDraft] = useState("");
@@ -307,6 +391,9 @@ export default function LeadDetailScreen() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+  // Stable callbacks, so the memoized notes and documents sections don't redraw whenever this screen does.
+  const reloadQuietly = useCallback(() => { load(); }, [load]);
+  const reloadWithSpinner = useCallback(() => { load(true); }, [load]);
 
   function openUrl(url: string, fallback: string) {
     Linking.openURL(url).catch(() => Alert.alert("Unable to open", fallback));
@@ -466,28 +553,28 @@ export default function LeadDetailScreen() {
     } finally { setUpdatingStatus(false); }
   }
 
-  async function scheduleFollowup() {
+  async function scheduleFollowup(values: FollowupValues) {
     if (!lead) return;
-    if (followupAt.getTime() < Date.now() - 60000) {
-      Alert.alert("Choose a future time", "The follow-up date and time must be in the future.");
-      return;
-    }
+    // Close the sheet at once; the server saves in the background and the sheet comes back if it refuses.
+    const typeLabel = FOLLOWUP_TYPES.find((item) => item.key === values.type)?.label || "Follow-up";
+    const message = `${typeLabel} on ${dateTime(values.at.toISOString())}.`;
     setSchedulingFollowup(true);
+    setFollowupSheetOpen(false);
     try {
       const created = await createLeadFollowup(lead.id, {
-        followup_type: followupType,
-        next_followup_at: followupAt.toISOString(),
-        notes: followupNotes.trim() || undefined,
-        meeting_url: followupType === "demo" ? followupMeetingUrl.trim() || undefined : undefined,
+        followup_type: values.type,
+        next_followup_at: values.at.toISOString(),
+        notes: values.notes.trim() || undefined,
+        meeting_url: values.type === "demo" ? values.meetingUrl.trim() || undefined : undefined,
       });
       setFollowups((current) => [created, ...current.map((item) => ({ ...item, is_completed: true }))]);
-      const message = `${FOLLOWUP_TYPES.find((item) => item.key === followupType)?.label || "Follow-up"} on ${dateTime(followupAt.toISOString())}.`;
-      setFollowupNotes(""); setFollowupMeetingUrl(""); setFollowupAt(defaultFollowupDate());
-      setFollowupSheetOpen(false); setTypePickerOpen(false);
-      // Android drops an Alert fired while the sheet is still closing.
-      setTimeout(() => Alert.alert("Follow-up scheduled", message), 350);
+      setFollowupInitial(null);
+      setTimeout(() => Alert.alert("Follow-up scheduled", message), 100);
+      load();
     } catch (followupError) {
-      Alert.alert("Couldn't schedule follow-up", errorMessage(followupError, "Please try again."));
+      setFollowupInitial(values);
+      setFollowupSheetOpen(true);
+      setTimeout(() => Alert.alert("Couldn't schedule follow-up", errorMessage(followupError, "Please try again.")), 100);
     } finally { setSchedulingFollowup(false); }
   }
 
@@ -613,7 +700,7 @@ export default function LeadDetailScreen() {
               return (
                 <Pressable
                   style={[styles.followupBanner, { borderColor: overdue ? "#f4b4b4" : "#bcd0f5", backgroundColor: overdue ? "#fff0f0" : "#f3f7ff" }]}
-                  onPress={() => { Keyboard.dismiss(); setTypePickerOpen(false); setFollowupSheetOpen(true); }}
+                  onPress={() => { Keyboard.dismiss(); setFollowupInitial(null); setFollowupSheetOpen(true); }}
                   accessibilityRole="button" accessibilityLabel="Schedule a follow-up" accessibilityHint="Opens the follow-up form"
                 >
                   <Ionicons name={overdue ? "alert-circle-outline" : "calendar-outline"} size={24} color={tone} />
@@ -626,7 +713,7 @@ export default function LeadDetailScreen() {
               );
             })()}
 
-            <LeadNotes leadId={lead.id} refreshSignal={notesSignal} onAdded={() => load()} onFormOpen={revealInScroll} />
+            <LeadNotes leadId={lead.id} refreshSignal={notesSignal} onAdded={reloadQuietly} onFormOpen={revealInScroll} />
 
             <View style={styles.card}>
               <View style={styles.cardHeaderSplit}>
@@ -679,7 +766,7 @@ export default function LeadDetailScreen() {
               </FieldGroup>
             </View>
 
-            <LeadDocuments pickSignal={attachSignal} leadId={lead.id} onChanged={() => load(true)} />
+            <LeadDocuments pickSignal={attachSignal} leadId={lead.id} onChanged={reloadWithSpinner} />
           </View>
         ) : tab === "details" ? (
           <View style={styles.body}>
@@ -844,54 +931,7 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={followupSheetOpen} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !schedulingFollowup && setFollowupSheetOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => { Keyboard.dismiss(); if (!schedulingFollowup) setFollowupSheetOpen(false); }}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) + keyboardHeight }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Schedule Follow-up</Text>
-            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1 }}>
-              <Text style={styles.fieldLabel}>Date &amp; Time<Text style={styles.required}> *</Text></Text>
-              <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
-
-              <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Type</Text>
-              <Pressable style={[styles.selectField, typePickerOpen && { borderColor: UI.blue }]} onPress={() => { Keyboard.dismiss(); setTypePickerOpen((open) => !open); }} accessibilityRole="button" accessibilityLabel="Follow-up type" accessibilityState={{ expanded: typePickerOpen }}>
-                <Text style={styles.selectText}>{FOLLOWUP_TYPES.find((item) => item.key === followupType)?.label}</Text>
-                <Ionicons name={typePickerOpen ? "chevron-up" : "chevron-down"} size={16} color={UI.sub} />
-              </Pressable>
-              {typePickerOpen ? (
-                <View style={styles.dropdownList}>
-                  {FOLLOWUP_TYPES.map((item, index) => {
-                    const selected = item.key === followupType;
-                    return (
-                      <Pressable key={item.key} style={[styles.dropdownItem, index > 0 && styles.dropdownItemDivider, selected && styles.pickerItemSelected]} onPress={() => { setFollowupType(item.key); setTypePickerOpen(false); }} accessibilityRole="menuitem">
-                        <Text style={[styles.pickerItemText, selected && { color: UI.blue, fontWeight: "800" }]}>{item.label}</Text>
-                        {selected ? <Ionicons name="checkmark" size={16} color={UI.blue} /> : null}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
-
-              {followupType === "demo" ? (
-                <>
-                  <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Meeting link (optional)</Text>
-                  <RNTextInput style={styles.textField} value={followupMeetingUrl} onChangeText={setFollowupMeetingUrl} placeholder="https://meet.google.com/…" placeholderTextColor={UI.muted} autoCapitalize="none" keyboardType="url" />
-                </>
-              ) : null}
-
-              <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Notes (optional)</Text>
-              <RNTextInput style={styles.textField} value={followupNotes} onChangeText={setFollowupNotes} placeholder="e.g. Discuss pricing" placeholderTextColor={UI.muted} />
-            </ScrollView>
-
-            <Pressable style={[styles.primaryButton, schedulingFollowup && { opacity: 0.7 }]} onPress={scheduleFollowup} disabled={schedulingFollowup} accessibilityRole="button">
-              {schedulingFollowup ? <ActivityIndicator size="small" color="#fff" /> : null}
-              <Text style={styles.primaryButtonText}>Schedule Follow-up</Text>
-            </Pressable>
-            <Button mode="outlined" onPress={() => setFollowupSheetOpen(false)} disabled={schedulingFollowup} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
-          </Pressable>
-        </Pressable>
-
-      </Modal>
+      <FollowupSheet visible={followupSheetOpen} initial={followupInitial} saving={schedulingFollowup} bottomInset={Math.max(insets.bottom, 18)} onClose={() => setFollowupSheetOpen(false)} onSubmit={scheduleFollowup} />
 
       <Modal visible={fabOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setFabOpen(false)}>
         <Pressable style={styles.dialBackdrop} onPress={() => setFabOpen(false)}>

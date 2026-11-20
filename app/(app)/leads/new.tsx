@@ -174,11 +174,12 @@ export default function NewLeadScreen() {
         ...(form.notes.trim() && { notes: form.notes.trim() }),
         ...(assignedTo && { assigned_to: assignedTo.id }),
       });
-      let followupFailed = false;
+      // The lead exists now, so open its page straight away; the follow-up (a second request) is saved in the background.
       if (scheduleFollowup) {
-        try {
-          await createLeadFollowup(lead.id, { followup_type: "call", next_followup_at: followupAt.toISOString() });
-        } catch { followupFailed = true; /* the lead exists, so navigation isn't blocked; the person is told below */ }
+        createLeadFollowup(lead.id, { followup_type: "call", next_followup_at: followupAt.toISOString() }).catch(() => {
+          // Say so instead of letting the person believe the follow-up exists; they can add it from the lead's page.
+          Alert.alert("Lead created, follow-up not saved", "The lead was added, but the follow-up couldn't be scheduled. Open the lead and add it again.");
+        });
       }
       notifyLeadCreated({
         id: lead.id,
@@ -186,10 +187,6 @@ export default function NewLeadScreen() {
         phone: `${country.dial}${localNumber()}`,
         source: form.source,
       }).catch(() => {});
-      if (followupFailed) {
-        // Say so instead of letting the person believe the follow-up exists; they can add it from the lead's page.
-        Alert.alert("Lead created, follow-up not saved", "The lead was added, but the follow-up couldn't be scheduled. Open the lead and add it again.");
-      }
       // Pass what we already know so the lead page shows at once instead of a blank "Loading lead…".
       router.replace({
         pathname: "/(app)/leads/[id]",

@@ -35,7 +35,7 @@ function dateText(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
-export function LeadDocuments({ leadId, onChanged, pickSignal = 0 }: { leadId: string; onChanged?: () => void; pickSignal?: number }) {
+export const LeadDocuments = React.memo(function LeadDocuments({ leadId, onChanged, pickSignal = 0 }: { leadId: string; onChanged?: () => void; pickSignal?: number }) {
   const [files, setFiles] = useState<LeadAttachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -136,7 +136,7 @@ export function LeadDocuments({ leadId, onChanged, pickSignal = 0 }: { leadId: s
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   wrap: { marginTop: 20 },

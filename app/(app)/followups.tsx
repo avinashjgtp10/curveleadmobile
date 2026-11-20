@@ -38,7 +38,7 @@ const SHOW_STEP = 10; // cards rendered per section before "Show more"
 const DAYS_BEFORE_TODAY = 60;
 const DAYS_AFTER_TODAY = 90;
 // One request covers everything the screen groups: overdue (earlier days), today and what's coming up.
-const OVERDUE_LOOKBACK_DAYS = 60;
+const OVERDUE_LOOKBACK_DAYS = 365; // Home counts every overdue follow-up, so look back far enough to list them too
 
 type Filter = "all" | "overdue" | "day" | "upcoming";
 
@@ -352,24 +352,31 @@ export default function FollowupsScreen() {
   async function saveFollowup() {
     if (!selectedLead) { setAddError("Search and select a lead first."); return; }
     if (followupAt.getTime() < Date.now() - 60000) { setAddError("Choose a date and time in the future."); return; }
-    setSaving(true); setAddError("");
+    // Close the form and show the follow-up in the list at once; the server saves it in the background.
+    const lead = selectedLead;
+    const bookedAt = followupAt;
+    const tempId = `temp-${Date.now()}`;
+    setAddError(""); setSaving(true); setAddOpen(false);
+    setFollowups((current) => [{
+      id: tempId, lead_id: lead.id, lead_name: lead.name, lead_phone: lead.phone, lead_stage: lead.stage,
+      followup_type: followupType, next_followup_at: bookedAt.toISOString(), notes: followupNotes.trim() || undefined,
+    }, ...current]);
+    const when = bookedAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+    // Show the day it was booked for. Days outside the date strip can't be highlighted, so stay on the current day for those.
+    const bookedDay = startOfDay(bookedAt);
+    if (!isSameDay(bookedAt, selectedDate) && bookedDay >= days[0] && bookedDay <= days[days.length - 1]) setSelectedDate(bookedDay);
     try {
-      await createLeadFollowup(selectedLead.id, {
+      await createLeadFollowup(lead.id, {
         followup_type: followupType,
-        next_followup_at: followupAt.toISOString(),
+        next_followup_at: bookedAt.toISOString(),
         notes: followupNotes.trim() || undefined,
       });
-      setAddOpen(false);
-      const when = followupAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
-      // Android drops Alerts fired while a Modal is still dismissing.
-      const leadName = selectedLead.name;
-      setTimeout(() => Alert.alert("Follow-up scheduled", `${leadName} - ${when}`), 300);
-      // Show the day it was booked for; if that's already the day on screen, just refresh it.
+      setTimeout(() => Alert.alert("Follow-up scheduled", `${lead.name} - ${when}`), 100);
       load(false, true);
-      // Days outside the date strip can't be highlighted, so stay on the current day for those.
-      const bookedDay = startOfDay(followupAt);
-      if (!isSameDay(followupAt, selectedDate) && bookedDay >= days[0] && bookedDay <= days[days.length - 1]) setSelectedDate(bookedDay);
     } catch (saveError) {
+      // Take the placeholder out and give the form back with what was typed, so nothing is lost.
+      setFollowups((current) => current.filter((item) => item.id !== tempId));
+      setAddOpen(true);
       setAddError(errorMessage(saveError, "Could not schedule this follow-up."));
     } finally { setSaving(false); }
   }
