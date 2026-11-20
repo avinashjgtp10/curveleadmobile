@@ -307,6 +307,9 @@ export default function LeadDetailScreen() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+  // Stable callbacks, so the memoized notes and documents sections don't redraw whenever this screen does.
+  const reloadQuietly = useCallback(() => { load(); }, [load]);
+  const reloadWithSpinner = useCallback(() => { load(true); }, [load]);
 
   function openUrl(url: string, fallback: string) {
     Linking.openURL(url).catch(() => Alert.alert("Unable to open", fallback));
@@ -472,7 +475,11 @@ export default function LeadDetailScreen() {
       Alert.alert("Choose a future time", "The follow-up date and time must be in the future.");
       return;
     }
+    // Close the sheet at once; the server saves in the background and the sheet comes back if it refuses.
+    const typeLabel = FOLLOWUP_TYPES.find((item) => item.key === followupType)?.label || "Follow-up";
+    const message = `${typeLabel} on ${dateTime(followupAt.toISOString())}.`;
     setSchedulingFollowup(true);
+    setFollowupSheetOpen(false); setTypePickerOpen(false);
     try {
       const created = await createLeadFollowup(lead.id, {
         followup_type: followupType,
@@ -481,13 +488,12 @@ export default function LeadDetailScreen() {
         meeting_url: followupType === "demo" ? followupMeetingUrl.trim() || undefined : undefined,
       });
       setFollowups((current) => [created, ...current.map((item) => ({ ...item, is_completed: true }))]);
-      const message = `${FOLLOWUP_TYPES.find((item) => item.key === followupType)?.label || "Follow-up"} on ${dateTime(followupAt.toISOString())}.`;
       setFollowupNotes(""); setFollowupMeetingUrl(""); setFollowupAt(defaultFollowupDate());
-      setFollowupSheetOpen(false); setTypePickerOpen(false);
-      // Android drops an Alert fired while the sheet is still closing.
-      setTimeout(() => Alert.alert("Follow-up scheduled", message), 350);
+      setTimeout(() => Alert.alert("Follow-up scheduled", message), 100);
+      load();
     } catch (followupError) {
-      Alert.alert("Couldn't schedule follow-up", errorMessage(followupError, "Please try again."));
+      setFollowupSheetOpen(true);
+      setTimeout(() => Alert.alert("Couldn't schedule follow-up", errorMessage(followupError, "Please try again.")), 100);
     } finally { setSchedulingFollowup(false); }
   }
 
@@ -626,7 +632,7 @@ export default function LeadDetailScreen() {
               );
             })()}
 
-            <LeadNotes leadId={lead.id} refreshSignal={notesSignal} onAdded={() => load()} onFormOpen={revealInScroll} />
+            <LeadNotes leadId={lead.id} refreshSignal={notesSignal} onAdded={reloadQuietly} onFormOpen={revealInScroll} />
 
             <View style={styles.card}>
               <View style={styles.cardHeaderSplit}>
@@ -679,7 +685,7 @@ export default function LeadDetailScreen() {
               </FieldGroup>
             </View>
 
-            <LeadDocuments pickSignal={attachSignal} leadId={lead.id} onChanged={() => load(true)} />
+            <LeadDocuments pickSignal={attachSignal} leadId={lead.id} onChanged={reloadWithSpinner} />
           </View>
         ) : tab === "details" ? (
           <View style={styles.body}>

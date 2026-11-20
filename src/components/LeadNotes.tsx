@@ -24,7 +24,7 @@ function dateText(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export function LeadNotes({ leadId, onAdded, onFormOpen, refreshSignal = 0 }: { leadId: string; onAdded?: () => void; onFormOpen?: (form: View | null) => void; refreshSignal?: number }) {
+export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onFormOpen, refreshSignal = 0 }: { leadId: string; onAdded?: () => void; onFormOpen?: (form: View | null) => void; refreshSignal?: number }) {
   const [notes, setNotes] = useState<LeadNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -155,7 +155,7 @@ export function LeadNotes({ leadId, onAdded, onFormOpen, refreshSignal = 0 }: { 
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   box: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#e4e9f3", padding: 14, marginBottom: 12 },
