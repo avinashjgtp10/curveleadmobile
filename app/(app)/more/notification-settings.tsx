@@ -8,7 +8,7 @@ import { colors } from "@/theme";
 import { FALLBACK_NOTIFICATION_GROUPS, NotificationGroup, fetchNotificationGroups } from "@/api/notifications";
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { NOTIFICATION_PREFS_CACHE_KEY, NotificationPermission, getNotificationPermission, requestNotificationPermission } from "@/notifications/push";
+import { NOTIFICATION_PREFS_CACHE_KEY, NotificationPermission, getAlertAbilities, getNotificationPermission, requestNotificationPermission } from "@/notifications/push";
 import { PushStatus, getPushStatus, registerDevice } from "@/notifications/pushStatus";
 
 const PUSH_STATE_LABEL: Record<PushStatus["state"], string> = {
@@ -60,7 +60,11 @@ export default function NotificationSettingsScreen() {
     }
   }
 
-  const refreshPermission = useCallback(async () => setPermission(await getNotificationPermission()), []);
+  const [abilities, setAbilities] = useState<{ popup: boolean; sound: boolean } | null>(null);
+  const refreshPermission = useCallback(async () => {
+    setPermission(await getNotificationPermission());
+    setAbilities(await getAlertAbilities());
+  }, []);
 
   useEffect(() => {
     refreshPermission();
@@ -140,6 +144,9 @@ export default function NotificationSettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={[styles.phoneTitle, { color: phone.tone }]}>{phone.title}</Text>
               <Text style={styles.phoneHint}>{phone.hint}</Text>
+              {abilities ? (
+                <Text style={styles.phoneHint}>Pop-up: {abilities.popup ? "Yes" : "No"}   Sound: {abilities.sound ? "Yes" : "No"}</Text>
+              ) : null}
               {permission === "undetermined" ? (
                 <Pressable onPress={turnOnPhone} disabled={busy} hitSlop={6}>
                   <Text style={styles.phoneAction}>{busy ? "Please wait..." : "Allow notifications"}</Text>
