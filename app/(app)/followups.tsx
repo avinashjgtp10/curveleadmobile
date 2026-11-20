@@ -34,7 +34,7 @@ const AVATAR_COLORS = ["#c8294a", "#d98a0b", "#2457e6", "#0f7b5f", "#7c3aed", "#
 // Two menu items (~44 each) plus padding.
 const POPOVER_HEIGHT = 96;
 let followupsCache: { userId: string; list: TodayFollowup[] } | null = null;
-const SHOW_STEP = 30; // cards rendered per section before "Show more"
+const SHOW_STEP = 10; // cards rendered per section before "Show more"
 const DAYS_BEFORE_TODAY = 60;
 const DAYS_AFTER_TODAY = 90;
 // One request covers everything the screen groups: overdue (earlier days), today and what's coming up.
@@ -156,6 +156,18 @@ const FollowupCard = React.memo(function FollowupCard({ item, overdue, completin
             </Modal> : null}
           </View>
         )}
+      </View>
+    </Pressable>
+  );
+});
+
+// Memoized so picking a day redraws only the two cells that change, not all ~150 in the strip.
+const DayCell = React.memo(function DayCell({ day, active, width, onSelect }: { day: Date; active: boolean; width: number; onSelect: (day: Date) => void }) {
+  return (
+    <Pressable style={[styles.dayColumn, { width }]} onPress={() => onSelect(day)}>
+      <Text style={styles.dayLabel}>{WEEKDAYS[day.getDay()]}</Text>
+      <View style={[styles.dayNumber, active && styles.dayNumberActive]}>
+        <Text style={[styles.dayNumberText, active && styles.dayNumberTextActive]}>{day.getDate()}</Text>
       </View>
     </Pressable>
   );
@@ -311,11 +323,13 @@ export default function FollowupsScreen() {
   }
 
   const handleComplete = useCallback(async (item: TodayFollowup) => {
+    // Remove it at once; put it back if the server refuses.
     setCompletingId(item.id);
+    setFollowups((current) => current.filter((f) => f.id !== item.id));
     try {
       await completeLeadFollowup(item.id);
-      setFollowups((current) => current.filter((f) => f.id !== item.id));
     } catch (completeError) {
+      setFollowups((current) => current.some((f) => f.id === item.id) ? current : [item, ...current]);
       // An alert, not the screen-level error, so one failed tap doesn't replace the whole list.
       Alert.alert("Couldn't complete follow-up", errorMessage(completeError, "Could not update this follow-up."));
     } finally { setCompletingId(null); }
@@ -351,7 +365,7 @@ export default function FollowupsScreen() {
       const leadName = selectedLead.name;
       setTimeout(() => Alert.alert("Follow-up scheduled", `${leadName} - ${when}`), 300);
       // Show the day it was booked for; if that's already the day on screen, just refresh it.
-      load(true);
+      load(false, true);
       // Days outside the date strip can't be highlighted, so stay on the current day for those.
       const bookedDay = startOfDay(followupAt);
       if (!isSameDay(followupAt, selectedDate) && bookedDay >= days[0] && bookedDay <= days[days.length - 1]) setSelectedDate(bookedDay);
@@ -410,17 +424,9 @@ export default function FollowupsScreen() {
           <Pressable onPress={() => jumpDays(7)} hitSlop={8} accessibilityLabel="Next week"><Ionicons name="chevron-forward" size={18} color={UI.green} /></Pressable>
         </View>
         <ScrollView ref={scrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.weekRow} decelerationRate="fast">
-          {days.map((day, index) => {
-            const active = isSameDay(day, selectedDate);
-            return (
-              <Pressable key={index} style={[styles.dayColumn, { width: dayWidth }]} onPress={() => setSelectedDate(day)}>
-                <Text style={styles.dayLabel}>{WEEKDAYS[day.getDay()]}</Text>
-                <View style={[styles.dayNumber, active && styles.dayNumberActive]}>
-                  <Text style={[styles.dayNumberText, active && styles.dayNumberTextActive]}>{day.getDate()}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
+          {days.map((day, index) => (
+            <DayCell key={index} day={day} active={isSameDay(day, selectedDate)} width={dayWidth} onSelect={setSelectedDate} />
+          ))}
         </ScrollView>
       </View>
 

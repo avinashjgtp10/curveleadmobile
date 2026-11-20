@@ -100,6 +100,10 @@ if (__DEV__) {
 // Two screens asking for the same thing at the same moment (e.g. notifications, leads) share one request.
 const inFlight = new Map<string, Promise<unknown>>();
 const RECENT_TTL_MS = 15_000;
+// Rarely-changing setup data (pipeline stages, team list, plans, notification groups) is reused for longer. Any edit made
+// from this app (POST/PUT/DELETE) still clears the whole cache, so what the person just changed always shows at once.
+const STABLE_TTL_MS = 2 * 60_000;
+const STABLE = /^\/(lead-statuses|lead-stages|staff|payments\/plans|notifications\/groups)(\?|$|\/by-stage)/;
 const recent = new Map<string, { at: number; response: unknown }>();
 // Live data that is polled or must always be current is never served from the cache.
 const UNCACHED = /\/(whatsapp|notifications|auth)(\/|\?|$)/;
@@ -110,10 +114,11 @@ const rawGet = apiClient.get.bind(apiClient) as (url: string, config?: object) =
   if (existing) return existing;
   // A response from the last few seconds is reused, so going back to a page shows its data at once instead of waiting on the server.
   const hit = recent.get(key);
-  if (hit && Date.now() - hit.at < RECENT_TTL_MS) return Promise.resolve(hit.response);
+  const stable = STABLE.test(url);
+  if (hit && Date.now() - hit.at < (stable ? STABLE_TTL_MS : RECENT_TTL_MS)) return Promise.resolve(hit.response);
   const request = rawGet(url, config)
     .then((response) => {
-      if (!UNCACHED.test(url)) recent.set(key, { at: Date.now(), response });
+      if (stable || !UNCACHED.test(url)) recent.set(key, { at: Date.now(), response });
       return response;
     })
     .finally(() => inFlight.delete(key));

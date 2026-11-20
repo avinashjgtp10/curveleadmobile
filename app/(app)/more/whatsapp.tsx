@@ -5,7 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import { router, useIsFocused, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { fetchLeadDetails, fetchLeads, LeadListItem } from "@/api/leads";
@@ -99,7 +99,39 @@ function windowText(ms: number) {
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
+// Memoized: typing in search or a background inbox refresh redraws only the rows whose own data changed.
+const ConversationRow = React.memo(function ConversationRow({ lead, conversation, active, onOpen, onDelete }: {
+  lead: LeadListItem; conversation?: InboxConversation; active: boolean; onOpen: (id: string) => void;
+  onDelete: React.MutableRefObject<(lead: LeadListItem) => void>;
+}) {
+  const unread = (conversation?.unread_count || 0) > 0;
+  return (
+    <Pressable style={[styles.conversationRow, active && styles.conversationRowActive]} onPress={() => onOpen(lead.id)}>
+      <View style={[styles.avatar, unread && styles.avatarUnread]}><Text style={styles.avatarText}>{initials(lead.name)}</Text></View>
+      <View style={styles.rowBody}>
+        <View style={styles.rowTop}>
+          <Text style={[styles.leadName, unread && styles.leadNameUnread]} numberOfLines={1}>{lead.name}</Text>
+          <Text style={[styles.timeText, unread && styles.timeTextUnread]}>{relativeTime(conversation?.sent_at || undefined)}</Text>
+        </View>
+        <View style={styles.rowBottom}>
+          <Text style={[styles.previewText, !conversation?.message && styles.previewEmpty]} numberOfLines={1}>{previewFor(lead, conversation)}</Text>
+          {unread ? <View style={styles.unreadBadge}><Text style={styles.unreadText}>{conversation?.unread_count}</Text></View> : null}
+          {conversation?.message ? (
+            <Pressable hitSlop={8} onPress={() => onDelete.current(lead)} style={styles.deleteChatButton}>
+              <Ionicons name="trash-outline" size={18} color={colors.danger} />
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+    </Pressable>
+  );
+});
+
 export default function WhatsAppScreen() {
+  // Polling pauses while another screen is on top (and resumes when this one is shown again).
+  const isFocused = useIsFocused();
+  const focusedRef = useRef(isFocused);
+  focusedRef.current = isFocused;
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   // Set when opened from a lead's details screen: go straight into that lead's conversation.
@@ -305,13 +337,13 @@ export default function WhatsAppScreen() {
     markConversationsRead([selectedId])
       .then(() => setInbox((current) => current[selectedId] ? { ...current, [selectedId]: { ...current[selectedId], unread_count: 0 } } : current))
       .catch(() => {});
-    const timer = setInterval(() => { if (AppState.currentState === "active") loadConversation(selectedId); }, 8000);
+    const timer = setInterval(() => { if (AppState.currentState === "active" && focusedRef.current) loadConversation(selectedId); }, 8000);
     return () => clearInterval(timer);
   }, [selectedId]);
 
   useEffect(() => {
     if (selectedId) return undefined;
-    const timer = setInterval(() => { if (AppState.currentState === "active") refreshInbox(); }, 20000);
+    const timer = setInterval(() => { if (AppState.currentState === "active" && focusedRef.current) refreshInbox(); }, 20000);
     return () => clearInterval(timer);
   }, [selectedId]);
 
@@ -373,6 +405,8 @@ export default function WhatsAppScreen() {
     });
   }
 
+  const deleteChatRef = useRef<(lead: LeadListItem) => void>(() => {});
+  deleteChatRef.current = (lead) => confirmDeleteChat(lead);
   function confirmDeleteChat(lead: LeadListItem) {
     Alert.alert("Delete chat?", `Delete the whole conversation with ${lead.name}? This can't be undone.`, [
       { text: "Cancel", style: "cancel" },
@@ -724,31 +758,9 @@ export default function WhatsAppScreen() {
               })}
             </View>
 
-            {filteredLeads.length ? filteredLeads.map((lead) => {
-              const active = selected?.id === lead.id;
-              const conversation = inbox[lead.id];
-              const unread = (conversation?.unread_count || 0) > 0;
-              return (
-                <Pressable key={lead.id} style={[styles.conversationRow, active && styles.conversationRowActive]} onPress={() => setSelectedId(lead.id)}>
-                  <View style={[styles.avatar, unread && styles.avatarUnread]}><Text style={styles.avatarText}>{initials(lead.name)}</Text></View>
-                  <View style={styles.rowBody}>
-                    <View style={styles.rowTop}>
-                      <Text style={[styles.leadName, unread && styles.leadNameUnread]} numberOfLines={1}>{lead.name}</Text>
-                      <Text style={[styles.timeText, unread && styles.timeTextUnread]}>{relativeTime(conversation?.sent_at || undefined)}</Text>
-                    </View>
-                    <View style={styles.rowBottom}>
-                      <Text style={[styles.previewText, !conversation?.message && styles.previewEmpty]} numberOfLines={1}>{previewFor(lead, conversation)}</Text>
-                      {unread ? <View style={styles.unreadBadge}><Text style={styles.unreadText}>{conversation.unread_count}</Text></View> : null}
-                      {conversation?.message ? (
-                        <Pressable hitSlop={8} onPress={() => confirmDeleteChat(lead)} style={styles.deleteChatButton}>
-                          <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  </View>
-                </Pressable>
-              );
-            }) : (
+            {filteredLeads.length ? filteredLeads.map((lead) => (
+              <ConversationRow key={lead.id} lead={lead} conversation={inbox[lead.id]} active={selected?.id === lead.id} onOpen={setSelectedId} onDelete={deleteChatRef} />
+            )) : (
               <Text style={styles.emptyText}>No conversations match this filter.</Text>
             )}
           </View>

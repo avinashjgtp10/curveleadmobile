@@ -51,22 +51,35 @@ export function LeadNotes({ leadId, onAdded, onFormOpen, refreshSignal = 0 }: { 
 
   async function save() {
     if (!text.trim()) { setFieldError("Note content is required."); return; }
+    // Show the note at once and close the form; the server catches up in the background.
+    const content = text.trim();
+    const previous = notes;
+    const wasEditing = editingId;
+    const tempId = `temp-${Date.now()}`;
+    setNotes(wasEditing
+      ? notes.map((item) => item.id === wasEditing ? { ...item, note: content } : item)
+      : [{ id: tempId, note: content, note_type: type, created_by_name: "You", created_at: new Date().toISOString() }, ...notes]);
+    setFormOpen(false); setEditingId(null); setText("");
     setSaving(true);
     try {
-      if (editingId) await updateLeadNote(leadId, editingId, text.trim());
-      else { await createLeadNote(leadId, { note: text.trim(), note_type: type }); onAdded?.(); }
-      setFormOpen(false); setEditingId(null); setText("");
-      await load();
-    } catch (error) { setFieldError(errorMessage(error, "Couldn't save the note. Please try again.")); }
-    finally { setSaving(false); }
+      if (wasEditing) await updateLeadNote(leadId, wasEditing, content);
+      else { await createLeadNote(leadId, { note: content, note_type: type }); onAdded?.(); }
+      load();
+    } catch (error) {
+      // Put things back so nothing the person typed is lost.
+      setNotes(previous); setText(content); setEditingId(wasEditing); setFormOpen(true);
+      setFieldError(errorMessage(error, "Couldn't save the note. Please try again."));
+    } finally { setSaving(false); }
   }
 
   function remove(note: LeadNote) {
     Alert.alert("Delete this note?", undefined, [
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: async () => {
-        try { await deleteLeadNote(leadId, note.id); await load(); }
-        catch (error) { Alert.alert("Couldn't delete", errorMessage(error, "Please try again.")); }
+        const previous = notes;
+        setNotes((current) => current.filter((item) => item.id !== note.id));
+        try { await deleteLeadNote(leadId, note.id); load(); }
+        catch (error) { setNotes(previous); Alert.alert("Couldn't delete", errorMessage(error, "Please try again.")); }
       } },
     ]);
   }
