@@ -370,6 +370,14 @@ export default function LeadDetailScreen() {
     }
   }
 
+  // Fetch the team list quietly once the lead is on screen, so "Assign lead" opens with names already there.
+  useEffect(() => {
+    if (!detailsLoaded || staff.length) return;
+    let cancelled = false;
+    fetchStaff().then((list) => { if (!cancelled) setStaff(list.filter((member) => member.is_active !== false)); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [detailsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function openAssignSheet() {
     setAssignSheetOpen(true);
     if (staff.length || staffLoading) return;
