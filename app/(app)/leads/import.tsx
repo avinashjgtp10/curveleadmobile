@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Appbar, Button, Card, Text } from "react-native-paper";
+import { ActivityIndicator, Button, Card, Text } from "react-native-paper";
 import axios from "axios";
 import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
@@ -22,6 +22,9 @@ const FILE_TYPES = [
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
+
+// Same palette as the Add lead form: pale blue page, white cards, deep teal-blue actions.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7" };
 
 const ALLOWED_EXTENSIONS = [".csv", ".xls", ".xlsx"];
 
@@ -59,12 +62,14 @@ export default function ImportLeadsScreen() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Import Clients from Spreadsheet" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>Import leads</Text>
+      </View>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView scrollEnabled={!!result} bounces={false} overScrollMode="never" contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]} showsVerticalScrollIndicator={false}>
         {result ? (
           <View style={styles.resultCard}>
             <View style={styles.resultIcon}><Ionicons name="checkmark-circle" size={40} color={colors.success} /></View>
@@ -88,15 +93,13 @@ export default function ImportLeadsScreen() {
               </Card>
             ) : null}
 
-            <Button mode="contained" onPress={() => router.replace("/(app)/leads")} style={styles.doneButton} contentStyle={styles.actionButtonContent}>Done</Button>
-            <Button mode="text" onPress={() => { setResult(null); setFileName(""); }} style={styles.againButton}>Import another file</Button>
+            <Button mode="contained" buttonColor={UI.teal} textColor="#ffffff" onPress={() => router.replace("/(app)/leads")} style={styles.doneButton} contentStyle={styles.actionButtonContent} labelStyle={styles.actionLabel}>Done</Button>
+            <Button mode="text" textColor={UI.teal} onPress={() => { setResult(null); setFileName(""); }} style={styles.againButton}>Import another file</Button>
           </View>
         ) : (
           <>
-            <View style={styles.iconRow}>
-              <Ionicons name="document-text-outline" size={40} color={colors.primary} />
-              <Ionicons name="document-outline" size={48} color={colors.primary} style={{ marginHorizontal: -8 }} />
-              <Ionicons name="document-attach-outline" size={40} color={colors.primary} />
+            <View style={styles.heroIcon}>
+              <Ionicons name="document-attach-outline" size={34} color={UI.teal} />
             </View>
             <Text style={styles.title}>Import Clients in a Snap</Text>
             <Text style={styles.subtitle}>Want to quickly add your contacts to CurveLead? Just upload a spreadsheet!</Text>
@@ -106,24 +109,29 @@ export default function ImportLeadsScreen() {
             <Pressable style={styles.dropzone} onPress={pickAndUpload} disabled={uploading}>
               {uploading ? (
                 <>
-                  <ActivityIndicator size="large" color={colors.primary} />
+                  <ActivityIndicator size="large" color={UI.teal} />
                   <Text style={styles.dropzoneTitle}>Uploading {fileName}…</Text>
                 </>
               ) : (
                 <>
-                  <Ionicons name="cloud-upload-outline" size={34} color={colors.text} />
+                  <View style={styles.uploadIcon}><Ionicons name="cloud-upload-outline" size={26} color={UI.teal} /></View>
                   <Text style={styles.dropzoneTitle}>Browse and upload</Text>
                   <Text style={styles.dropzoneHint}>Tap to browse. We support CSV, XLS, and XLSX formats.</Text>
                 </>
               )}
             </Pressable>
 
-            <Text style={styles.tipsTitle}>Spreadsheet Tips</Text>
-            <Text style={styles.tipsText}>
-              For a smooth import, use a Name and Phone column at minimum — Email, Source, Stage, Notes, Deal Value, City
-              and Date columns are also recognised automatically. Don&apos;t worry if your columns are named a little
-              differently, we match common variations.
-            </Text>
+            <View style={styles.tipsCard}>
+              <View style={styles.tipsHead}>
+                <Ionicons name="bulb-outline" size={18} color={UI.teal} />
+                <Text style={styles.tipsTitle}>Spreadsheet tips</Text>
+              </View>
+              <Text style={styles.tipsText}>
+                For a smooth import, use a Name and Phone column at minimum — Email, Source, Stage, Notes, Deal Value, City
+                and Date columns are also recognised automatically. Don&apos;t worry if your columns are named a little
+                differently, we match common variations.
+              </Text>
+            </View>
           </>
         )}
       </ScrollView>
@@ -132,23 +140,27 @@ export default function ImportLeadsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 15, fontWeight: "700" },
-  content: { paddingHorizontal: 24, paddingTop: 26, alignItems: "center" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
+  content: { paddingHorizontal: 16, paddingTop: 16, alignItems: "center" },
 
-  iconRow: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
-  title: { color: colors.text, fontSize: 20, fontWeight: "800", textAlign: "center" },
-  subtitle: { color: colors.textSecondary, fontSize: 13, lineHeight: 19, textAlign: "center", marginTop: 8 },
+  heroIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  title: { color: UI.ink, fontSize: 20, fontFamily: "DMSans_700Bold", textAlign: "center" },
+  subtitle: { color: UI.sub, fontSize: 13, lineHeight: 19, textAlign: "center", marginTop: 8 },
   errorBanner: { alignSelf: "stretch", backgroundColor: colors.dangerSoft, borderRadius: 10, padding: 12, marginTop: 16 },
   errorBannerText: { color: colors.danger, fontSize: 12, fontWeight: "600", textAlign: "center" },
 
-  dropzone: { alignSelf: "stretch", minHeight: 180, borderWidth: 1.5, borderStyle: "dashed", borderColor: colors.border, borderRadius: 16, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", marginTop: 24, paddingHorizontal: 20 },
-  dropzoneTitle: { color: colors.text, fontSize: 15, fontWeight: "700", marginTop: 12 },
-  dropzoneHint: { color: colors.textMuted, fontSize: 11, textAlign: "center", marginTop: 5 },
+  dropzone: { alignSelf: "stretch", minHeight: 160, borderWidth: 2, borderStyle: "dashed", borderColor: UI.line, borderRadius: 14, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center", marginTop: 18, paddingHorizontal: 20 },
+  uploadIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center" },
+  dropzoneTitle: { color: UI.teal, fontSize: 15, fontFamily: "Inter_700Bold", marginTop: 12 },
+  dropzoneHint: { color: UI.sub, fontSize: 11, textAlign: "center", marginTop: 5 },
 
-  tipsTitle: { alignSelf: "flex-start", color: colors.text, fontSize: 15, fontWeight: "800", marginTop: 28 },
-  tipsText: { color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 },
+  tipsCard: { alignSelf: "stretch", backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: UI.line, padding: 14, marginTop: 16 },
+  tipsHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  tipsTitle: { color: UI.ink, fontSize: 14, fontFamily: "Inter_700Bold" },
+  tipsText: { color: UI.sub, fontSize: 12, lineHeight: 18, marginTop: 8 },
 
   resultCard: { alignSelf: "stretch", alignItems: "center", paddingTop: 20 },
   resultIcon: { marginBottom: 12 },
@@ -165,7 +177,8 @@ const styles = StyleSheet.create({
   reasonRowText: { color: colors.text, fontSize: 12, fontWeight: "700" },
   reasonRowReason: { color: colors.danger, fontSize: 11, marginTop: 2 },
 
-  doneButton: { alignSelf: "stretch", marginTop: 28 },
+  doneButton: { alignSelf: "stretch", marginTop: 28, borderRadius: 999 },
   againButton: { alignSelf: "stretch", marginTop: 4 },
   actionButtonContent: { height: 46 },
+  actionLabel: { fontWeight: "800" },
 });
