@@ -17,6 +17,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/i18n/LanguageContext";
 import * as NativeSplashScreen from "expo-splash-screen";
 import { CurveLeadSplash } from "@/components/CurveLeadSplash";
+import "@/notifications/backgroundCheck"; // defines the background task at app load
 import { usePushNotifications } from "@/notifications/usePushNotifications";
 import { colors } from "@/theme";
 import { isExpoGo } from "@/notifications/environment";
