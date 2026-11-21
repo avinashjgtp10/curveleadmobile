@@ -24,9 +24,12 @@ function dateText(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+// Notes already loaded this session, so reopening a lead shows them at once while a fresh copy loads.
+const notesCache = new Map<string, LeadNote[]>();
+
 export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onFormOpen, refreshSignal = 0 }: { leadId: string; onAdded?: () => void; onFormOpen?: (form: View | null) => void; refreshSignal?: number }) {
-  const [notes, setNotes] = useState<LeadNote[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [notes, setNotes] = useState<LeadNote[]>(() => notesCache.get(leadId) ?? []);
+  const [loading, setLoading] = useState(() => !notesCache.has(leadId));
   const [loadError, setLoadError] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -38,7 +41,12 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
 
   const load = useCallback(async () => {
     setLoadError("");
-    try { setNotes(await fetchLeadNotes(leadId)); }
+    try {
+      const fresh = await fetchLeadNotes(leadId);
+      notesCache.set(leadId, fresh);
+      if (notesCache.size > 30) notesCache.delete(notesCache.keys().next().value as string);
+      setNotes(fresh);
+    }
     catch (error) { setLoadError(errorMessage(error, "Could not load notes.")); }
     finally { setLoading(false); }
   }, [leadId]);

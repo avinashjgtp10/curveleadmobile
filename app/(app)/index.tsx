@@ -347,7 +347,7 @@ function sourceBarColor(source: string) {
   }
 }
 
-const LEAD_SOURCES_TTL_MS = 5 * 60_000;
+const LEAD_SOURCES_TTL_MS = 15 * 60_000;
 const LEAD_SOURCES_STORAGE_KEY = "curvelead_lead_sources";
 // The last dashboard that loaded (default period), so Home opens with numbers on screen instead of a spinner.
 let dashboardCache: { userId: string; data: DashboardSummary; followups: TodayFollowup[] } | null = null;

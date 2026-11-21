@@ -188,7 +188,7 @@ function EditableField({ icon, label, value, required, multiline, keyboardType, 
   );
 }
 
-function ActivityItem({ item, last }: { item: LeadActivity; last: boolean }) {
+const ActivityItem = React.memo(function ActivityItem({ item, last }: { item: LeadActivity; last: boolean }) {
   const icon = ACTIVITY_ICON[item.activity_type || ""] || "ellipse";
   return (
     <View style={styles.timelineRow}>
@@ -203,7 +203,7 @@ function ActivityItem({ item, last }: { item: LeadActivity; last: boolean }) {
       </View>
     </View>
   );
-}
+});
 
 function EmptyState({ icon, title, text }: { icon: IconName; title: string; text: string }) {
   return (
@@ -317,6 +317,8 @@ export default function LeadDetailScreen() {
   const [activities, setActivities] = useState<LeadActivity[]>(saved?.activities ?? []);
   const [followups, setFollowups] = useState<LeadFollowup[]>(saved?.followups ?? []);
   const [tab, setTab] = useState<Tab>("overview");
+  // A long history is drawn 30 at a time, so a lead with hundreds of activities opens fast.
+  const [activityLimit, setActivityLimit] = useState(30);
   const [loading, setLoading] = useState(!params.name && !saved);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -800,7 +802,12 @@ export default function LeadDetailScreen() {
             <View style={styles.card}>
               {activities.length ? (
                 <View style={styles.timeline}>
-                  {activities.map((item, index) => <ActivityItem key={item.id} item={item} last={index === activities.length - 1} />)}
+                  {activities.slice(0, activityLimit).map((item, index, shownList) => <ActivityItem key={item.id} item={item} last={index === shownList.length - 1 && activities.length <= activityLimit} />)}
+                  {activities.length > activityLimit ? (
+                    <Pressable onPress={() => setActivityLimit((count) => count + 30)} style={styles.showMore} accessibilityRole="button">
+                      <Text style={styles.showMoreText}>Show more ({activities.length - activityLimit} older)</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               ) : (
                 <EmptyState icon="pulse-outline" title="No activity yet" text="Calls, notes and stage changes will appear here." />
@@ -1090,6 +1097,8 @@ const styles = StyleSheet.create({
   addActivityButtonContent: { height: 46 },
 
   timeline: {},
+  showMore: { alignSelf: "center", paddingVertical: 10, paddingHorizontal: 16 },
+  showMoreText: { color: UI.blue, fontSize: 13, fontFamily: "Inter_700Bold" },
   timelineRow: { flexDirection: "row" },
   timelineRail: { width: 34, alignItems: "center" },
   timelineDot: { width: 26, height: 26, borderRadius: 13, backgroundColor: colors.text, alignItems: "center", justifyContent: "center", zIndex: 1 },
