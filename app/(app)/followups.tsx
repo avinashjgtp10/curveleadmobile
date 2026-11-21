@@ -386,15 +386,20 @@ export default function FollowupsScreen() {
   const { overdueList, dayList, upcomingList } = useMemo(() => {
     const todayStart = startOfDay(new Date());
     const byTime = (a: TodayFollowup, b: TodayFollowup) => new Date(a.next_followup_at).getTime() - new Date(b.next_followup_at).getTime();
+    // Leads in a lost (disqualified) stage are out of the pipeline, so their scheduled follow-ups are dropped.
+    const active = followups.filter((item) => {
+      const stage = findStage(item.lead_stage);
+      return !(stage?.is_lost || (item.lead_stage || "").toLowerCase() === "lost");
+    });
     return {
-      overdueList: followups.filter((item) => new Date(item.next_followup_at) < todayStart).sort(byTime),
-      dayList: followups.filter((item) => isSameDay(new Date(item.next_followup_at), selectedDate)).sort(byTime),
-      upcomingList: followups.filter((item) => {
+      overdueList: active.filter((item) => new Date(item.next_followup_at) < todayStart).sort(byTime),
+      dayList: active.filter((item) => isSameDay(new Date(item.next_followup_at), selectedDate)).sort(byTime),
+      upcomingList: active.filter((item) => {
         const due = new Date(item.next_followup_at);
         return due >= todayStart && !isSameDay(due, selectedDate) && due > selectedDate;
       }).sort(byTime),
     };
-  }, [followups, selectedDate]);
+  }, [followups, selectedDate, findStage]);
   useEffect(() => { setShown(SHOW_STEP); }, [filter, selectedDate]);
   const selectedIsToday = isSameDay(selectedDate, new Date());
   const dayTitle = selectedIsToday ? "Today" : selectedDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
