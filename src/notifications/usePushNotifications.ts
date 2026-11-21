@@ -12,6 +12,7 @@ import { LAST_REGISTERED_TOKEN_KEY, getPushStatus, registerDevice } from "./push
 import { navigateToNotification, NotificationRouteData } from "./navigateToNotification";
 import { withRetry } from "./retry";
 import { isExpoGo } from "./environment";
+import { setBackgroundCheck } from "./backgroundCheck";
 
 // Register the foreground handler as soon as the app loads, not after the first screen mounts: a push that arrives
 // during start-up would otherwise fall back to iOS's default and show no banner.
@@ -67,6 +68,9 @@ export function usePushNotifications(navigationReady: boolean) {
   // Registration lifecycle, tied to login/logout.
   useEffect(() => {
     if (isExpoGo || isLoading) return;
+
+    // Keeps checking for new leads/notifications while the app is closed (the backend may not send real pushes).
+    setBackgroundCheck(!!user).catch(() => {});
 
     if (!user) {
       resetAlertBaseline().catch(() => {});

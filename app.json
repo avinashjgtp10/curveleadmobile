@@ -21,7 +21,9 @@
       "bundleIdentifier": "com.curvelead.mobile",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["remote-notification"],
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
         "NSPhotoLibraryUsageDescription": "CurveLead needs access to your photo library so you can select and upload photos when using the app."
       }
     },
@@ -60,7 +62,8 @@
           "icon": "./assets/notification-icon.png",
           "color": "#0ea5e9"
         }
-      ]
+      ],
+      "expo-background-task"
     ],
     "extra": {
       "apiUrlDev": "https://curvelead.com/api",
