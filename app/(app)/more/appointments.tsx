@@ -10,7 +10,7 @@ import { completeLeadFollowup, createLeadFollowup, fetchLeads, fetchTodayFollowu
 
 
 // The add forms' palette: pale blue page, white cards with soft blue borders, deep teal-blue actions.
-const UI = { bg: "#f3f6fc", line: "#d3def2", ink: "#0f1f3d", sub: "#5a6b85", muted: "#8b97ad", teal: "#1d4fd8", tealSoft: "#e1ebfc", red: "#b3173a", redSoft: "#fde3e8", amber: "#8a4a08", amberSoft: "#fde9d6", green: "#0f7b5f" };
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", red: "#b3173a", redSoft: "#fde3e8", amber: "#8a4a08", amberSoft: "#fde9d6", green: "#0f7b5f" };
 const CARD = { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 16 } as const;
 type AppointmentTab = "all" | "upcoming" | "today" | "overdue" | "completed";
 type TypeOption = { key: FollowupType; label: string; icon: keyof typeof Ionicons.glyphMap };
@@ -606,12 +606,12 @@ const styles = StyleSheet.create({
   filterButtonText: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold" },
   showingRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6, marginBottom: 10 },
   showingLabel: { color: UI.sub, fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  showingPill: { backgroundColor: "#e6edfb", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  showingPill: { backgroundColor: "#e1eef7", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   showingPillText: { color: UI.teal, fontSize: 12, fontFamily: "Inter_700Bold" },
   filterSheet: { backgroundColor: "#ffffff", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 16, paddingTop: 8 },
   filterHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 0, marginBottom: 8 },
   filterTitle: { color: UI.ink, fontSize: 17, fontFamily: "Inter_700Bold" },
-  filterClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#eef1f8", alignItems: "center", justifyContent: "center" },
+  filterClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#e8f1f7", alignItems: "center", justifyContent: "center" },
   filterSection: { color: UI.sub, fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 1, marginBottom: 6 },
   filterChips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   filterChip: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 34, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
@@ -625,12 +625,12 @@ const styles = StyleSheet.create({
   applyButton: { flex: 1.4, height: 42, borderRadius: 14, backgroundColor: UI.teal, alignItems: "center", justifyContent: "center" },
   applyText: { color: "#ffffff", fontSize: 14, fontFamily: "Inter_700Bold" },
   emptyIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center" },
-  emptyButton: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 12, backgroundColor: "#e6edfb", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9 },
+  emptyButton: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 12, backgroundColor: "#e1eef7", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9 },
   emptyButtonText: { color: UI.teal, fontSize: 13, fontFamily: "Inter_700Bold" },
   state: { alignItems: "center", justifyContent: "center", paddingVertical: 46, gap: 12 },
   errorText: { color: UI.red, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 8, backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: UI.line },
-  avatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#dde7fb", alignItems: "center", justifyContent: "center" },
+  avatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#e1eef7", alignItems: "center", justifyContent: "center" },
   avatarText: { color: UI.teal, fontSize: 12, fontFamily: "Inter_700Bold" },
   rowMain: { flex: 1 },
   rowName: { color: UI.ink, fontSize: 13, fontFamily: "Inter_700Bold" },
@@ -653,7 +653,7 @@ const styles = StyleSheet.create({
   popoverText: { color: UI.sub, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   popoverSuccessText: { color: UI.green },
   popoverDangerText: { color: UI.red },
-  empty: { alignItems: "center", paddingVertical: 22, paddingHorizontal: 16, borderRadius: 18, borderWidth: 1, borderStyle: "dashed", borderColor: "#bccdf0", backgroundColor: "#ffffff" },
+  empty: { alignItems: "center", paddingVertical: 22, paddingHorizontal: 16, borderRadius: 18, borderWidth: 1, borderStyle: "dashed", borderColor: "#cfe3f1", backgroundColor: "#ffffff" },
   emptyTitle: { color: UI.ink, fontSize: 15, fontFamily: "Inter_700Bold", marginTop: 10 },
   emptyText: { color: UI.sub, fontSize: 12, lineHeight: 17, textAlign: "center", marginTop: 4 },
   sheetKeyboard: { flex: 1 },
