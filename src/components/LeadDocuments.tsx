@@ -35,16 +35,24 @@ function dateText(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
+// Documents already loaded this session, so reopening a lead shows them at once while a fresh copy loads.
+const filesCache = new Map<string, LeadAttachment[]>();
+
 export const LeadDocuments = React.memo(function LeadDocuments({ leadId, onChanged, pickSignal = 0 }: { leadId: string; onChanged?: () => void; pickSignal?: number }) {
-  const [files, setFiles] = useState<LeadAttachment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [files, setFiles] = useState<LeadAttachment[]>(() => filesCache.get(leadId) ?? []);
+  const [loading, setLoading] = useState(() => !filesCache.has(leadId));
   const [loadError, setLoadError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState("");
 
   const load = useCallback(async () => {
     setLoadError("");
-    try { setFiles(await fetchLeadAttachments(leadId)); }
+    try {
+      const fresh = await fetchLeadAttachments(leadId);
+      filesCache.set(leadId, fresh);
+      if (filesCache.size > 30) filesCache.delete(filesCache.keys().next().value as string);
+      setFiles(fresh);
+    }
     catch (error) { setLoadError(errorMessage(error, "Could not load documents.")); }
     finally { setLoading(false); }
   }, [leadId]);
