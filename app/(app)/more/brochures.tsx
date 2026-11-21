@@ -13,8 +13,8 @@ import { colors, tabBarStyleFor } from "@/theme";
 import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import { Brochure, deleteBrochure, fetchBrochures, uploadBrochure } from "@/api/brochures";
 
-// Palette of the redesigned screen: lavender page, white cards, blue accents, green share.
-const UI = { bg: "#eef1fa", line: "#e4e9f3", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", blue: "#2457e6", green: "#0f7b5f", red: "#d6334f" };
+// Same palette as the Add lead form: pale blue page, white cards, blue accents, green share.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", blue: "#0b6b97", green: "#0f7b5f", red: "#d6334f" };
 
 const FILE_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
 const CATEGORIES = ["Products", "Services", "Pricing", "Company", "General"];
@@ -41,7 +41,7 @@ function pretty(value?: string) {
 
 function fileLook(mimeType?: string) {
   if (mimeType?.includes("pdf")) return { icon: "document-text-outline" as const, color: "#e0414f", bg: "#fde1e1", label: "PDF" };
-  if (mimeType?.startsWith("image")) return { icon: "image-outline" as const, color: UI.blue, bg: "#dbe5fb", label: "Image" };
+  if (mimeType?.startsWith("image")) return { icon: "image-outline" as const, color: UI.blue, bg: "#e1eef7", label: "Image" };
   return { icon: "document-outline" as const, color: UI.sub, bg: "#e5e9f2", label: "File" };
 }
 
@@ -401,7 +401,7 @@ const styles = StyleSheet.create({
   fileIcon: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   cardName: { color: UI.ink, fontSize: 14, fontFamily: "Inter_700Bold" },
   cardMeta: { color: UI.sub, fontSize: 11, marginTop: 2 },
-  tag: { backgroundColor: "#dbe5fb", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  tag: { backgroundColor: "#e1eef7", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   tagText: { color: UI.blue, fontSize: 10, fontFamily: "Inter_700Bold" },
   cardBottom: { flexDirection: "row", alignItems: "center", gap: 8 },
   statsRow: { flexDirection: "row", alignItems: "center", gap: 4 },
@@ -411,7 +411,7 @@ const styles = StyleSheet.create({
   deleteButton: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#fde1e6", alignItems: "center", justifyContent: "center" },
 
   empty: { alignItems: "center", paddingTop: 40, paddingHorizontal: 24, gap: 6 },
-  emptyIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: "#dbe5fb", alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  emptyIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: "#e1eef7", alignItems: "center", justifyContent: "center", marginBottom: 6 },
   emptyTitle: { color: colors.text, fontSize: 16, fontWeight: "800" },
   emptyText: { color: colors.textMuted, fontSize: 13, textAlign: "center", lineHeight: 19 },
   emptyButton: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, backgroundColor: UI.blue, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12 },
@@ -432,15 +432,15 @@ const styles = StyleSheet.create({
   fieldInvalid: { borderColor: colors.danger },
   fieldError: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 },
   fieldErrorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600" },
-  picker: { borderRadius: 14, borderWidth: 2, borderStyle: "dashed", borderColor: "#c1d0f3", backgroundColor: "#eef2fd", padding: 16, flexDirection: "row", alignItems: "center", gap: 12, minHeight: 96 },
+  picker: { borderRadius: 14, borderWidth: 2, borderStyle: "dashed", borderColor: "#cfe3f1", backgroundColor: "#e1eef7", padding: 16, flexDirection: "row", alignItems: "center", gap: 12, minHeight: 96 },
   pickerFilled: { borderStyle: "solid", borderColor: UI.line, backgroundColor: "#ffffff" },
   pickerEmpty: { flex: 1, alignItems: "center", gap: 4 },
   pickerTitle: { color: UI.blue, fontSize: 13, fontFamily: "Inter_700Bold" },
   pickerHint: { color: UI.sub, fontSize: 11 },
-  input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, justifyContent: "center" },
+  input: { minHeight: 46, borderRadius: 10, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, justifyContent: "center" },
   inputText: { color: UI.ink, fontSize: 13 },
   categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   formFooter: { paddingHorizontal: 16, paddingTop: 12, backgroundColor: UI.bg },
-  saveButton: { height: 50, borderRadius: 12, backgroundColor: UI.blue, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  saveButton: { height: 50, borderRadius: 999, backgroundColor: UI.blue, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   saveText: { color: "#ffffff", fontSize: 14, fontFamily: "Inter_700Bold" },
 });
