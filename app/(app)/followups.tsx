@@ -38,7 +38,8 @@ const SHOW_STEP = 10; // cards rendered per section before "Show more"
 const DAYS_BEFORE_TODAY = 60;
 const DAYS_AFTER_TODAY = 90;
 // One request covers everything the screen groups: overdue (earlier days), today and what's coming up.
-const OVERDUE_LOOKBACK_DAYS = 365; // Home counts every overdue follow-up, so look back far enough to list them too
+// Home and Appointments count every overdue follow-up however old, so the list asks from the beginning (a year's cut-off hid older ones).
+const OVERDUE_FROM = "1970-01-01";
 
 type Filter = "all" | "overdue" | "day" | "upcoming";
 
@@ -241,9 +242,8 @@ export default function FollowupsScreen() {
       setError("");
     }
     try {
-      const from = startOfDay(new Date()); from.setDate(from.getDate() - OVERDUE_LOOKBACK_DAYS);
       const to = startOfDay(new Date()); to.setDate(to.getDate() + DAYS_AFTER_TODAY);
-      const result = await fetchTodayFollowups({ date_from: ymd(from), date_to: ymd(to) });
+      const result = await fetchTodayFollowups({ date_from: OVERDUE_FROM, date_to: ymd(to) });
       if (id !== requestId.current) return;
       if (user?.id) followupsCache = { userId: user.id, list: result };
       setFollowups((current) => keepUnchanged(current, result));
