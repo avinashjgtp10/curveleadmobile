@@ -105,6 +105,8 @@ const RECENT_TTL_MS = 15_000;
 const STABLE_TTL_MS = 2 * 60_000;
 const STABLE = /^\/(lead-statuses|lead-stages|staff|payments\/plans|notifications\/groups)(\?|$|\/by-stage)/;
 const recent = new Map<string, { at: number; response: unknown }>();
+// Bumped on every save; a read only gets cached if no save happened while it was in flight.
+let epoch = 0;
 // Live data that is polled or must always be current is never served from the cache.
 const UNCACHED = /\/(whatsapp|notifications|auth)(\/|\?|$)/;
 const rawGet = apiClient.get.bind(apiClient) as (url: string, config?: object) => Promise<unknown>;
@@ -116,21 +118,30 @@ const rawGet = apiClient.get.bind(apiClient) as (url: string, config?: object) =
   const hit = recent.get(key);
   const stable = STABLE.test(url);
   if (hit && Date.now() - hit.at < (stable ? STABLE_TTL_MS : RECENT_TTL_MS)) return Promise.resolve(hit.response);
+  const startEpoch = epoch;
   const request = rawGet(url, config)
     .then((response) => {
-      if (stable || !UNCACHED.test(url)) recent.set(key, { at: Date.now(), response });
+      // A save that happened while this was in flight makes the answer possibly stale: use it, but don't keep it.
+      if (startEpoch === epoch && (stable || !UNCACHED.test(url))) recent.set(key, { at: Date.now(), response });
       return response;
     })
-    .finally(() => inFlight.delete(key));
+    .finally(() => { if (inFlight.get(key) === request) inFlight.delete(key); });
   inFlight.set(key, request);
   return request;
 };
 
 // Anything that changes data throws the cache away, so a screen never shows what it just edited as it was before.
+// This happens when the save starts AND when it finishes: a read that began before the save finished (and so joined an
+// older in-flight request, or was cached after the first clear) would otherwise hand back the old values for ~15 seconds.
+function forgetReads() { epoch++; recent.clear(); inFlight.clear(); }
 apiClient.interceptors.request.use((config) => {
-  if ((config.method || "get").toLowerCase() !== "get") recent.clear();
+  if ((config.method || "get").toLowerCase() !== "get") forgetReads();
   return config;
 });
+apiClient.interceptors.response.use(
+  (response) => { if ((response.config.method || "get").toLowerCase() !== "get") forgetReads(); return response; },
+  (error) => { if (((error?.config?.method as string | undefined) || "get").toLowerCase() !== "get") forgetReads(); return Promise.reject(error); },
+);
 
 export const OFFLINE_MESSAGE = "No internet connection. Check your network and try again.";
 export const TIMEOUT_MESSAGE = "The server took too long to respond. Please try again.";

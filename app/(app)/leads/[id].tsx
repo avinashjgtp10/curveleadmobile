@@ -198,7 +198,7 @@ type ProfileDraft = { name: string; phone: string; email: string; business_name:
 
 // Like the web lead page: a read-only summary where empty fields read "Add … →" (tap to start editing),
 // and a pencil that turns the whole card into one form with ✕ / ✓.
-function LeadProfileCard({ lead, onSave }: { lead: LeadDetails; onSave: (field: keyof UpdateLeadInput, value: string) => Promise<void> }) {
+function LeadProfileCard({ lead, onSave }: { lead: LeadDetails; onSave: (values: Partial<Record<keyof UpdateLeadInput, string>>) => Promise<void> }) {
   const fromLead = (): ProfileDraft => ({
     name: lead.name || "", phone: lead.phone || "", email: lead.email || "", business_name: lead.business_name || "",
     location: lead.location || "", source: lead.source || "", address: lead.address || "",
@@ -223,7 +223,7 @@ function LeadProfileCard({ lead, onSave }: { lead: LeadDetails; onSave: (field: 
     if (!changed.length) { setEditing(false); return; }
     setError(""); setSaving(true);
     try {
-      for (const key of changed) await onSave(key, next[key]);
+      await onSave(Object.fromEntries(changed.map((key) => [key, next[key]])));
       setEditing(false);
     } catch (saveError) {
       setError(errorMessage(saveError, "Could not save. Please try again."));
@@ -541,6 +541,8 @@ export default function LeadDetailScreen() {
 
   async function contactLead(type: ContactActivityType, url: string, fallback: string) {
     if (!lead) return;
+    // The dialer / WhatsApp / mail app opens at once; logging the activity runs alongside instead of making the tap wait for the server.
+    openUrl(url, fallback);
     try {
       await trackContactActivity(lead.id, type);
       // Only show the activity once the server has it, so the list never lists something that wasn't saved.
@@ -552,7 +554,6 @@ export default function LeadDetailScreen() {
         created_at: new Date().toISOString(),
       }, ...current]);
     } catch { /* best-effort: the call or message still goes ahead */ }
-    openUrl(url, fallback);
   }
 
   function openEmailAction() {
@@ -582,9 +583,16 @@ export default function LeadDetailScreen() {
     } finally { setSavingEmail(false); }
   }
 
-  async function saveField(field: keyof UpdateLeadInput, value: string) {
+  function saveField(field: keyof UpdateLeadInput, value: string) {
+    return saveFields({ [field]: value });
+  }
+
+  // Several fields go in one request (the profile card used to send one per field, one after another).
+  async function saveFields(values: Partial<Record<keyof UpdateLeadInput, string>>) {
     if (!lead) return;
-    const payload = (field === "deal_value" ? { deal_value: value ? Number(value.replace(/[^\d.]/g, "")) : 0 } : { [field]: value }) as UpdateLeadInput;
+    const payload = Object.fromEntries(Object.entries(values).map(([field, value]) => [
+      field, field === "deal_value" ? (value ? Number(String(value).replace(/[^\d.]/g, "")) : 0) : value,
+    ])) as UpdateLeadInput;
     const previous = lead;
     setLead((current) => current ? { ...current, ...payload } as LeadDetails : current);
     try {
@@ -910,7 +918,7 @@ export default function LeadDetailScreen() {
           </View>
         ) : tab === "details" ? (
           <View style={styles.body}>
-           <LeadProfileCard lead={lead} onSave={saveField} />
+           <LeadProfileCard lead={lead} onSave={saveFields} />
            <View style={styles.card}>
             <FieldGroup label="Date Created">
               <StaticBox icon="calendar-outline" value={dateTime(lead.lead_date || lead.created_at).split(",")[0]} />
