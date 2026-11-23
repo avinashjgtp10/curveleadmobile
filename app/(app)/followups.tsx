@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert, Dimensions, Linking, useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
+  Alert, Dimensions, FlatList, Linking, useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
 } from "react-native";
 import { ActivityIndicator, Button, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
@@ -54,6 +54,16 @@ function ymd(date: Date) {
   const d = startOfDay(date);
   const offset = d.getTimezoneOffset();
   return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+// A background refresh returns brand-new objects; keep the old ones when nothing changed so memoized cards don't redraw.
+function keepUnchanged(prev: TodayFollowup[], next: TodayFollowup[]) {
+  if (!prev.length) return next;
+  const old = new Map(prev.map((item) => [item.id, item]));
+  return next.map((item) => {
+    const before = old.get(item.id);
+    return before && JSON.stringify(before) === JSON.stringify(item) ? before : item;
+  });
 }
 
 function pretty(value?: string) {
@@ -180,7 +190,7 @@ export default function FollowupsScreen() {
   const navigation = useNavigation();
   const { colorFor, findStage } = useStages();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<FlatList<Date>>(null);
   const didMountRef = useRef(false);
   const { width: screenWidth } = useWindowDimensions();
   // Seven days fit across the card.
@@ -236,7 +246,7 @@ export default function FollowupsScreen() {
       const result = await fetchTodayFollowups({ date_from: ymd(from), date_to: ymd(to) });
       if (id !== requestId.current) return;
       if (user?.id) followupsCache = { userId: user.id, list: result };
-      setFollowups(result);
+      setFollowups((current) => keepUnchanged(current, result));
     } catch (loadError) {
       if (id !== requestId.current) return;
       if (!silent) setError(errorMessage(loadError, "Could not load follow-ups."));
@@ -257,7 +267,7 @@ export default function FollowupsScreen() {
     const to = startOfDay(new Date()); to.setDate(to.getDate() + 14);
     let quickOk = false;
     fetchTodayFollowups({ date_from: ymd(from), date_to: ymd(to) })
-      .then((result) => { quickOk = true; if (!cancelled && id === requestId.current) setFollowups(result); })
+      .then((result) => { quickOk = true; if (!cancelled && id === requestId.current) setFollowups((current) => keepUnchanged(current, result)); })
       .catch(() => {})
       .finally(() => {
         if (cancelled) return;
@@ -304,7 +314,7 @@ export default function FollowupsScreen() {
     const index = days.findIndex((d) => isSameDay(d, date));
     if (index < 0) return;
     const x = Math.max(0, 8 + index * dayWidth - (screenWidth - 32) / 2 + dayWidth / 2);
-    scrollRef.current?.scrollTo({ x, animated });
+    scrollRef.current?.scrollToOffset({ offset: x, animated });
   }
 
   useEffect(() => {
@@ -435,11 +445,14 @@ export default function FollowupsScreen() {
           <Text style={styles.monthLabel}>{MONTHS[selectedDate.getMonth()]} {selectedDate.getFullYear()}</Text>
           <Pressable onPress={() => jumpDays(7)} hitSlop={8} accessibilityLabel="Next week"><Ionicons name="chevron-forward" size={18} color={UI.green} /></Pressable>
         </View>
-        <ScrollView ref={scrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.weekRow} decelerationRate="fast">
-          {days.map((day, index) => (
-            <DayCell key={index} day={day} active={isSameDay(day, selectedDate)} width={dayWidth} onSelect={setSelectedDate} />
-          ))}
-        </ScrollView>
+        {/* Virtualized: only the days near the screen are built, not all ~150. */}
+        <FlatList
+          ref={scrollRef} horizontal data={days} extraData={selectedDate} keyExtractor={(_, index) => String(index)}
+          showsHorizontalScrollIndicator={false} contentContainerStyle={styles.weekRow} decelerationRate="fast"
+          getItemLayout={(_, index) => ({ length: dayWidth, offset: 8 + index * dayWidth, index })}
+          initialScrollIndex={Math.max(0, DAYS_BEFORE_TODAY - 3)} initialNumToRender={10} windowSize={5} maxToRenderPerBatch={10}
+          renderItem={({ item: day }) => <DayCell day={day} active={isSameDay(day, selectedDate)} width={dayWidth} onSelect={setSelectedDate} />}
+        />
       </View>
 
       <View>
