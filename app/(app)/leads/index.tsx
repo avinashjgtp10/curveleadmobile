@@ -36,6 +36,7 @@ let hiddenStagesCache: { userId: string; stages: string[] } | null = null;
 let leadsCache: { userId: string; leads: LeadListItem[]; total: number; pages: number } | null = null;
 // With a status, follow-up or reply-window filter on, this many leads are fetched at once and filtered on the phone.
 const LOCAL_FILTER_LIMIT = 500;
+const MAX_SILENT_PAGES = 8; // a background refresh re-fetches at most this many pages in one request
 const FILTERS = [
   { value: "", label: "All leads" },
   { value: "hot", label: "Hot" },
@@ -399,6 +400,7 @@ export default function LeadsScreen() {
   useEffect(() => {
     if (!preset) return;
     clearFilters();
+    if (searchTimer.current) clearTimeout(searchTimer.current); // a search typed just before must not apply after the tile's filter
     setSearch(""); setQuery("");
     if (preset === "new_today") { const today = toYmd(new Date()); setFilterDateFrom(today); setFilterDateTo(today); }
     else if (preset === "hot") setScore("hot");
@@ -408,17 +410,20 @@ export default function LeadsScreen() {
   const activeFilterCount = [score, filterStage, filterStatus, filterHealth, filterSla, filterSource, filterAssignedTo, filterDateFrom || filterDateTo].filter(Boolean).length;
 
   // `silent` re-fetches everything already on screen in one request without a spinner or losing the scroll depth.
-  const load = useCallback(async (nextPage = 1, append = false, silent = false) => {
+  const load = useCallback(async (nextPage = 1, append = false, silent = false, keepList = false) => {
     const id = ++requestId.current;
     if (append) setLoadingMore(true);
-    else if (!silent) setLoading(true);
+    else if (!silent && !keepList) setLoading(true); // keepList: pull-to-refresh shows its own spinner over the current list
     setError("");
     try {
       const localFilters = { status: filterStatus, health: filterHealth, sla: filterSla };
       const localActive = !!(filterStatus || filterHealth || filterSla);
       const loadedPages = silent ? Math.max(1, pageRef.current) : 1;
+      // Deep scrolls would otherwise make this one request huge; only the first pages are refreshed, the rest stay as they were.
+      const fetchPages = Math.min(loadedPages, MAX_SILENT_PAGES);
+      const partial = loadedPages > fetchPages;
       const result = await fetchLeads({
-        page: localActive ? 1 : nextPage, limit: localActive ? LOCAL_FILTER_LIMIT : PAGE_SIZE * loadedPages,
+        page: localActive ? 1 : nextPage, limit: localActive ? LOCAL_FILTER_LIMIT : PAGE_SIZE * fetchPages,
         ...(query && { search: searchTerm(query) }),
         ...(score && { score }),
         ...(filterStage && { stage: filterStage }),
@@ -436,9 +441,10 @@ export default function LeadsScreen() {
         pageRef.current = 1; setPage(1); setPages(1); setTotal(matching.length);
         return;
       }
-      setLeads((current) => append ? [...current, ...result.leads.filter((lead) => !current.some((item) => item.id === lead.id))] : result.leads);
+      setLeads((current) => append ? [...current, ...result.leads.filter((lead) => !current.some((item) => item.id === lead.id))]
+        : partial ? [...result.leads, ...current.slice(result.leads.length).filter((lead) => !result.leads.some((fresh) => fresh.id === lead.id))] : result.leads);
       // A silent refresh asks for several pages at once, so page numbers are worked out in PAGE_SIZE units.
-      const shownPages = silent ? Math.max(1, Math.ceil(result.leads.length / PAGE_SIZE)) : result.pagination.page;
+      const shownPages = silent ? (partial ? loadedPages : Math.max(1, Math.ceil(result.leads.length / PAGE_SIZE))) : result.pagination.page;
       pageRef.current = shownPages;
       setPage(shownPages);
       setPages(silent ? Math.max(1, Math.ceil(result.pagination.total / PAGE_SIZE)) : result.pagination.pages);
@@ -569,7 +575,7 @@ export default function LeadsScreen() {
 
   function refresh() {
     setRefreshing(true);
-    load(1, false);
+    load(1, false, false, true);
   }
 
   function goToNewLead() {
