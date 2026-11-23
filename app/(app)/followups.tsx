@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { useStages } from "@/hooks/useStages";
-import { telUrl } from "@/api/phone";
+import { phoneSearchTerm, telUrl } from "@/api/phone";
 import {
   completeLeadFollowup, createLeadFollowup, fetchLeads, fetchTodayFollowups, trackContactActivity,
   FollowupType, LeadListItem, TodayFollowup,
@@ -33,7 +33,9 @@ const AVATAR_COLORS = ["#c8294a", "#d98a0b", "#2457e6", "#0f7b5f", "#7c3aed", "#
 
 // Two menu items (~44 each) plus padding.
 const POPOVER_HEIGHT = 96;
-let followupsCache: { userId: string; list: TodayFollowup[] } | null = null;
+let callWatcher: { remove: () => void } | null = null; // waits for the user to come back from the dialer
+const MIN_CALL_AWAY_MS = 4000;
+let followupsCache:{ userId: string; list: TodayFollowup[] } | null = null;
 const SHOW_STEP = 10; // cards rendered per section before "Show more"
 const DAYS_BEFORE_TODAY = 60;
 const DAYS_AFTER_TODAY = 90;
@@ -115,18 +117,24 @@ const FollowupCard = React.memo(function FollowupCard({ item, overdue, completin
   // The call happens in the phone app. When the user comes back, ask whether the follow-up is done,
   // so it leaves Overdue/Today instead of staying there until it is completed by hand.
   function askAfterCall() {
-    let left = false;
+    // Only one prompt can be waiting, so tapping Call twice doesn't stack two alerts.
+    callWatcher?.remove();
+    let leftAt = 0;
     const sub = AppState.addEventListener("change", (state) => {
-      if (state !== "active") { left = true; return; }
-      if (!left) return;
+      if (state !== "active") { if (!leftAt) leftAt = Date.now(); return; }
+      if (!leftAt) return;
       sub.remove();
+      if (callWatcher === sub) callWatcher = null;
+      // Back within a few seconds means the call never really happened (dialer cancelled), so don't ask.
+      if (Date.now() - leftAt < MIN_CALL_AWAY_MS) return;
       Alert.alert("Call finished?", `Mark the follow-up with ${item.lead_name} as completed?`, [
         { text: "Not yet", style: "cancel" },
         { text: "Mark completed", onPress: onComplete },
       ]);
     });
+    callWatcher = sub;
     // If the dialer never took focus, don't leave the listener hanging.
-    setTimeout(() => { if (!left) sub.remove(); }, 15000);
+    setTimeout(() => { if (!leftAt) { sub.remove(); if (callWatcher === sub) callWatcher = null; } }, 15000);
   }
   function openWhatsapp() {
     Linking.openURL(`https://wa.me/${(item.lead_phone || "").replace(/\D/g, "")}`).catch(() => Alert.alert("Couldn't open WhatsApp", "Make sure WhatsApp is installed on this phone."));
@@ -310,7 +318,7 @@ export default function FollowupsScreen() {
     searchTimer.current = setTimeout(async () => {
       setSearchingLeads(true);
       try {
-        const result = await fetchLeads({ search: leadQuery.trim(), limit: 6 });
+        const result = await fetchLeads({ search: phoneSearchTerm(leadQuery), limit: 6 });
         // Ignore a slower response for an older query.
         if (!cancelled) setLeadResults(result.leads);
       } catch { /* best-effort suggestions */ }
@@ -357,6 +365,7 @@ export default function FollowupsScreen() {
       await completeLeadFollowup(item.id);
     } catch (completeError) {
       setFollowups((current) => current.some((f) => f.id === item.id) ? current : [item, ...current]);
+      if (followupsCache && !followupsCache.list.some((f) => f.id === item.id)) followupsCache = { ...followupsCache, list: [item, ...followupsCache.list] };
       // An alert, not the screen-level error, so one failed tap doesn't replace the whole list.
       Alert.alert("Couldn't complete follow-up", errorMessage(completeError, "Could not update this follow-up."));
     } finally { setCompletingId(null); }
