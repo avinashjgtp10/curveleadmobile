@@ -188,6 +188,144 @@ function EditableField({ icon, label, value, required, multiline, keyboardType, 
   );
 }
 
+const SCORE_BADGE = {
+  hot: { label: "HOT", color: "#b91c1c", bg: "#fde1e1" },
+  warm: { label: "WARM", color: "#b45309", bg: "#fdecc0" },
+  cold: { label: "COLD", color: "#2457e6", bg: "#dbe8fb" },
+} as const;
+
+type ProfileDraft = { name: string; phone: string; email: string; business_name: string; location: string; source: string; address: string };
+
+// Like the web lead page: a read-only summary where empty fields read "Add … →" (tap to start editing),
+// and a pencil that turns the whole card into one form with ✕ / ✓.
+function LeadProfileCard({ lead, onSave }: { lead: LeadDetails; onSave: (field: keyof UpdateLeadInput, value: string) => Promise<void> }) {
+  const fromLead = (): ProfileDraft => ({
+    name: lead.name || "", phone: lead.phone || "", email: lead.email || "", business_name: lead.business_name || "",
+    location: lead.location || "", source: lead.source || "", address: lead.address || "",
+  });
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<ProfileDraft>(fromLead);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const score = lead.lead_score ? SCORE_BADGE[lead.lead_score] : null;
+
+  function startEdit() { setDraft(fromLead()); setError(""); setEditing(true); }
+  function cancel() { if (!saving) { setError(""); setEditing(false); } }
+  const set = (key: keyof ProfileDraft) => (value: string) => setDraft((current) => ({ ...current, [key]: value }));
+
+  async function save() {
+    const next = Object.fromEntries(Object.entries(draft).map(([k, v]) => [k, v.trim()])) as ProfileDraft;
+    if (!next.name) { setError("Name is required."); return; }
+    if (!next.phone) { setError("Phone number is required."); return; }
+    if (next.email && !/^\S+@\S+\.\S+$/.test(next.email)) { setError("Enter a valid email address."); return; }
+    const before = fromLead();
+    const changed = (Object.keys(next) as (keyof ProfileDraft)[]).filter((key) => next[key] !== before[key]);
+    if (!changed.length) { setEditing(false); return; }
+    setError(""); setSaving(true);
+    try {
+      for (const key of changed) await onSave(key, next[key]);
+      setEditing(false);
+    } catch (saveError) {
+      setError(errorMessage(saveError, "Could not save. Please try again."));
+    } finally { setSaving(false); }
+  }
+
+  const input = (label: string, key: keyof ProfileDraft, extra?: { required?: boolean; keyboardType?: React.ComponentProps<typeof RNTextInput>["keyboardType"]; multiline?: boolean; placeholder?: string }) => (
+    <View style={profile.cell}>
+      <Text style={profile.label}>{label}{extra?.required ? <Text style={{ color: colors.danger }}> *</Text> : null}</Text>
+      <RNTextInput
+        style={[profile.input, extra?.multiline && profile.inputMulti]} value={draft[key]} onChangeText={set(key)} editable={!saving}
+        keyboardType={extra?.keyboardType} multiline={extra?.multiline} textAlignVertical={extra?.multiline ? "top" : "center"}
+        placeholder={extra?.placeholder} placeholderTextColor={colors.textMuted} autoCapitalize={key === "email" ? "none" : undefined}
+      />
+    </View>
+  );
+
+  const row = (icon: React.ComponentProps<typeof Ionicons>["name"], value: string | undefined, addLabel: string) => (
+    <Pressable style={profile.row} onPress={value ? undefined : startEdit} accessibilityRole={value ? undefined : "button"}>
+      <Ionicons name={icon} size={16} color={UI.muted} />
+      {value ? <Text style={profile.rowValue} numberOfLines={3}>{value}</Text> : <Text style={profile.rowAdd}>{addLabel} →</Text>}
+    </Pressable>
+  );
+
+  return (
+    <View style={styles.card}>
+      <View style={profile.top}>
+        <View style={{ flex: 1 }}>
+          {lead.lead_number ? <Text style={profile.code}>{lead.lead_number}</Text> : null}
+          {editing ? (
+            <RNTextInput style={profile.nameInput} value={draft.name} onChangeText={set("name")} editable={!saving} placeholder="Name" placeholderTextColor={colors.textMuted} />
+          ) : (
+            <Text style={profile.name} numberOfLines={2}>{lead.name}</Text>
+          )}
+          {score ? <View style={[profile.badge, { backgroundColor: score.bg }]}><Text style={[profile.badgeText, { color: score.color }]}>{score.label}</Text></View> : null}
+        </View>
+        {editing ? (
+          <View style={profile.actions}>
+            <Pressable onPress={cancel} disabled={saving} hitSlop={8} style={profile.actionBtn} accessibilityRole="button" accessibilityLabel="Cancel editing">
+              <Ionicons name="close" size={18} color={UI.sub} />
+            </Pressable>
+            <Pressable onPress={save} disabled={saving} hitSlop={8} style={[profile.actionBtn, profile.actionSave]} accessibilityRole="button" accessibilityLabel="Save lead details">
+              {saving ? <ActivityIndicator size="small" color={UI.blue} /> : <Ionicons name="checkmark" size={18} color={UI.blue} />}
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable onPress={startEdit} hitSlop={10} accessibilityRole="button" accessibilityLabel="Edit lead details">
+            <Ionicons name="pencil-outline" size={18} color={UI.ink} />
+          </Pressable>
+        )}
+      </View>
+
+      {error ? <Text style={profile.error}>{error}</Text> : null}
+
+      {editing ? (
+        <View style={{ marginTop: 12 }}>
+          <View style={profile.pair}>{input("Phone", "phone", { required: true, keyboardType: "phone-pad" })}{input("Email", "email", { keyboardType: "email-address", placeholder: "email@gmail.com" })}</View>
+          <View style={profile.pair}>{input("Business Name", "business_name")}{input("Location", "location")}</View>
+          <View style={profile.pair}>{input("Lead Source", "source")}</View>
+          {input("Address", "address", { multiline: true })}
+        </View>
+      ) : (
+        <View style={{ marginTop: 12 }}>
+          {row("business-outline", lead.business_name, "Add business name")}
+          {row("call-outline", lead.phone, "Add phone")}
+          {row("mail-outline", lead.email, "Add email")}
+          {row("location-outline", lead.location, "Add city")}
+          {row("navigate-outline", lead.address, "Add address")}
+          {lead.source ? (
+            <View style={profile.sourceBlock}>
+              <Text style={profile.label}>Source</Text>
+              <Text style={profile.rowValue}>{lead.source}</Text>
+            </View>
+          ) : null}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const profile = StyleSheet.create({
+  top: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  code: { color: UI.muted, fontSize: 11, fontFamily: "monospace", marginBottom: 4 },
+  name: { color: UI.ink, fontSize: 20, fontFamily: "Inter_700Bold" },
+  nameInput: { color: UI.ink, fontSize: 20, fontFamily: "Inter_700Bold", paddingVertical: 2, borderBottomWidth: 1, borderBottomColor: UI.field },
+  badge: { alignSelf: "flex-start", marginTop: 8, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 },
+  badgeText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  actions: { flexDirection: "row", gap: 8 },
+  actionBtn: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  actionSave: { backgroundColor: "#eef1fa" },
+  error: { color: colors.danger, fontSize: 12, marginTop: 8 },
+  row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9 },
+  rowValue: { flex: 1, color: UI.ink, fontSize: 14 },
+  rowAdd: { flex: 1, color: UI.blue, fontSize: 13 },
+  sourceBlock: { marginTop: 6, paddingTop: 12, borderTopWidth: 1, borderTopColor: UI.line },
+  pair: { flexDirection: "row", gap: 12 },
+  cell: { flex: 1, marginBottom: 12 },
+  label: { color: UI.sub, fontSize: 12, marginBottom: 6 },
+  input: { minHeight: 42, borderWidth: 1, borderColor: UI.field, borderRadius: 10, paddingHorizontal: 12, color: UI.ink, fontSize: 14, backgroundColor: "#ffffff" },
+  inputMulti: { minHeight: 70, paddingTop: 10 },
+});
+
 const ActivityItem = React.memo(function ActivityItem({ item, last }: { item: LeadActivity; last: boolean }) {
   const icon = ACTIVITY_ICON[item.activity_type || ""] || "ellipse";
   return (
@@ -772,29 +910,11 @@ export default function LeadDetailScreen() {
           </View>
         ) : tab === "details" ? (
           <View style={styles.body}>
+           <LeadProfileCard lead={lead} onSave={saveField} />
            <View style={styles.card}>
-            <EditableField icon="person-outline" label="Name" value={lead.name} required onSave={(value) => saveField("name", value)} />
-            <EditableField icon="call-outline" label="Mobile Number" value={lead.phone} required keyboardType="phone-pad" onSave={(value) => saveField("phone", value)} />
-            <EditableField
-              icon="mail-outline" label="Email Address" value={lead.email || ""} keyboardType="email-address" placeholder="email@gmail.com"
-              validate={(value) => value && !/^\S+@\S+\.\S+$/.test(value) ? "Enter a valid email address." : null}
-              onSave={(value) => saveField("email", value)}
-            />
-            <EditableField icon="business-outline" label="Business Name" value={lead.business_name || ""} onSave={(value) => saveField("business_name", value)} />
-            <EditableField icon="location-outline" label="Location" value={lead.location || ""} onSave={(value) => saveField("location", value)} />
-
-            <View style={styles.twoUp}>
-              <View style={styles.twoUpItem}>
-                <FieldGroup label="Date Created">
-                  <StaticBox icon="calendar-outline" value={dateTime(lead.lead_date || lead.created_at).split(",")[0]} />
-                </FieldGroup>
-              </View>
-              <View style={styles.twoUpItem}>
-                <EditableField icon="navigate-outline" label="Lead Source" value={lead.source || ""} onSave={(value) => saveField("source", value)} />
-              </View>
-            </View>
-
-            <EditableField icon="map-outline" label="Address" value={lead.address || ""} multiline onSave={(value) => saveField("address", value)} />
+            <FieldGroup label="Date Created">
+              <StaticBox icon="calendar-outline" value={dateTime(lead.lead_date || lead.created_at).split(",")[0]} />
+            </FieldGroup>
            </View>
           </View>
         ) : (
