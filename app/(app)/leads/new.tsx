@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert, KeyboardAvoidingView, Modal, Platform, Pressable,
   ScrollView, StyleSheet, TextInput as RNTextInput, View,
@@ -59,17 +59,20 @@ const INITIAL_FORM: FormState = {
   address: "", source: "manual", notes: "",
 };
 
-function LabeledInput({ label, required, value, onChangeText, placeholder, error, helperText, multiline, numberOfLines, ...inputProps }: {
-  label: string; required?: boolean; value: string; onChangeText: (value: string) => void; placeholder?: string;
+// Memoized with stable handlers (field name + shared callbacks), so typing in one box redraws only that box, not the whole form.
+const LabeledInput = React.memo(function LabeledInput({ label, required, field, value, onValue, onBlurField, placeholder, error, helperText, multiline, numberOfLines, ...inputProps }: {
+  label: string; required?: boolean; field: keyof FormState; value: string; onValue: (field: keyof FormState, value: string) => void;
+  onBlurField?: (field: "name" | "phone" | "email") => void; placeholder?: string;
   error?: boolean; helperText?: string; multiline?: boolean; numberOfLines?: number;
-} & Omit<React.ComponentProps<typeof RNTextInput>, "value" | "onChangeText" | "placeholder" | "multiline" | "numberOfLines" | "style">) {
+} & Omit<React.ComponentProps<typeof RNTextInput>, "value" | "onChangeText" | "onBlur" | "placeholder" | "multiline" | "numberOfLines" | "style">) {
   return (
     <>
       <Text style={styles.label}>{label}{required ? <Text style={styles.required}> *</Text> : null}</Text>
       <View style={[styles.inputBox, multiline && styles.inputBoxMultiline, error && styles.inputError]}>
         <RNTextInput
           style={[styles.inputBoxText, multiline && styles.inputBoxTextMultiline]}
-          value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={UI.muted}
+          value={value} onChangeText={(text) => onValue(field, text)} onBlur={onBlurField ? () => onBlurField(field as "name" | "phone" | "email") : undefined}
+          placeholder={placeholder} placeholderTextColor={UI.muted}
           multiline={multiline} numberOfLines={numberOfLines} textAlignVertical={multiline ? "top" : "center"}
           {...inputProps}
         />
@@ -77,7 +80,7 @@ function LabeledInput({ label, required, value, onChangeText, placeholder, error
       {helperText ? <HelperText type="error" visible={!!error}>{helperText}</HelperText> : null}
     </>
   );
-}
+});
 
 export default function NewLeadScreen() {
   const { returnTo } = useLocalSearchParams<{ returnTo?: "dashboard" | "leads" }>();
@@ -118,22 +121,28 @@ export default function NewLeadScreen() {
     else router.replace(returnTo === "dashboard" ? "/(app)" : "/(app)/leads");
   }
 
-  function update(field: keyof FormState, value: string) {
+  // Stable (no dependencies), and it only touches the error state when there is an error to clear.
+  const update = useCallback((field: keyof FormState, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
-    setFieldErrors((current) => ({ ...current, [field]: undefined }));
-    setError("");
-  }
+    setFieldErrors((current) => (current[field as "name" | "phone" | "email"] ? { ...current, [field]: undefined } : current));
+    setError((current) => (current ? "" : current));
+  }, []);
+  // The handlers below read the latest form through a ref, so they can stay the same function between renders.
+  const latest = useRef({ form, country });
+  latest.current = { form, country };
 
   // The number typed, without a leading 0 and without the country code if it was pasted along with it
   // (e.g. 919876543210 for India), so the code isn't added twice. A real national number that merely
   // starts with the same digits (e.g. 9123456789) is kept: the code is only dropped when 10+ digits remain.
   function localNumber() {
+    const { form, country } = latest.current;
     const digits = form.phone.replace(/\D/g, "").replace(/^0+/, "");
     const dial = country.dial.replace(/\D/g, "");
     return digits.startsWith(dial) && digits.length - dial.length >= 10 ? digits.slice(dial.length) : digits;
   }
 
   function errorFor(field: "name" | "phone" | "email"): string | undefined {
+    const { form, country } = latest.current;
     if (field === "name") return !form.name.trim() ? "Enter the lead's name" : undefined;
     if (field === "phone") {
       const localDigits = localNumber();
@@ -148,9 +157,11 @@ export default function NewLeadScreen() {
     return undefined;
   }
 
-  function validateField(field: "name" | "phone" | "email") {
+  const validateField = useCallback((field: "name" | "phone" | "email") => {
     setFieldErrors((current) => ({ ...current, [field]: errorFor(field) }));
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const focusPhone = useCallback(() => phoneRef.current?.focus(), []);
 
   function validate() {
     const next: typeof fieldErrors = { name: errorFor("name"), phone: errorFor("phone"), email: errorFor("email") };
@@ -214,7 +225,7 @@ export default function NewLeadScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <Pressable onPress={closeForm} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
           <Ionicons name="arrow-back" size={22} color={UI.ink} />
@@ -230,9 +241,9 @@ export default function NewLeadScreen() {
         {error ? <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{error}</Text></View> : null}
 
         <LabeledInput
-          label="Name" required value={form.name} onChangeText={(value) => update("name", value)}
+          label="Name" required field="name" value={form.name} onValue={update}
           placeholder="John Doe" autoCapitalize="words" autoComplete="name" returnKeyType="next"
-          onSubmitEditing={() => phoneRef.current?.focus()} onBlur={() => validateField("name")} editable={!saving}
+          onSubmitEditing={focusPhone} onBlurField={validateField} editable={!saving}
           error={!!fieldErrors.name} helperText={fieldErrors.name}
         />
 
@@ -254,9 +265,9 @@ export default function NewLeadScreen() {
         <HelperText type="error" visible={!!fieldErrors.phone}>{fieldErrors.phone}</HelperText>
 
         <LabeledInput
-          label="Email Address" value={form.email} onChangeText={(value) => update("email", value)}
+          label="Email Address" field="email" value={form.email} onValue={update}
           placeholder="email@gmail.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
-          autoComplete="email" onBlur={() => validateField("email")} editable={!saving} error={!!fieldErrors.email} helperText={fieldErrors.email}
+          autoComplete="email" onBlurField={validateField} editable={!saving} error={!!fieldErrors.email} helperText={fieldErrors.email}
         />
 
         <Text style={styles.label}>Lead Source <Text style={styles.required}>*</Text></Text>
@@ -285,17 +296,17 @@ export default function NewLeadScreen() {
         ) : null}
 
         <LabeledInput
-          label="Business Name" value={form.business_name} onChangeText={(value) => update("business_name", value)}
+          label="Business Name" field="business_name" value={form.business_name} onValue={update}
           placeholder="Company or organisation" autoCapitalize="words" editable={!saving}
         />
 
         <LabeledInput
-          label="City" value={form.location} onChangeText={(value) => update("location", value)}
+          label="City" field="location" value={form.location} onValue={update}
           placeholder="Lead location" autoCapitalize="words" editable={!saving}
         />
 
         <LabeledInput
-          label="Address" value={form.address} onChangeText={(value) => update("address", value)}
+          label="Address" field="address" value={form.address} onValue={update}
           placeholder="Street address (optional)" multiline numberOfLines={3} editable={!saving}
         />
 
@@ -350,7 +361,7 @@ export default function NewLeadScreen() {
         ) : null}
 
         <LabeledInput
-          label="Notes" value={form.notes} onChangeText={(value) => update("notes", value)}
+          label="Notes" field="notes" value={form.notes} onValue={update}
           placeholder="Add context for your team…" multiline numberOfLines={4} editable={!saving}
         />
       </ScrollView>
