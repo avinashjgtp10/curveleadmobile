@@ -40,6 +40,7 @@ const DAYS_AFTER_TODAY = 90;
 // One request covers everything the screen groups: overdue (earlier days), today and what's coming up.
 // Home and Appointments count every overdue follow-up however old, so the list asks from the beginning (a year's cut-off hid older ones).
 const OVERDUE_FROM = "1970-01-01";
+const NEAR_DAYS_BEFORE = 7; // the small request covers a week back; earlier days come from the history request
 
 type Filter = "all" | "overdue" | "day" | "upcoming";
 
@@ -250,19 +251,36 @@ export default function FollowupsScreen() {
 
   // Only the newest request may update the screen, so a slow reply can't overwrite a later one.
   const requestId = useRef(0);
+  const followupsRef = useRef(followups);
+  followupsRef.current = followups;
+  // The screen is built from two requests: the days around today (small, fast, always fetched) and the older overdue
+  // history (can be large, so it only reloads on open and pull-to-refresh, not on every tab focus or save).
   // `silent` re-fetches in the background (no spinner, and a failure keeps the list on screen).
-  const load = useCallback(async (refresh = false, silent = false) => {
+  const load = useCallback(async (refresh = false, silent = false, withOlder = true) => {
     const id = ++requestId.current;
     if (!silent) {
       refresh ? setRefreshing(true) : setLoading(true);
       setError("");
     }
+    const windowStart = startOfDay(new Date()); windowStart.setDate(windowStart.getDate() - NEAR_DAYS_BEFORE);
+    const apply = (near: TodayFollowup[], older: TodayFollowup[] | null) => {
+      const keptOlder = older ?? followupsRef.current.filter((f) => new Date(f.next_followup_at) < windowStart);
+      const merged = keepUnchanged(followupsRef.current, [...keptOlder, ...near]);
+      followupsRef.current = merged;
+      if (user?.id) followupsCache = { userId: user.id, list: merged };
+      setFollowups(merged);
+    };
     try {
       const to = startOfDay(new Date()); to.setDate(to.getDate() + DAYS_AFTER_TODAY);
-      const result = await fetchTodayFollowups({ date_from: OVERDUE_FROM, date_to: ymd(to) });
+      const dayBefore = new Date(windowStart); dayBefore.setDate(dayBefore.getDate() - 1);
+      // Started together, but the screen doesn't wait for the history.
+      const olderRequest = withOlder ? fetchTodayFollowups({ date_from: OVERDUE_FROM, date_to: ymd(dayBefore) }).catch(() => null) : null;
+      const near = await fetchTodayFollowups({ date_from: ymd(windowStart), date_to: ymd(to) });
       if (id !== requestId.current) return;
-      if (user?.id) followupsCache = { userId: user.id, list: result };
-      setFollowups((current) => keepUnchanged(current, result));
+      apply(near, null);
+      setLoading(false); setRefreshing(false);
+      const older = olderRequest ? await olderRequest : null;
+      if (older && id === requestId.current) apply(near, older);
     } catch (loadError) {
       if (id !== requestId.current) return;
       if (!silent) setError(errorMessage(loadError, "Could not load follow-ups."));
@@ -272,34 +290,14 @@ export default function FollowupsScreen() {
   }, [user?.id]);
 
   // With a cached list on screen, the first refresh runs quietly instead of replacing it with a spinner.
-  // With nothing saved yet, a small window (last week to two weeks ahead) is fetched first so the screen appears quickly;
-  // the full range then fills in quietly behind it.
-  useEffect(() => {
-    if (cached) { load(false, true); return; }
-    let cancelled = false;
-    const id = ++requestId.current;
-    setLoading(true); setError("");
-    const from = startOfDay(new Date()); from.setDate(from.getDate() - 7);
-    const to = startOfDay(new Date()); to.setDate(to.getDate() + 14);
-    let quickOk = false;
-    fetchTodayFollowups({ date_from: ymd(from), date_to: ymd(to) })
-      .then((result) => { quickOk = true; if (!cancelled && id === requestId.current) setFollowups((current) => keepUnchanged(current, result)); })
-      .catch(() => {})
-      .finally(() => {
-        if (cancelled) return;
-        if (quickOk && id === requestId.current) setLoading(false);
-        // Quiet when the quick window is already showing; a normal load (with its error + retry) when it failed.
-        load(false, quickOk).catch(() => {});
-      });
-    return () => { cancelled = true; };
-  }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(false, !!cached); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The tab stays mounted, so follow-ups completed or added elsewhere (a lead's page, Appointments) would stay stale.
   // Refresh quietly whenever the tab is shown again.
   const focusedOnce = useRef(false);
   useFocusEffect(useCallback(() => {
     if (!focusedOnce.current) { focusedOnce.current = true; return; } // the first load is handled above
-    load(false, true);
+    load(false, true, false);
   }, [load]));
 
   useEffect(() => {
@@ -399,7 +397,7 @@ export default function FollowupsScreen() {
         notes: followupNotes.trim() || undefined,
       });
       setTimeout(() => Alert.alert("Follow-up scheduled", `${lead.name} - ${when}`), 100);
-      load(false, true);
+      load(false, true, false);
     } catch (saveError) {
       // Take the placeholder out and give the form back with what was typed, so nothing is lost.
       setFollowups((current) => current.filter((item) => item.id !== tempId));
