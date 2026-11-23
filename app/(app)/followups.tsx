@@ -336,6 +336,7 @@ export default function FollowupsScreen() {
     // Remove it at once; put it back if the server refuses.
     setCompletingId(item.id);
     setFollowups((current) => current.filter((f) => f.id !== item.id));
+    if (followupsCache) followupsCache = { ...followupsCache, list: followupsCache.list.filter((f) => f.id !== item.id) };
     try {
       await completeLeadFollowup(item.id);
     } catch (completeError) {
@@ -406,7 +407,7 @@ export default function FollowupsScreen() {
       dayList: active.filter((item) => isSameDay(new Date(item.next_followup_at), selectedDate)).sort(byTime),
       upcomingList: active.filter((item) => {
         const due = new Date(item.next_followup_at);
-        return due >= todayStart && !isSameDay(due, selectedDate) && due > selectedDate;
+        return due >= todayStart && !isSameDay(due, selectedDate);
       }).sort(byTime),
     };
   }, [followups, selectedDate, findStage]);
