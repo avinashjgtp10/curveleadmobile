@@ -167,8 +167,20 @@ interface RowActions {
   findStage: (name?: string) => { name: string } | undefined;
 }
 
-const LeadRow = React.memo(function LeadRow({ lead, selectMode, selected, canDelete, actions }: {
+function PhoneText({ phone, term }: { phone: string; term: string }) {
+  const at = term ? (phone || "").indexOf(term) : -1;
+  if (at < 0) return <Text style={styles.subtitle} numberOfLines={1}>{phone}</Text>;
+  return (
+    <Text style={styles.subtitle} numberOfLines={1}>
+      {phone.slice(0, at)}<Text style={styles.phoneMatch}>{phone.slice(at, at + term.length)}</Text>{phone.slice(at + term.length)}
+    </Text>
+  );
+}
+
+const LeadRow = React.memo(function LeadRow({ lead, selectMode, selected, canDelete, actions, highlight }: {
   lead: LeadListItem; selectMode: boolean; selected: boolean;
+  /** Digits being searched, highlighted inside the phone number. */
+  highlight: string;
   /** False for users who can't delete, which hides the Delete item. */
   canDelete: boolean;
   /** Also stands in for the stage list: a new array means stage names/colors changed, so the row redraws. */
@@ -237,12 +249,19 @@ const LeadRow = React.memo(function LeadRow({ lead, selectMode, selected, canDel
               </View>
             ) : null}
           </View>
+          {/* The number is always shown (like the web list), with the digits that matched the search highlighted. */}
           <View style={styles.sourceLine}>
-            <Ionicons name="chatbubble-outline" size={12} color="#64748b" />
-            <Text style={styles.subtitle} numberOfLines={1}>
-              {sourceLabel ? `${t("Source")}: ` : ""}<Text style={styles.sourceStrong}>{sourceLabel || lead.phone}</Text>
-            </Text>
+            <Ionicons name="call-outline" size={12} color="#64748b" />
+            <PhoneText phone={lead.phone} term={highlight} />
           </View>
+          {sourceLabel ? (
+            <View style={styles.sourceLine}>
+              <Ionicons name="chatbubble-outline" size={12} color="#64748b" />
+              <Text style={styles.subtitle} numberOfLines={1}>
+                {`${t("Source")}: `}<Text style={styles.sourceStrong}>{sourceLabel}</Text>
+              </Text>
+            </View>
+          ) : null}
         </View>
         <View style={styles.timeCol}>
           <Text style={styles.timeText}>{relativeDate(lead.created_at, t)}</Text>
@@ -298,6 +317,16 @@ const LeadRow = React.memo(function LeadRow({ lead, selectMode, selected, canDel
     </Pressable>
   );
 });
+
+// Phones are stored as "+<code><digits>" with no spaces, so a number typed as "98765 43210", "98765-43210" or "098765 43210"
+// would never match. Anything that looks like a phone number is searched as plain digits (no spaces, dashes or leading 0).
+function searchTerm(query: string) {
+  const q = query.trim();
+  if (!/^[\d\s()+-]+$/.test(q)) return q;
+  const digits = q.replace(/\D/g, "");
+  if (!digits) return q;
+  return q.startsWith("+") ? digits : digits.replace(/^0+(?=\d)/, "");
+}
 
 export default function LeadsScreen() {
   const { user } = useAuth();
@@ -390,7 +419,7 @@ export default function LeadsScreen() {
       const loadedPages = silent ? Math.max(1, pageRef.current) : 1;
       const result = await fetchLeads({
         page: localActive ? 1 : nextPage, limit: localActive ? LOCAL_FILTER_LIMIT : PAGE_SIZE * loadedPages,
-        ...(query && { search: query }),
+        ...(query && { search: searchTerm(query) }),
         ...(score && { score }),
         ...(filterStage && { stage: filterStage }),
         ...(filterSource && { source: filterSource }),
@@ -721,7 +750,7 @@ export default function LeadsScreen() {
         <SectionList
           sections={sections} keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <LeadRow lead={item} selectMode={selectMode} selected={selectedIds.has(item.id)} canDelete={isAdmin} stages={stages} actions={rowActions} />
+            <LeadRow lead={item} selectMode={selectMode} selected={selectedIds.has(item.id)} canDelete={isAdmin} stages={stages} actions={rowActions} highlight={/\d/.test(query) ? searchTerm(query) : ""} />
           )}
           renderSectionHeader={({ section }) => <Text style={styles.sectionHeader}>{t(section.title)}</Text>}
           ListHeaderComponent={header}
@@ -1034,6 +1063,7 @@ const styles = StyleSheet.create({
   timeCol: { alignItems: "flex-end", gap: 4 },
   moreButton: { padding: 2 },
   sourceLine: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 },
+  phoneMatch: { backgroundColor: "#fff3a3", color: "#0f172a", fontFamily: "Inter_700Bold" },
   sourceStrong: { color: "#0f172a", fontFamily: "Inter_700Bold" },
   timeText: { flexShrink: 0, color: "#64748b", fontSize: 11, fontFamily: "Inter_500Medium" },
   scoreBadge: { flexShrink: 0, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
