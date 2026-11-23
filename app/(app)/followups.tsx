@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert, Dimensions, FlatList, Linking, useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
+  Alert, AppState, Dimensions, FlatList, Linking, useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
 } from "react-native";
 import { ActivityIndicator, Button, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
@@ -110,7 +110,23 @@ const FollowupCard = React.memo(function FollowupCard({ item, overdue, completin
   }
   function callNow() {
     trackContactActivity(item.lead_id, "call").catch(() => {});
-    Linking.openURL(telUrl(item.lead_phone)).catch(() => Alert.alert("Unable to call", "Calling is not supported on this device."));
+    Linking.openURL(telUrl(item.lead_phone)).then(askAfterCall).catch(() => Alert.alert("Unable to call", "Calling is not supported on this device."));
+  }
+  // The call happens in the phone app. When the user comes back, ask whether the follow-up is done,
+  // so it leaves Overdue/Today instead of staying there until it is completed by hand.
+  function askAfterCall() {
+    let left = false;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") { left = true; return; }
+      if (!left) return;
+      sub.remove();
+      Alert.alert("Call finished?", `Mark the follow-up with ${item.lead_name} as completed?`, [
+        { text: "Not yet", style: "cancel" },
+        { text: "Mark completed", onPress: onComplete },
+      ]);
+    });
+    // If the dialer never took focus, don't leave the listener hanging.
+    setTimeout(() => { if (!left) sub.remove(); }, 15000);
   }
   function openWhatsapp() {
     Linking.openURL(`https://wa.me/${(item.lead_phone || "").replace(/\D/g, "")}`).catch(() => Alert.alert("Couldn't open WhatsApp", "Make sure WhatsApp is installed on this phone."));
