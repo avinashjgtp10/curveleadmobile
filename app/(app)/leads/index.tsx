@@ -29,14 +29,15 @@ import { fetchPreferences, updatePreferences } from "@/api/preferences";
 import { notifyLeadsDeleted } from "@/api/notifications";
 import { FilterDateField, formatYmd, toYmd } from "@/components/FilterDateField";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 // The unfiltered first page from the last visit, so the list opens with leads on screen instead of a spinner.
 // Hidden stages remembered for this session, so reopening the list doesn't wait on the preferences request first.
 let hiddenStagesCache: { userId: string; stages: string[] } | null = null;
-let leadsCache: { userId: string; leads: LeadListItem[]; total: number; pages: number } | null = null;
+// `hidden` is the hidden-stages setting the list was fetched with, so a list is only reused when it matches the current setting.
+let leadsCache: { userId: string; hidden: string; leads: LeadListItem[]; total: number; pages: number } | null = null;
 // With a status, follow-up or reply-window filter on, this many leads are fetched at once and filtered on the phone.
 const LOCAL_FILTER_LIMIT = 500;
-const MAX_SILENT_PAGES = 8; // a background refresh re-fetches at most this many pages in one request
+const MAX_SILENT_PAGES = 3; // a background refresh re-fetches at most this many pages in one request
 const FILTERS = [
   { value: "", label: "All leads" },
   { value: "hot", label: "Hot" },
@@ -156,6 +157,17 @@ function dateBucket(value: string) {
   if (date >= startOfToday) return "Today";
   if (date >= startOfYesterday) return "Yesterday";
   return "Earlier";
+}
+
+// A refresh returns brand-new objects for every lead. Keeping the old object for a lead that didn't change lets its
+// memoized row be skipped, so coming back to the list doesn't redraw every row.
+function reuseUnchanged(previous: LeadListItem[], fresh: LeadListItem[]) {
+  if (!previous.length) return fresh;
+  const old = new Map(previous.map((lead) => [lead.id, lead]));
+  return fresh.map((lead) => {
+    const before = old.get(lead.id);
+    return before && JSON.stringify(before) === JSON.stringify(lead) ? before : lead;
+  });
 }
 
 // The handlers live in a ref the screen keeps current, so the row's props stay the same between renders and React.memo
@@ -329,10 +341,30 @@ function searchTerm(query: string) {
   return q.startsWith("+") ? digits : digits.replace(/^0+(?=\d)/, "");
 }
 
+// Keeps the typed text itself, so a keystroke redraws only this box and not the whole Leads screen.
+const LeadSearchBox = React.memo(function LeadSearchBox({ initial, resetSignal, onChange, placeholder }: {
+  initial: string; resetSignal: number; onChange: (value: string) => void; placeholder: string;
+}) {
+  const [text, setText] = useState(initial);
+  const firstReset = useRef(true);
+  useEffect(() => {
+    if (firstReset.current) { firstReset.current = false; return; }
+    setText("");
+  }, [resetSignal]);
+  const change = (value: string) => { setText(value); onChange(value); };
+  return (
+    <Searchbar
+      icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 13, minHeight: 44 }} style={styles.searchBox} value={text} onChangeText={change}
+      placeholder={placeholder} placeholderTextColor={colors.textMuted} onClearIconPress={() => change("")}
+    />
+  );
+});
+
 export default function LeadsScreen() {
   const { user } = useAuth();
-  const cached = leadsCache && leadsCache.userId === user?.id ? leadsCache : null;
+  const cached = leadsCache && leadsCache.userId === user?.id && leadsCache.hidden === (hiddenStagesCache?.userId === user?.id ? hiddenStagesCache.stages : []).join(",") ? leadsCache : null;
   const firstLoad = useRef(true);
+  const prefsChanged = useRef(false);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { isAdmin } = usePermission();
@@ -347,7 +379,9 @@ export default function LeadsScreen() {
   // The list loads straight away; if the hidden-stages preference arrives different, `load` changes and it reloads once.
   const [prefsReady, setPrefsReady] = useState(true);
   const [pages, setPages] = useState(cached?.pages ?? 1);
-  const [search, setSearch] = useState("");
+  // The search box keeps what is typed in its own state; the screen only sees the text (in this ref) and the settled query.
+  const searchText = useRef("");
+  const [searchReset, setSearchReset] = useState(0);
   const [query, setQuery] = useState("");
   const [score, setScore] = useState("");
   const [loading, setLoading] = useState(!cached);
@@ -401,7 +435,7 @@ export default function LeadsScreen() {
     if (!preset) return;
     clearFilters();
     if (searchTimer.current) clearTimeout(searchTimer.current); // a search typed just before must not apply after the tile's filter
-    setSearch(""); setQuery("");
+    searchText.current = ""; setSearchReset((n) => n + 1); setQuery("");
     if (preset === "new_today") { const today = toYmd(new Date()); setFilterDateFrom(today); setFilterDateTo(today); }
     else if (preset === "hot") setScore("hot");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -442,15 +476,16 @@ export default function LeadsScreen() {
         return;
       }
       setLeads((current) => append ? [...current, ...result.leads.filter((lead) => !current.some((item) => item.id === lead.id))]
-        : partial ? [...result.leads, ...current.slice(result.leads.length).filter((lead) => !result.leads.some((fresh) => fresh.id === lead.id))] : result.leads);
+        : partial ? [...reuseUnchanged(current, result.leads), ...current.slice(result.leads.length).filter((lead) => !result.leads.some((fresh) => fresh.id === lead.id))]
+        : reuseUnchanged(current, result.leads));
       // A silent refresh asks for several pages at once, so page numbers are worked out in PAGE_SIZE units.
       const shownPages = silent ? (partial ? loadedPages : Math.max(1, Math.ceil(result.leads.length / PAGE_SIZE))) : result.pagination.page;
       pageRef.current = shownPages;
       setPage(shownPages);
       setPages(silent ? Math.max(1, Math.ceil(result.pagination.total / PAGE_SIZE)) : result.pagination.pages);
       setTotal(result.pagination.total);
-      const unfiltered = !query && !score && !filterStage && !filterSource && !filterAssignedTo && !filterDateFrom && !filterDateTo && !hiddenStages.length;
-      if (unfiltered && !append && user?.id) leadsCache = { userId: user.id, leads: result.leads, total: result.pagination.total, pages: Math.max(1, Math.ceil(result.pagination.total / PAGE_SIZE)) };
+      const unfiltered = !query && !score && !filterStage && !filterSource && !filterAssignedTo && !filterDateFrom && !filterDateTo;
+      if (unfiltered && !append && user?.id) leadsCache = { userId: user.id, hidden: hiddenStages.join(","), leads: result.leads, total: result.pagination.total, pages: Math.max(1, Math.ceil(result.pagination.total / PAGE_SIZE)) };
     } catch (loadError) {
       if (id !== requestId.current) return;
       setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string" ? loadError.response.data.error : "Could not load leads.");
@@ -464,7 +499,9 @@ export default function LeadsScreen() {
   // With a saved list on screen, the first refresh runs quietly instead of replacing it with a spinner.
   useEffect(() => {
     if (!prefsReady) return;
-    const quiet = firstLoad.current && !!cached;
+    // Also quiet when only the hidden-stages setting arrived different: the list stays on screen instead of a second spinner.
+    const quiet = (firstLoad.current && !!cached) || prefsChanged.current;
+    prefsChanged.current = false;
     firstLoad.current = false;
     load(1, false, quiet);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -495,7 +532,11 @@ export default function LeadsScreen() {
         const stagesNow = prefs.hidden_lead_stages || [];
         if (user?.id) hiddenStagesCache = { userId: user.id, stages: stagesNow };
         // Same list as before: keep the old array so the leads aren't fetched a second time for nothing.
-        setHiddenStages((current) => current.length === stagesNow.length && current.every((s, i) => s === stagesNow[i]) ? current : stagesNow);
+        setHiddenStages((current) => {
+          if (current.length === stagesNow.length && current.every((s, i) => s === stagesNow[i])) return current;
+          prefsChanged.current = true;
+          return stagesNow;
+        });
       })
       .catch(() => {})
       .finally(() => setPrefsReady(true));
@@ -567,11 +608,11 @@ export default function LeadsScreen() {
     return order.map((title) => ({ title, data: map.get(title)! }));
   }, [leads]);
 
-  function updateSearch(value: string) {
-    setSearch(value);
+  const updateSearch = useCallback((value: string) => {
+    searchText.current = value;
     if (searchTimer.current) clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => setQuery(value.trim()), 350);
-  }
+  }, []);
 
   function refresh() {
     setRefreshing(true);
@@ -711,10 +752,7 @@ export default function LeadsScreen() {
         </View>
       )}
       <View style={styles.searchRow}>
-        <Searchbar
-          icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 13, minHeight: 44 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
-          placeholder={t("Search by name or phone…")} placeholderTextColor={colors.textMuted} onClearIconPress={() => updateSearch("")}
-        />
+        <LeadSearchBox initial={searchText.current} resetSignal={searchReset} onChange={updateSearch} placeholder={t("Search by name or phone…")} />
         <Pressable
           style={[styles.filterButton, activeFilterCount > 0 && styles.filterButtonActive]} onPress={openFiltersSheet}
           accessibilityLabel={activeFilterCount ? `Filters (${activeFilterCount} active)` : "Filters"}

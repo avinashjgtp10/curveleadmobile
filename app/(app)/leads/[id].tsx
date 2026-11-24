@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert, Keyboard, Linking, Modal, Pressable,
+  Alert, Keyboard, Linking, Modal, Platform, Pressable,
   RefreshControl, ScrollView, StyleSheet, TextInput as RNTextInput, View,
 } from "react-native";
 import {
@@ -128,7 +128,7 @@ function ActionBox({ icon, value, chip, placeholder = "Not set", onPress }: {
   );
 }
 
-function EditableField({ icon, label, value, required, multiline, keyboardType, placeholder, validate, onSave }: {
+const EditableField = React.memo(function EditableField({ icon, label, value, required, multiline, keyboardType, placeholder, validate, onSave }: {
   icon: IconName; label: string; value: string; required?: boolean; multiline?: boolean;
   keyboardType?: React.ComponentProps<typeof RNTextInput>["keyboardType"]; placeholder?: string;
   validate?: (value: string) => string | null; onSave: (value: string) => Promise<void>;
@@ -186,7 +186,10 @@ function EditableField({ icon, label, value, required, multiline, keyboardType, 
       {error ? <Text style={styles.fieldErrorText}>{error}</Text> : null}
     </FieldGroup>
   );
-}
+});
+
+// Hoisted so the field's props stay the same between redraws of the page and the memoized field is skipped.
+const validateAmount = (value: string) => value && !/^\d+(\.\d+)?$/.test(value.replace(/[,₹\s]/g, "")) ? "Enter a valid amount." : null;
 
 const SCORE_BADGE = {
   hot: { label: "HOT", color: "#b91c1c", bg: "#fde1e1" },
@@ -198,7 +201,7 @@ type ProfileDraft = { name: string; phone: string; email: string; business_name:
 
 // Like the web lead page: a read-only summary where empty fields read "Add … →" (tap to start editing),
 // and a pencil that turns the whole card into one form with ✕ / ✓.
-function LeadProfileCard({ lead, onSave }: { lead: LeadDetails; onSave: (values: Partial<Record<keyof UpdateLeadInput, string>>) => Promise<void> }) {
+const LeadProfileCard = React.memo(function LeadProfileCard({ lead, onSave }: { lead: LeadDetails; onSave: (values: Partial<Record<keyof UpdateLeadInput, string>>) => Promise<void> }) {
   const fromLead = (): ProfileDraft => ({
     name: lead.name || "", phone: lead.phone || "", email: lead.email || "", business_name: lead.business_name || "",
     location: lead.location || "", source: lead.source || "", address: lead.address || "",
@@ -221,11 +224,12 @@ function LeadProfileCard({ lead, onSave }: { lead: LeadDetails; onSave: (values:
     const before = fromLead();
     const changed = (Object.keys(next) as (keyof ProfileDraft)[]).filter((key) => next[key] !== before[key]);
     if (!changed.length) { setEditing(false); return; }
-    setError(""); setSaving(true);
+    // Close at once (the page already shows the new values); reopen with what was typed and the error if the server refuses.
+    setError(""); setEditing(false); setSaving(true);
     try {
       await onSave(Object.fromEntries(changed.map((key) => [key, next[key]])));
-      setEditing(false);
     } catch (saveError) {
+      setDraft(next); setEditing(true);
       setError(errorMessage(saveError, "Could not save. Please try again."));
     } finally { setSaving(false); }
   }
@@ -302,7 +306,7 @@ function LeadProfileCard({ lead, onSave }: { lead: LeadDetails; onSave: (values:
       )}
     </View>
   );
-}
+});
 
 const profile = StyleSheet.create({
   top: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
@@ -357,23 +361,33 @@ type FollowupValues = { type: FollowupType; at: Date; notes: string; meetingUrl:
 
 // The follow-up form keeps what is being typed in its own state, so each keystroke redraws only this sheet and not the whole
 // lead page behind it.
-function FollowupSheet({ visible, initial, saving, bottomInset, onClose, onSubmit }: {
-  visible: boolean; initial: FollowupValues | null; saving: boolean; bottomInset: number;
-  onClose: () => void; onSubmit: (values: FollowupValues) => void;
-}) {
+// True while the follow-up sheet is on screen: the page behind it skips keyboard resizing, which it can't be seen doing.
+let followupSheetShowing = false;
+
+type FollowupSheetHandle = { open: (initial?: FollowupValues | null) => void };
+
+// It owns whether it is open, so opening and closing it never redraws the lead page behind it.
+const FollowupSheet = React.memo(React.forwardRef<FollowupSheetHandle, {
+  saving: boolean; bottomInset: number; onSubmit: (values: FollowupValues) => void;
+}>(function FollowupSheet({ saving, bottomInset, onSubmit }, ref) {
+  const [visible, setVisible] = useState(false);
   const [type, setType] = useState<FollowupType>("call");
   const [at, setAt] = useState(defaultFollowupDate());
   const [notes, setNotes] = useState("");
   const [meetingUrl, setMeetingUrl] = useState("");
   const [typePickerOpen, setTypePickerOpen] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const onClose = () => setVisible(false);
+  useEffect(() => { followupSheetShowing = visible; return () => { followupSheetShowing = false; }; }, [visible]);
 
   // Every open starts fresh, or with the values of a save that just failed.
-  useEffect(() => {
-    if (!visible) return;
-    setType(initial?.type ?? "call"); setAt(initial?.at ?? defaultFollowupDate());
-    setNotes(initial?.notes ?? ""); setMeetingUrl(initial?.meetingUrl ?? ""); setTypePickerOpen(false);
-  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useImperativeHandle(ref, () => ({
+    open: (initial) => {
+      setType(initial?.type ?? "call"); setAt(initial?.at ?? defaultFollowupDate());
+      setNotes(initial?.notes ?? ""); setMeetingUrl(initial?.meetingUrl ?? ""); setTypePickerOpen(false);
+      setVisible(true);
+    },
+  }), []);
 
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", (event) => setKeyboardHeight(event.endCoordinates.height));
@@ -386,6 +400,7 @@ function FollowupSheet({ visible, initial, saving, bottomInset, onClose, onSubmi
       Alert.alert("Choose a future time", "The follow-up date and time must be in the future.");
       return;
     }
+    setVisible(false);
     onSubmit({ type, at, notes, meetingUrl });
   }
 
@@ -438,7 +453,7 @@ function FollowupSheet({ visible, initial, saving, bottomInset, onClose, onSubmi
       </Pressable>
     </Modal>
   );
-}
+}));
 
 // Details already opened this session, so reopening a lead shows it at once while a fresh copy loads.
 const detailCache = new Map<string, Awaited<ReturnType<typeof fetchLeadDetails>>>();
@@ -468,7 +483,7 @@ export default function LeadDetailScreen() {
   const scrollY = useRef(0);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", (event) => setKeyboardHeight(event.endCoordinates.height));
+    const show = Keyboard.addListener("keyboardDidShow", (event) => { if (!followupSheetShowing) setKeyboardHeight(event.endCoordinates.height); });
     const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
     return () => { show.remove(); hide.remove(); };
   }, []);
@@ -499,9 +514,9 @@ export default function LeadDetailScreen() {
   const [statusSheetOpen, setStatusSheetOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
-  const [followupSheetOpen, setFollowupSheetOpen] = useState(false);
-  // What was typed in the follow-up form when a save failed, so the form can come back with it.
-  const [followupInitial, setFollowupInitial] = useState<FollowupValues | null>(null);
+  const followupSheet = useRef<FollowupSheetHandle>(null);
+  const scheduleLatest = useRef<(values: FollowupValues) => void>(() => {});
+  const scheduleFollowupStable = useCallback((values: FollowupValues) => scheduleLatest.current(values), []);
   const [schedulingFollowup, setSchedulingFollowup] = useState(false);
   const [emailSheetOpen, setEmailSheetOpen] = useState(false);
   const [emailDraft, setEmailDraft] = useState("");
@@ -583,9 +598,11 @@ export default function LeadDetailScreen() {
     } finally { setSavingEmail(false); }
   }
 
-  function saveField(field: keyof UpdateLeadInput, value: string) {
-    return saveFields({ [field]: value });
-  }
+  // Stable callbacks, so the memoized profile card and fields aren't redrawn whenever this page is.
+  const saveFieldsLatest = useRef<(values: Partial<Record<keyof UpdateLeadInput, string>>) => Promise<void>>(async () => {});
+  const saveFieldsStable = useCallback((values: Partial<Record<keyof UpdateLeadInput, string>>) => saveFieldsLatest.current(values), []);
+  const saveNotes = useCallback((value: string) => saveFieldsStable({ notes: value }), [saveFieldsStable]);
+  const saveDealValue = useCallback((value: string) => saveFieldsStable({ deal_value: value }), [saveFieldsStable]);
 
   // Several fields go in one request (the profile card used to send one per field, one after another).
   async function saveFields(values: Partial<Record<keyof UpdateLeadInput, string>>) {
@@ -597,13 +614,17 @@ export default function LeadDetailScreen() {
     setLead((current) => current ? { ...current, ...payload } as LeadDetails : current);
     try {
       const updated = await updateLeadDetails(lead.id, payload);
-      setLead((current) => current ? { ...current, ...updated } : updated);
+      // The page already shows what was typed; redraw it again only if the server changed any of it.
+      const same = (Object.keys(payload) as (keyof UpdateLeadInput)[]).every((key) => (updated as unknown as Record<string, unknown>)[key] === (payload as Record<string, unknown>)[key]);
+      if (!same) setLead((current) => current ? { ...current, ...updated } : updated);
       detailCache.delete(lead.id);
     } catch (saveError) {
       setLead(previous);
       throw saveError;
     }
   }
+
+  saveFieldsLatest.current = saveFields;
 
   // Fetch the team list quietly once the lead is on screen, so "Assign lead" opens with names already there.
   useEffect(() => {
@@ -707,7 +728,6 @@ export default function LeadDetailScreen() {
     const typeLabel = FOLLOWUP_TYPES.find((item) => item.key === values.type)?.label || "Follow-up";
     const message = `${typeLabel} on ${dateTime(values.at.toISOString())}.`;
     setSchedulingFollowup(true);
-    setFollowupSheetOpen(false);
     try {
       const created = await createLeadFollowup(lead.id, {
         followup_type: values.type,
@@ -716,15 +736,15 @@ export default function LeadDetailScreen() {
         meeting_url: values.type === "demo" ? values.meetingUrl.trim() || undefined : undefined,
       });
       setFollowups((current) => [created, ...current.map((item) => ({ ...item, is_completed: true }))]);
-      setFollowupInitial(null);
       setTimeout(() => Alert.alert("Follow-up scheduled", message), 100);
       load();
     } catch (followupError) {
-      setFollowupInitial(values);
-      setFollowupSheetOpen(true);
+      followupSheet.current?.open(values);
       setTimeout(() => Alert.alert("Couldn't schedule follow-up", errorMessage(followupError, "Please try again.")), 100);
     } finally { setSchedulingFollowup(false); }
   }
+
+  scheduleLatest.current = scheduleFollowup;
 
   function chooseDialOption(key: ActivitySheetType | "attachment") {
     setFabOpen(false);
@@ -790,7 +810,8 @@ export default function LeadDetailScreen() {
       <ScrollView
         ref={scrollRef} keyboardShouldPersistTaps="handled" scrollEventThrottle={16}
         onScroll={(event) => { scrollY.current = event.nativeEvent.contentOffset.y; }}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 150 + keyboardHeight }} showsVerticalScrollIndicator={false}
+        // Android already resizes the screen for the keyboard; adding the keyboard height again moved everything twice.
+        contentContainerStyle={{ paddingBottom: insets.bottom + 150 + (Platform.OS === "ios" ? keyboardHeight : 0) }} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={UI.blue} colors={[UI.blue]} />}
       >
         {error ? <Pressable style={styles.warning} onPress={() => notFound ? router.back() : load()}><Text style={styles.warningText}>{notFound ? "This lead no longer exists — it may have been deleted. Tap to go back." : "Some details couldn't be refreshed. Tap to retry."}</Text></Pressable> : null}
@@ -840,15 +861,15 @@ export default function LeadDetailScreen() {
           })}
         </View>
 
-        {tab === "overview" ? (
-          <View style={styles.body}>
+        {/* The overview stays mounted (just hidden) on the other tabs, so coming back to it doesn't rebuild and reload Notes and Documents. */}
+        <View style={[styles.body, tab !== "overview" && { display: "none" }]}>
             {(() => {
               const overdue = !!nextFollowup && new Date(nextFollowup.next_followup_at).getTime() < Date.now();
               const tone = overdue ? colors.danger : UI.blue;
               return (
                 <Pressable
                   style={[styles.followupBanner, { borderColor: overdue ? "#f4b4b4" : "#bcd0f5", backgroundColor: overdue ? "#fff0f0" : "#f3f7ff" }]}
-                  onPress={() => { Keyboard.dismiss(); setFollowupInitial(null); setFollowupSheetOpen(true); }}
+                  onPress={() => { Keyboard.dismiss(); followupSheet.current?.open(null); }}
                   accessibilityRole="button" accessibilityLabel="Schedule a follow-up" accessibilityHint="Opens the follow-up form"
                 >
                   <Ionicons name={overdue ? "alert-circle-outline" : "calendar-outline"} size={24} color={tone} />
@@ -885,7 +906,7 @@ export default function LeadDetailScreen() {
 
               <EditableField
                 icon="chatbubble-ellipses-outline" label="Notes" value={lead.notes || ""} multiline
-                placeholder="Add useful context for your team…" onSave={(value) => saveField("notes", value)}
+                placeholder="Add useful context for your team…" onSave={saveNotes}
               />
 
               <Text style={styles.fieldLabel}>Stage</Text>
@@ -904,8 +925,8 @@ export default function LeadDetailScreen() {
               <EditableField
                 icon="wallet-outline" label="Expected Value" value={lead.deal_value ? String(lead.deal_value) : ""}
                 keyboardType="decimal-pad" placeholder="0"
-                validate={(value) => value && !/^\d+(\.\d+)?$/.test(value.replace(/[,₹\s]/g, "")) ? "Enter a valid amount." : null}
-                onSave={(value) => saveField("deal_value", value)}
+                validate={validateAmount}
+                onSave={saveDealValue}
               />
               {lead.deal_value ? <Text style={styles.moneyHint}>{money(lead.deal_value)}</Text> : null}
 
@@ -916,16 +937,16 @@ export default function LeadDetailScreen() {
 
             <LeadDocuments pickSignal={attachSignal} leadId={lead.id} onChanged={reloadWithSpinner} />
           </View>
-        ) : tab === "details" ? (
+        {tab === "details" ? (
           <View style={styles.body}>
-           <LeadProfileCard lead={lead} onSave={saveFields} />
+           <LeadProfileCard lead={lead} onSave={saveFieldsStable} />
            <View style={styles.card}>
             <FieldGroup label="Date Created">
               <StaticBox icon="calendar-outline" value={dateTime(lead.lead_date || lead.created_at).split(",")[0]} />
             </FieldGroup>
            </View>
           </View>
-        ) : (
+        ) : tab === "activities" ? (
           <View style={styles.body}>
             <View style={styles.card}>
               {activities.length ? (
@@ -942,7 +963,7 @@ export default function LeadDetailScreen() {
               )}
             </View>
           </View>
-        )}
+        ) : null}
       </ScrollView>
 
       {!keyboardHeight ? (
@@ -1066,7 +1087,7 @@ export default function LeadDetailScreen() {
         </Pressable>
       </Modal>
 
-      <FollowupSheet visible={followupSheetOpen} initial={followupInitial} saving={schedulingFollowup} bottomInset={Math.max(insets.bottom, 18)} onClose={() => setFollowupSheetOpen(false)} onSubmit={scheduleFollowup} />
+      <FollowupSheet ref={followupSheet} saving={schedulingFollowup} bottomInset={Math.max(insets.bottom, 18)} onSubmit={scheduleFollowupStable} />
 
       <Modal visible={fabOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setFabOpen(false)}>
         <Pressable style={styles.dialBackdrop} onPress={() => setFabOpen(false)}>

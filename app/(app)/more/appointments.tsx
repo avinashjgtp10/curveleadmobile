@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
+import { useAuth } from "@/contexts/AuthContext";
 import { completeLeadFollowup, createLeadFollowup, fetchLeads, fetchTodayFollowups, FollowupType, LeadListItem, TodayFollowup } from "@/api/leads";
 
 
@@ -75,15 +76,20 @@ function initials(name?: string) {
   return words.length > 1 ? `${words[0][0]}${words[1][0]}`.toUpperCase() : words[0][0].toUpperCase();
 }
 
-function AppointmentRow({ item, completing, done, onView, onComplete, onReschedule, onCancel }: {
+// Memoized, so typing in the form or a background refresh doesn't redraw every row of a long list.
+const AppointmentRow = React.memo(function AppointmentRow({ item, completing, done, onView: viewItem, onComplete: completeItem, onReschedule: rescheduleItem, onCancel: cancelItem }: {
   item: TodayFollowup;
   completing: boolean;
   done?: boolean;
-  onView: () => void;
-  onComplete: () => void;
-  onReschedule: () => void;
-  onCancel: () => void;
+  onView: (item: TodayFollowup) => void;
+  onComplete: (item: TodayFollowup) => void;
+  onReschedule: (item: TodayFollowup) => void;
+  onCancel: (item: TodayFollowup) => void;
 }) {
+  const onView = () => viewItem(item);
+  const onComplete = () => completeItem(item);
+  const onReschedule = () => rescheduleItem(item);
+  const onCancel = () => cancelItem(item);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ y: 0, right: 16 });
   const anchorRef = useRef<View>(null);
@@ -123,7 +129,7 @@ function AppointmentRow({ item, completing, done, onView, onComplete, onReschedu
         <Text style={styles.rowTime}>{date.time}</Text>
         <Text style={[styles.statusPill, status === "overdue" ? styles.statusOverdue : status === "today" ? styles.statusToday : styles.statusUpcoming]}>{status === "overdue" ? "Overdue" : status === "today" ? "Today" : status === "completed" ? "Completed" : "Upcoming"}</Text>
       </View>
-      {done ? null : completing ? (
+      {done ? null : completing || item.id.startsWith("temp-") ? (
         <ActivityIndicator size="small" color={UI.teal} style={styles.actionButton} />
       ) : (
         <View ref={anchorRef} collapsable={false}>
@@ -137,7 +143,7 @@ function AppointmentRow({ item, completing, done, onView, onComplete, onReschedu
           />
         </View>
       )}
-      <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMenuOpen(false)}>
+      {menuOpen ? <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
           <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
             <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onView)}>
@@ -158,30 +164,25 @@ function AppointmentRow({ item, completing, done, onView, onComplete, onReschedu
             </Pressable>
           </View>
         </Pressable>
-      </Modal>
+      </Modal> : null}
     </Pressable>
   );
-}
+});
 
-function AppointmentsContent() {
+type AppointmentValues = { lead: LeadListItem; type: FollowupType; at: Date; notes: string; replacing: TodayFollowup | null };
+type AppointmentSheetHandle = {
+  openCreate: () => void;
+  openReschedule: (item: TodayFollowup) => void;
+  reopen: (values: AppointmentValues, error: string) => void;
+};
+
+// The form keeps what is typed in its own state, so each keystroke redraws only this form and not the appointments list
+// behind it.
+const AppointmentSheet = React.memo(React.forwardRef<AppointmentSheetHandle, { onSubmit: (values: AppointmentValues) => void }>(
+function AppointmentSheet({ onSubmit }, ref) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [appointments, setAppointments] = useState<TodayFollowup[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState<AppointmentTab>("all");
-  const [query, setQuery] = useState("");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [draftTab, setDraftTab] = useState<AppointmentTab>("all");
-  const [draftType, setDraftType] = useState<FollowupType | "">("");
-  const [typeFilter, setTypeFilter] = useState<FollowupType | "">("");
-  const [completingId, setCompletingId] = useState<string | null>(null);
-  // The server only returns open appointments, so the Completed tab lists the ones finished in this session.
-  const [completedItems, setCompletedItems] = useState<TodayFollowup[]>([]);
-  const hasData = useRef(false);
-
   const [sheetOpen, setSheetOpen] = useState(false);
   const [leadQuery, setLeadQuery] = useState("");
   const [leadResults, setLeadResults] = useState<LeadListItem[]>([]);
@@ -189,39 +190,41 @@ function AppointmentsContent() {
   const [appointmentAt, setAppointmentAt] = useState(defaultFollowupDate());
   const [appointmentType, setAppointmentType] = useState<FollowupType>("call");
   const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [reschedulingAppointment, setReschedulingAppointment] = useState<TodayFollowup | null>(null);
+
+  React.useImperativeHandle(ref, () => ({
+    openCreate: () => {
+      setLeadQuery(""); setLeadResults([]); setSelectedLead(null);
+      setAppointmentAt(defaultFollowupDate()); setAppointmentType("call"); setNotes(""); setFormError("");
+      setReschedulingAppointment(null);
+      setSheetOpen(true);
+      fetchLeads({ limit: 8 }).then((result) => setLeadResults(result.leads)).catch(() => setLeadResults([]));
+    },
+    openReschedule: (item) => {
+      const existingDate = new Date(item.next_followup_at);
+      setReschedulingAppointment(item);
+      setLeadQuery(""); setLeadResults([]);
+      setSelectedLead({ id: item.lead_id, name: item.lead_name, phone: item.lead_phone, stage: item.lead_stage, created_at: new Date().toISOString() });
+      // An overdue appointment's old time can't be saved again, so start from a fresh future time.
+      setAppointmentAt(Number.isNaN(existingDate.getTime()) || existingDate.getTime() < Date.now() ? defaultFollowupDate() : existingDate);
+      setAppointmentType(followupTypeOrDefault(item.followup_type));
+      setNotes(item.notes || ""); setFormError("");
+      setSheetOpen(true);
+    },
+    reopen: (values, error) => {
+      setReschedulingAppointment(values.replacing);
+      setLeadQuery(""); setLeadResults([]); setSelectedLead(values.lead);
+      setAppointmentAt(values.at); setAppointmentType(values.type); setNotes(values.notes); setFormError(error);
+      setSheetOpen(true);
+    },
+  }), []);
 
   useEffect(() => {
     const parent = navigation.getParent();
     parent?.setOptions({ tabBarStyle: sheetOpen ? { display: "none" } : tabBarStyleFor(insets.bottom) });
     return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
   }, [sheetOpen, navigation, insets.bottom]);
-
-  // `silent` re-syncs in the background: no spinner, and a failure keeps the list on screen without an alert.
-  const load = useCallback(async (refresh = false, silent = false) => {
-    if (!silent) {
-      refresh ? setRefreshing(true) : setLoading(true);
-      setError("");
-    }
-    try {
-      const future = new Date(); future.setDate(future.getDate() + 730);
-      const rows = await fetchTodayFollowups({ date_from: "1970-01-01", date_to: ymd(future) });
-      setAppointments(rows);
-      hasData.current = true;
-    } catch {
-      // A failed refresh must not hide a list that is already on screen.
-      if (silent) return;
-      if (refresh && hasData.current) Alert.alert("Couldn't refresh", "Showing the last loaded appointments.");
-      else setError("Could not load appointments.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     if (!sheetOpen || selectedLead) return;
@@ -238,6 +241,161 @@ function AppointmentsContent() {
     }, 300);
     return () => { cancelled = true; if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [leadQuery, selectedLead, sheetOpen]);
+
+  function closeSheet() {
+    setSheetOpen(false);
+    setReschedulingAppointment(null);
+  }
+
+  function submit() {
+    if (!selectedLead) { setFormError("Select a lead first."); return; }
+    if (appointmentAt.getTime() < Date.now() - 60000) { setFormError("Choose a date and time in the future."); return; }
+    setFormError(""); setSheetOpen(false);
+    onSubmit({ lead: selectedLead, type: appointmentType, at: appointmentAt, notes, replacing: reschedulingAppointment });
+  }
+
+  return (
+      <Modal visible={sheetOpen} animationType="slide" presentationStyle="fullScreen" statusBarTranslucent navigationBarTranslucent onRequestClose={closeSheet}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.sheetKeyboard}>
+          <View style={[styles.fullSheet, { paddingTop: insets.top }]}>
+            <View style={styles.fullSheetHeader}>
+              <Pressable onPress={closeSheet} hitSlop={10} style={styles.fullSheetBack}>
+                <Ionicons name="arrow-back" size={24} color={UI.ink} />
+              </Pressable>
+              <Text style={styles.fullSheetTitle}>{reschedulingAppointment ? "Reschedule Appointment" : "New Appointment"}</Text>
+            </View>
+            {formError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={UI.red} /><Text style={styles.sheetErrorText}>{formError}</Text></View> : null}
+
+            <ScrollView contentContainerStyle={styles.fullSheetBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <Text style={styles.sheetLabel}>Lead <Text style={styles.required}>*</Text></Text>
+              {selectedLead ? (
+                <View style={styles.selectedLead}>
+                  <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name}</Text>
+                  {reschedulingAppointment ? null : (
+                    <Pressable onPress={() => setSelectedLead(null)}><Text style={styles.changeLeadText}>Change</Text></Pressable>
+                  )}
+                </View>
+              ) : (
+                <>
+                  <Searchbar style={styles.sheetSearch} value={leadQuery} onChangeText={setLeadQuery} placeholder="Search leads by name or phone..." elevation={0} />
+                  {leadResults.length ? (
+                    <ScrollView style={styles.suggestions} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                      {leadResults.map((lead) => (
+                        <List.Item key={lead.id} title={lead.name} description={lead.phone} onPress={() => { setSelectedLead(lead); setLeadResults([]); }} />
+                      ))}
+                    </ScrollView>
+                  ) : null}
+                </>
+              )}
+
+              <Text style={styles.sheetLabel}>Date & Time <Text style={styles.required}>*</Text></Text>
+              <DateTimeField value={appointmentAt} onChange={setAppointmentAt} minimumDate={new Date()} />
+
+              <Text style={styles.sheetLabel}>Type</Text>
+              <View style={styles.typeRow}>
+                {TYPES.map((item) => (
+                  <Pressable key={item.key} style={[styles.typeChip, appointmentType === item.key && styles.typeChipActive]} onPress={() => setAppointmentType(item.key)}>
+                    <Text style={[styles.typeChipText, appointmentType === item.key && styles.typeChipTextActive]}>{item.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text style={styles.sheetLabel}>Notes (optional)</Text>
+              <TextInput mode="outlined" value={notes} onChangeText={setNotes} placeholder="e.g. Discuss pricing" style={styles.notesInput} />
+            </ScrollView>
+
+            <View style={[styles.sheetActions, styles.fullSheetActions, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+              <Button mode="outlined" textColor={UI.teal} onPress={closeSheet} style={styles.sheetAction}>Cancel</Button>
+              <Button mode="contained" buttonColor={UI.teal} onPress={submit} style={styles.sheetAction}>
+                {reschedulingAppointment ? "Reschedule" : "Schedule"}
+              </Button>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+  );
+}));
+
+// The last list loaded, so reopening the screen shows it at once while a fresh copy loads.
+let appointmentsCache: { userId: string; list: TodayFollowup[] } | null = null;
+
+function AppointmentsContent() {
+  const { user } = useAuth();
+  const cachedList = appointmentsCache && appointmentsCache.userId === user?.id ? appointmentsCache.list : null;
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  const [appointments, setAppointments] = useState<TodayFollowup[]>(cachedList ?? []);
+  const [loading, setLoading] = useState(!cachedList);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState<AppointmentTab>("all");
+  const [query, setQuery] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [draftTab, setDraftTab] = useState<AppointmentTab>("all");
+  const [draftType, setDraftType] = useState<FollowupType | "">("");
+  const [typeFilter, setTypeFilter] = useState<FollowupType | "">("");
+  const [completingId, setCompletingId] = useState<string | null>(null);
+  // The server only returns open appointments, so the Completed tab lists the ones finished in this session.
+  const [completedItems, setCompletedItems] = useState<TodayFollowup[]>([]);
+  const hasData = useRef(!!cachedList);
+  // Rows are drawn 30 at a time, so a long history doesn't make the screen heavy.
+  const [shown, setShown] = useState(30);
+  useEffect(() => { setShown(30); }, [activeTab, query, typeFilter]);
+
+  const sheetRef = useRef<AppointmentSheetHandle>(null);
+
+  // `silent` re-syncs in the background: no spinner, and a failure keeps the list on screen without an alert.
+  const load = useCallback(async (refresh = false, silent = false) => {
+    if (!silent) {
+      refresh ? setRefreshing(true) : setLoading(true);
+      setError("");
+    }
+    try {
+      const future = new Date(); future.setDate(future.getDate() + 730);
+      // On the first load, the days around today come first so the list appears fast; the full history follows.
+      if (!hasData.current) {
+        const from = new Date(); from.setDate(from.getDate() - 7);
+        const to = new Date(); to.setDate(to.getDate() + 60);
+        const near = await fetchTodayFollowups({ date_from: ymd(from), date_to: ymd(to) }).catch(() => null);
+        if (near && !hasData.current) { setAppointments(near); hasData.current = true; setLoading(false); }
+      }
+      const rows = await fetchTodayFollowups({ date_from: "1970-01-01", date_to: ymd(future) });
+      // Keep the old objects for rows that didn't change, so their memoized rows aren't redrawn.
+      setAppointments((current) => {
+        const old = new Map(current.map((row) => [row.id, row]));
+        return rows.map((row) => { const before = old.get(row.id); return before && JSON.stringify(before) === JSON.stringify(row) ? before : row; });
+      });
+      hasData.current = true;
+      if (user?.id) appointmentsCache = { userId: user.id, list: rows };
+    } catch {
+      // A failed refresh must not hide a list that is already on screen.
+      if (silent) return;
+      if (refresh && hasData.current) Alert.alert("Couldn't refresh", "Showing the last loaded appointments.");
+      else setError("Could not load appointments.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.id]);
+
+  // After a save the list already shows the new time, so only the days around today are re-checked (a small request)
+  // instead of downloading the whole history again.
+  const refreshNear = useCallback(async () => {
+    try {
+      const from = new Date(); from.setDate(from.getDate() - 7); from.setHours(0, 0, 0, 0);
+      const to = new Date(); to.setDate(to.getDate() + 60);
+      const near = await fetchTodayFollowups({ date_from: ymd(from), date_to: ymd(to) });
+      setAppointments((current) => {
+        const old = new Map(current.map((row) => [row.id, row]));
+        const kept = current.filter((row) => row.id.startsWith("temp-") || new Date(row.next_followup_at) < from || new Date(row.next_followup_at) > to);
+        const fresh = near.map((row) => { const before = old.get(row.id); return before && JSON.stringify(before) === JSON.stringify(row) ? before : row; });
+        const ids = new Set(fresh.map((row) => row.id));
+        return [...fresh, ...kept.filter((row) => !ids.has(row.id))];
+      });
+    } catch { /* the list on screen is already right; the next open re-syncs */ }
+  }, []);
+
+  useEffect(() => { load(false, !!cachedList); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const counts = useMemo(() => {
     const upcoming = appointments.filter((item) => statusFor(item) === "upcoming").length;
@@ -256,69 +414,48 @@ function AppointmentsContent() {
     });
   }, [activeTab, appointments, completedItems, query, typeFilter]);
 
-  function openCreate() {
-    setLeadQuery(""); setLeadResults([]); setSelectedLead(null);
-    setAppointmentAt(defaultFollowupDate()); setAppointmentType("call"); setNotes(""); setFormError("");
-    setReschedulingAppointment(null);
-    setSheetOpen(true);
-    fetchLeads({ limit: 8 }).then((result) => setLeadResults(result.leads)).catch(() => setLeadResults([]));
-  }
+  function openCreate() { sheetRef.current?.openCreate(); }
 
-  function closeSheet() {
-    if (saving) return;
-    setSheetOpen(false);
-    setReschedulingAppointment(null);
-  }
-
-  async function schedule() {
-    if (!selectedLead) { setFormError("Select a lead first."); return; }
-    if (appointmentAt.getTime() < Date.now() - 60000) { setFormError("Choose a date and time in the future."); return; }
-    setSaving(true); setFormError("");
+  async function schedule(form: AppointmentValues) {
+    const { lead, type, at, notes, replacing } = form;
+    // The form is already closed; show the new time at once and save in the background. The form comes back if the server refuses.
+    const tempId = `temp-${Date.now()}`;
+    const placeholder: TodayFollowup = {
+      id: tempId, lead_id: lead.id, lead_name: lead.name, lead_phone: lead.phone, lead_stage: lead.stage,
+      followup_type: type, next_followup_at: at.toISOString(), notes: notes.trim() || undefined,
+    };
+    setAppointments((current) => [placeholder, ...current.filter((item) => item.id !== replacing?.id)]);
+    setActiveTab("all"); setQuery(""); setTypeFilter(""); setFilterOpen(false);
     try {
-      const created = await createLeadFollowup(selectedLead.id, {
-        followup_type: appointmentType,
-        next_followup_at: appointmentAt.toISOString(),
-        notes: notes.trim() || undefined,
-      });
-      const newAppointment: TodayFollowup = {
-        id: created.id,
-        lead_id: selectedLead.id,
-        lead_name: selectedLead.name,
-        lead_phone: selectedLead.phone,
-        lead_stage: selectedLead.stage,
-        followup_type: created.followup_type || appointmentType,
-        next_followup_at: created.next_followup_at || appointmentAt.toISOString(),
-        notes: created.notes || notes.trim() || undefined,
-      };
-      if (reschedulingAppointment) {
+      const created = await createLeadFollowup(lead.id, { followup_type: type, next_followup_at: at.toISOString(), notes: notes.trim() || undefined });
+      setAppointments((current) => current.map((item) => item.id === tempId ? {
+        ...placeholder, id: created.id,
+        followup_type: created.followup_type || placeholder.followup_type,
+        next_followup_at: created.next_followup_at || placeholder.next_followup_at,
+        notes: created.notes || placeholder.notes,
+      } : item));
+      if (replacing) {
         // The new appointment already exists, so a failure here must not look like the whole reschedule failed
         // (retrying would create a duplicate).
-        try { await completeLeadFollowup(reschedulingAppointment.id, "Rescheduled"); }
+        try { await completeLeadFollowup(replacing.id, "Rescheduled"); }
         catch { Alert.alert("Rescheduled", "The new time was saved, but the old appointment could not be closed. Mark it completed manually."); }
       }
-      setAppointments((current) => [
-        newAppointment,
-        ...current.filter((item) => item.id !== newAppointment.id && item.id !== reschedulingAppointment?.id),
-      ]);
-      setActiveTab("all");
-      setQuery("");
-      setTypeFilter("");
-      setFilterOpen(false);
-      setSheetOpen(false);
-      setReschedulingAppointment(null);
-      load(true, true);
+      refreshNear();
     } catch {
-      setFormError(reschedulingAppointment ? "Could not reschedule this appointment." : "Could not schedule this appointment.");
-    } finally {
-      setSaving(false);
+      // Put the list back and give the form back with what was typed, so nothing is lost.
+      setAppointments((current) => {
+        const without = current.filter((item) => item.id !== tempId);
+        return replacing && !without.some((item) => item.id === replacing.id) ? [replacing, ...without] : without;
+      });
+      sheetRef.current?.reopen(form, replacing ? "Could not reschedule this appointment." : "Could not schedule this appointment.");
     }
   }
 
-  function viewAppointment(item: TodayFollowup) {
+  const viewAppointment = useCallback((item: TodayFollowup) => {
     router.push({ pathname: "/(app)/leads/[id]", params: { id: item.lead_id, name: item.lead_name, phone: item.lead_phone, stage: item.lead_stage || "new" } });
-  }
+  }, []);
 
-  async function markCompleted(item: TodayFollowup) {
+  const markCompleted = useCallback(async (item: TodayFollowup) => {
     setCompletingId(item.id);
     try {
       await completeLeadFollowup(item.id);
@@ -329,29 +466,11 @@ function AppointmentsContent() {
     } finally {
       setCompletingId(null);
     }
-  }
+  }, []);
 
-  function openReschedule(item: TodayFollowup) {
-    const existingDate = new Date(item.next_followup_at);
-    setReschedulingAppointment(item);
-    setLeadQuery("");
-    setLeadResults([]);
-    setSelectedLead({
-      id: item.lead_id,
-      name: item.lead_name,
-      phone: item.lead_phone,
-      stage: item.lead_stage,
-      created_at: new Date().toISOString(),
-    });
-    // An overdue appointment's old time can't be saved again, so start from a fresh future time.
-    setAppointmentAt(Number.isNaN(existingDate.getTime()) || existingDate.getTime() < Date.now() ? defaultFollowupDate() : existingDate);
-    setAppointmentType(followupTypeOrDefault(item.followup_type));
-    setNotes(item.notes || "");
-    setFormError("");
-    setSheetOpen(true);
-  }
+  const openReschedule = useCallback((item: TodayFollowup) => { sheetRef.current?.openReschedule(item); }, []);
 
-  function confirmCancel(item: TodayFollowup) {
+  const confirmCancel = useCallback((item: TodayFollowup) => {
     Alert.alert("Cancel appointment?", `Cancel the appointment with ${item.lead_name}?`, [
       { text: "Keep", style: "cancel" },
       {
@@ -369,7 +488,7 @@ function AppointmentsContent() {
         },
       },
     ]);
-  }
+  }, []);
 
   function openFilters() {
     setDraftTab(activeTab);
@@ -449,16 +568,16 @@ function AppointmentsContent() {
             <View style={styles.state}><ActivityIndicator size="large" color={UI.teal} /></View>
           ) : error ? (
             <View style={styles.state}><Text style={styles.errorText}>{error}</Text><Button mode="contained" buttonColor={UI.teal} onPress={() => load()}>Try again</Button></View>
-          ) : visibleAppointments.length ? visibleAppointments.map((item) => (
+          ) : visibleAppointments.length ? visibleAppointments.slice(0, shown).map((item) => (
             <AppointmentRow
               key={item.id}
               item={item}
               completing={completingId === item.id}
               done={activeTab === "completed"}
-              onView={() => viewAppointment(item)}
-              onComplete={() => markCompleted(item)}
-              onReschedule={() => openReschedule(item)}
-              onCancel={() => confirmCancel(item)}
+              onView={viewAppointment}
+              onComplete={markCompleted}
+              onReschedule={openReschedule}
+              onCancel={confirmCancel}
             />
           )) : (
             <View style={styles.empty}>
@@ -471,6 +590,11 @@ function AppointmentsContent() {
               </Pressable>
             </View>
           )}
+          {!loading && !error && visibleAppointments.length > shown ? (
+            <Button mode="outlined" textColor={UI.teal} onPress={() => setShown((count) => count + 30)} style={{ marginTop: 10 }}>
+              Show more ({visibleAppointments.length - shown} left)
+            </Button>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -518,64 +642,7 @@ function AppointmentsContent() {
         </Pressable>
       </Modal>
 
-      <Modal visible={sheetOpen} animationType="slide" presentationStyle="fullScreen" statusBarTranslucent navigationBarTranslucent onRequestClose={closeSheet}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.sheetKeyboard}>
-          <View style={[styles.fullSheet, { paddingTop: insets.top }]}>
-            <View style={styles.fullSheetHeader}>
-              <Pressable onPress={closeSheet} hitSlop={10} style={styles.fullSheetBack}>
-                <Ionicons name="arrow-back" size={24} color={UI.ink} />
-              </Pressable>
-              <Text style={styles.fullSheetTitle}>{reschedulingAppointment ? "Reschedule Appointment" : "New Appointment"}</Text>
-            </View>
-            {formError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={UI.red} /><Text style={styles.sheetErrorText}>{formError}</Text></View> : null}
-
-            <ScrollView contentContainerStyle={styles.fullSheetBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-              <Text style={styles.sheetLabel}>Lead <Text style={styles.required}>*</Text></Text>
-              {selectedLead ? (
-                <View style={styles.selectedLead}>
-                  <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name}</Text>
-                  {reschedulingAppointment ? null : (
-                    <Pressable onPress={() => setSelectedLead(null)}><Text style={styles.changeLeadText}>Change</Text></Pressable>
-                  )}
-                </View>
-              ) : (
-                <>
-                  <Searchbar style={styles.sheetSearch} value={leadQuery} onChangeText={setLeadQuery} placeholder="Search leads by name or phone..." elevation={0} />
-                  {leadResults.length ? (
-                    <ScrollView style={styles.suggestions} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                      {leadResults.map((lead) => (
-                        <List.Item key={lead.id} title={lead.name} description={lead.phone} onPress={() => { setSelectedLead(lead); setLeadResults([]); }} />
-                      ))}
-                    </ScrollView>
-                  ) : null}
-                </>
-              )}
-
-              <Text style={styles.sheetLabel}>Date & Time <Text style={styles.required}>*</Text></Text>
-              <DateTimeField value={appointmentAt} onChange={setAppointmentAt} minimumDate={new Date()} />
-
-              <Text style={styles.sheetLabel}>Type</Text>
-              <View style={styles.typeRow}>
-                {TYPES.map((item) => (
-                  <Pressable key={item.key} style={[styles.typeChip, appointmentType === item.key && styles.typeChipActive]} onPress={() => setAppointmentType(item.key)}>
-                    <Text style={[styles.typeChipText, appointmentType === item.key && styles.typeChipTextActive]}>{item.label}</Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <Text style={styles.sheetLabel}>Notes (optional)</Text>
-              <TextInput mode="outlined" value={notes} onChangeText={setNotes} placeholder="e.g. Discuss pricing" style={styles.notesInput} />
-            </ScrollView>
-
-            <View style={[styles.sheetActions, styles.fullSheetActions, { paddingBottom: Math.max(insets.bottom, 14) }]}>
-              <Button mode="outlined" textColor={UI.teal} onPress={closeSheet} style={styles.sheetAction}>Cancel</Button>
-              <Button mode="contained" buttonColor={UI.teal} onPress={schedule} loading={saving} disabled={saving} style={styles.sheetAction}>
-                {reschedulingAppointment ? "Reschedule" : "Schedule"}
-              </Button>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      <AppointmentSheet ref={sheetRef} onSubmit={schedule} />
     </View>
   );
 }

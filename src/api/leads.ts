@@ -1,4 +1,4 @@
-import { apiClient } from "./client";
+import { apiClient, isNetworkError } from "./client";
 
 // NOTE: adjust these paths to exactly match curveleadbackend's Express routes
 // (this mirrors the shape used by the web app's LeadsPage.jsx)
@@ -77,7 +77,16 @@ export async function fetchLeads(params?: {
   page?: number;
   limit?: number;
 }) {
-  const { data } = await apiClient.get<LeadsPage>("/leads", { params });
+  // A long list on a weak connection can take more than the default 15 seconds; failing then shows as a network error.
+  // One quick retry covers a dropped connection (e.g. switching between wifi and mobile data).
+  const request = () => apiClient.get<LeadsPage>("/leads", { params, timeout: 30000 });
+  let data: LeadsPage;
+  try { ({ data } = await request()); }
+  catch (error) {
+    if (!isNetworkError(error)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    ({ data } = await request());
+  }
   return data;
 }
 
