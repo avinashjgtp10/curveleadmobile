@@ -1,6 +1,7 @@
 import { IconHome, IconUsers, IconCheck, IconBook, IconGrid } from "@/components/ReferenceIcons";
 import React, { useEffect, useRef } from "react";
-import { Redirect, router, Tabs } from "expo-router";
+import { Redirect, router, Tabs, usePathname } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 // @ts-ignore - AuthContext is a TSX module and this app-level config does not enable JSX for the import check
 import { useAuth } from "@/contexts/AuthContext";
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
@@ -71,10 +72,34 @@ const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void 
   );
 });
 
+// When Android frees the app's memory while it sits in the background, reopening is a fresh launch. Remember the last
+// screen so that launch returns to it instead of Home. Stale (older than the limit) or auth/root paths are ignored.
+const LAST_ROUTE_KEY = "curvelead_last_route";
+const LAST_ROUTE_MAX_AGE_MS = 30 * 60 * 1000;
+
 export default function AppLayout() {
   const { user, isLoading } = useAuth();
   const insets = useSafeAreaInsets();
   const { t } = useT();
+  const pathname = usePathname();
+  const restored = useRef(false);
+  const ready = !isLoading && !!user;
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!restored.current) {
+      restored.current = true;
+      AsyncStorage.getItem(LAST_ROUTE_KEY).then((raw) => {
+        if (!raw) return;
+        const saved = JSON.parse(raw) as { path: string; at: number };
+        if (Date.now() - saved.at > LAST_ROUTE_MAX_AGE_MS) return;
+        if (!saved.path || saved.path === "/" || saved.path === pathname || saved.path.includes("/new")) return;
+        router.push(saved.path as never);
+      }).catch(() => {});
+      return;
+    }
+    AsyncStorage.setItem(LAST_ROUTE_KEY, JSON.stringify({ path: pathname, at: Date.now() })).catch(() => {});
+  }, [ready, pathname]);
 
   if (isLoading) return null;
   if (!user) return React.createElement(Redirect, { href: "/(auth)/login" });
