@@ -84,12 +84,14 @@ export default function AppLayout() {
   const pathname = usePathname();
   const restored = useRef(false);
   const ready = !isLoading && !!user;
+  // Per account, so signing in as someone else never opens a screen from the previous account.
+  const routeKey = `${LAST_ROUTE_KEY}:${user?.id ?? ""}`;
 
   useEffect(() => {
     if (!ready) return;
     if (!restored.current) {
       restored.current = true;
-      AsyncStorage.getItem(LAST_ROUTE_KEY).then((raw) => {
+      AsyncStorage.getItem(routeKey).then((raw) => {
         if (!raw) return;
         const saved = JSON.parse(raw) as { path: string; at: number };
         if (Date.now() - saved.at > LAST_ROUTE_MAX_AGE_MS) return;
@@ -98,7 +100,7 @@ export default function AppLayout() {
       }).catch(() => {});
       return;
     }
-    AsyncStorage.setItem(LAST_ROUTE_KEY, JSON.stringify({ path: pathname, at: Date.now() })).catch(() => {});
+    AsyncStorage.setItem(routeKey, JSON.stringify({ path: pathname, at: Date.now() })).catch(() => {});
   }, [ready, pathname]);
 
   if (isLoading) return null;
@@ -111,6 +113,8 @@ export default function AppLayout() {
       backBehavior: "history",
       screenOptions: () => ({
         headerShown: false,
+        // Tabs you aren't looking at stop redrawing (they catch up when shown), so Home, Leads and Tasks don't slow each other down.
+        freezeOnBlur: true,
         tabBarActiveTintColor: "#0e8a9b",
         tabBarInactiveTintColor: colors.textMuted,
         tabBarHideOnKeyboard: true,

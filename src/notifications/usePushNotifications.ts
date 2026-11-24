@@ -14,6 +14,10 @@ import { withRetry } from "./retry";
 import { isExpoGo } from "./environment";
 import { setBackgroundCheck } from "./backgroundCheck";
 
+// Registering this phone for push and the first new-lead / notification check wait this long after opening, so they don't
+// compete with the screens loading. Notifications that arrive as real pushes, and the app-closed background check, are not delayed.
+const PUSH_STARTUP_DELAY_MS = 15_000;
+
 // Register the foreground handler as soon as the app loads, not after the first screen mounts: a push that arrives
 // during start-up would otherwise fall back to iOS's default and show no banner.
 configureNotificationHandler();
@@ -98,7 +102,7 @@ export function usePushNotifications(navigationReady: boolean) {
       if (blocked) { timer = start(blocked + 500); return; }
       registerDevice().catch((error) => console.warn("[push] registration failed", error));
     }, delay);
-    let timer = start(4000);
+    let timer = start(PUSH_STARTUP_DELAY_MS);
 
     // Fires if the underlying push token rotates while the app is running (rare, but
     // documented as possible by Expo — e.g. after a Google Play Services update).
@@ -136,7 +140,7 @@ export function usePushNotifications(navigationReady: boolean) {
       // Leads first, so a "new lead" notification for a lead just announced isn't announced again.
       alertNewLeads().catch(() => {}).then(() => alertNewServerNotifications()).catch(() => {}).finally(() => { running = false; });
     };
-    const first = setTimeout(check, 6000);
+    const first = setTimeout(check, PUSH_STARTUP_DELAY_MS);
     const timer = setInterval(check, 60000);
     const sub = AppState.addEventListener("change", (state) => { if (state === "active") check(); });
     return () => { clearTimeout(first); clearInterval(timer); sub.remove(); };

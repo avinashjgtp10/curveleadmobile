@@ -209,13 +209,147 @@ const DayCell = React.memo(function DayCell({ day, active, width, onSelect }: { 
   );
 });
 
+type AddFollowupValues = { lead: LeadListItem; type: FollowupType; at: Date; notes: string };
+type AddFollowupHandle = { open: (initial?: AddFollowupValues, error?: string) => void };
+
+// The Add follow-up form keeps what is typed in its own state, so each keystroke redraws only this form and not the whole
+// Tasks screen (date strip and lists) behind it.
+const AddFollowupSheet = React.memo(React.forwardRef<AddFollowupHandle, { saving: boolean; onSave: (values: AddFollowupValues) => void }>(
+function AddFollowupSheet({ saving, onSave }, ref) {
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [leadQuery, setLeadQuery] = useState("");
+  const [leadResults, setLeadResults] = useState<LeadListItem[]>([]);
+  const [searchingLeads, setSearchingLeads] = useState(false);
+  const [selectedLead, setSelectedLead] = useState<LeadListItem | null>(null);
+  const [followupAt, setFollowupAt] = useState(defaultFollowupDate());
+  const [followupNotes, setFollowupNotes] = useState("");
+  const [followupType, setFollowupType] = useState<FollowupType>("call");
+  const [addError, setAddError] = useState("");
+
+  React.useImperativeHandle(ref, () => ({
+    open: (initial, error) => {
+      setLeadQuery(""); setLeadResults([]); setSelectedLead(initial?.lead ?? null);
+      setFollowupAt(initial?.at ?? defaultFollowupDate()); setFollowupNotes(initial?.notes ?? ""); setAddError(error ?? "");
+      setFollowupType(initial?.type ?? "call");
+      setAddOpen(true);
+    },
+  }), []);
+
+  useEffect(() => {
+    navigation.setOptions({ tabBarStyle: addOpen ? { display: "none" } : tabBarStyleFor(insets.bottom) });
+    return () => { navigation.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
+  }, [addOpen, navigation, insets.bottom]);
+
+  useEffect(() => {
+    if (!addOpen) return;
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!leadQuery.trim()) { setLeadResults([]); return; }
+    let cancelled = false;
+    searchTimer.current = setTimeout(async () => {
+      setSearchingLeads(true);
+      try {
+        const result = await fetchLeads({ search: phoneSearchTerm(leadQuery), limit: 6 });
+        // Ignore a slower response for an older query.
+        if (!cancelled) setLeadResults(result.leads);
+      } catch { /* best-effort suggestions */ }
+      finally { if (!cancelled) setSearchingLeads(false); }
+    }, 300);
+    return () => { cancelled = true; if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [leadQuery, addOpen]);
+
+  function closeAdd() {
+    if (!saving) setAddOpen(false);
+  }
+
+  function submit() {
+    if (!selectedLead) { setAddError("Search and select a lead first."); return; }
+    if (followupAt.getTime() < Date.now() - 60000) { setAddError("Choose a date and time in the future."); return; }
+    setAddError(""); setAddOpen(false);
+    onSave({ lead: selectedLead, type: followupType, at: followupAt, notes: followupNotes });
+  }
+
+  return (
+    <Modal visible={addOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeAdd}>
+        <Pressable style={styles.sheetBackdrop} onPress={closeAdd}>
+          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top }]} onPress={() => {}}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Add follow-up</Text>
+              <Pressable accessibilityLabel="Close" disabled={saving} hitSlop={10} onPress={closeAdd}>
+                <Ionicons name="close" size={22} color={saving ? colors.textMuted : UI.ink} />
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.sheetBody}
+              contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 18) }}
+              keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
+            >
+              {addError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{addError}</Text></View> : null}
+
+              <Text style={[styles.sheetSectionLabel, { marginTop: 0 }]}>Lead name <Text style={styles.required}>*</Text></Text>
+              {selectedLead ? (
+                <View style={styles.selectedLead}>
+                  <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name} · {selectedLead.phone}</Text>
+                  <Pressable onPress={() => { setSelectedLead(null); setLeadQuery(""); }} hitSlop={8}><Ionicons name="close" size={16} color={colors.textSecondary} /></Pressable>
+                </View>
+              ) : (
+                <>
+                  <Searchbar
+                    style={styles.searchInput} inputStyle={styles.searchInputText}
+                    value={leadQuery} onChangeText={setLeadQuery} placeholder="Search & Select Lead"
+                    loading={searchingLeads} elevation={0}
+                  />
+                  {leadResults.length ? (
+                    <View style={styles.suggestions}>
+                      {leadResults.map((lead) => (
+                        <List.Item
+                          key={lead.id} title={lead.name} titleNumberOfLines={1}
+                          description={lead.phone}
+                          onPress={() => { setSelectedLead(lead); setLeadResults([]); }}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
+                </>
+              )}
+
+              <Text style={styles.sheetSectionLabel}>Follow-up type</Text>
+              <View style={styles.typeRow}>
+                {FOLLOWUP_TYPES.map((item) => {
+                  const active = followupType === item.key;
+                  return (
+                    <Pressable key={item.key} onPress={() => setFollowupType(item.key)} style={[styles.typeChip, active && styles.typeChipActive]}>
+                      <Text style={[styles.typeChipText, active && styles.typeChipTextActive]}>{item.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.sheetSectionLabel}>Follow-up date &amp; time</Text>
+              <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
+
+              <Text style={styles.sheetSectionLabel}>Follow-up note</Text>
+              <TextInput mode="outlined" value={followupNotes} onChangeText={setFollowupNotes} placeholder="Add a note (optional)" multiline numberOfLines={3} style={styles.sheetTextarea} outlineStyle={styles.sheetOutline} outlineColor={UI.formLine} activeOutlineColor={UI.teal} />
+
+              <View style={styles.sheetActions}>
+                <Button mode="outlined" textColor={UI.teal} onPress={closeAdd} disabled={saving} style={styles.sheetCancelButton} contentStyle={styles.sheetPrimaryButtonContent}>Cancel</Button>
+                <Button mode="contained" buttonColor={UI.teal} onPress={submit} loading={saving} disabled={saving} style={styles.sheetSaveButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
+              </View>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+  );
+}));
+
 export default function FollowupsScreen() {
   const { user } = useAuth();
   const cached = followupsCache && followupsCache.userId === user?.id ? followupsCache.list : null;
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { colorFor, findStage } = useStages();
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<FlatList<Date>>(null);
   const didMountRef = useRef(false);
   const { width: screenWidth } = useWindowDimensions();
@@ -240,22 +374,8 @@ export default function FollowupsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startFilter, filterAt]);
 
-  const [addOpen, setAddOpen] = useState(false);
-
-  useEffect(() => {
-    navigation.setOptions({ tabBarStyle: addOpen ? { display: "none" } : tabBarStyleFor(insets.bottom) });
-    return () => { navigation.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
-  }, [addOpen, navigation, insets.bottom]);
-
-  const [leadQuery, setLeadQuery] = useState("");
-  const [leadResults, setLeadResults] = useState<LeadListItem[]>([]);
-  const [searchingLeads, setSearchingLeads] = useState(false);
-  const [selectedLead, setSelectedLead] = useState<LeadListItem | null>(null);
-  const [followupAt, setFollowupAt] = useState(defaultFollowupDate());
-  const [followupNotes, setFollowupNotes] = useState("");
-  const [followupType, setFollowupType] = useState<FollowupType>("call");
+  const addSheet = useRef<AddFollowupHandle>(null);
   const [saving, setSaving] = useState(false);
-  const [addError, setAddError] = useState("");
 
   // Only the newest request may update the screen, so a slow reply can't overwrite a later one.
   const requestId = useRef(0);
@@ -281,13 +401,12 @@ export default function FollowupsScreen() {
     try {
       const to = startOfDay(new Date()); to.setDate(to.getDate() + DAYS_AFTER_TODAY);
       const dayBefore = new Date(windowStart); dayBefore.setDate(dayBefore.getDate() - 1);
-      // Started together, but the screen doesn't wait for the history.
-      const olderRequest = withOlder ? fetchTodayFollowups({ date_from: OVERDUE_FROM, date_to: ymd(dayBefore) }).catch(() => null) : null;
       const near = await fetchTodayFollowups({ date_from: ymd(windowStart), date_to: ymd(to) });
       if (id !== requestId.current) return;
       apply(near, null);
       setLoading(false); setRefreshing(false);
-      const older = olderRequest ? await olderRequest : null;
+      // The (possibly large) history is asked for only once the days around today are on screen, so it can't slow them down.
+      const older = withOlder ? await fetchTodayFollowups({ date_from: OVERDUE_FROM, date_to: ymd(dayBefore) }).catch(() => null) : null;
       if (older && id === requestId.current) apply(near, older);
     } catch (loadError) {
       if (id !== requestId.current) return;
@@ -307,23 +426,6 @@ export default function FollowupsScreen() {
     if (!focusedOnce.current) { focusedOnce.current = true; return; } // the first load is handled above
     load(false, true, false);
   }, [load]));
-
-  useEffect(() => {
-    if (!addOpen) return;
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (!leadQuery.trim()) { setLeadResults([]); return; }
-    let cancelled = false;
-    searchTimer.current = setTimeout(async () => {
-      setSearchingLeads(true);
-      try {
-        const result = await fetchLeads({ search: phoneSearchTerm(leadQuery), limit: 6 });
-        // Ignore a slower response for an older query.
-        if (!cancelled) setLeadResults(result.leads);
-      } catch { /* best-effort suggestions */ }
-      finally { if (!cancelled) setSearchingLeads(false); }
-    }, 300);
-    return () => { cancelled = true; if (searchTimer.current) clearTimeout(searchTimer.current); };
-  }, [leadQuery, addOpen]);
 
   const days = useMemo(() => {
     const start = startOfDay(new Date()); start.setDate(start.getDate() - DAYS_BEFORE_TODAY);
@@ -373,66 +475,53 @@ export default function FollowupsScreen() {
     router.push({ pathname: "/(app)/leads/[id]", params: { id: item.lead_id, name: item.lead_name, phone: item.lead_phone, stage: item.lead_stage || "new" } });
   }, []);
 
-  function openAdd() {
-    setLeadQuery(""); setLeadResults([]); setSelectedLead(null);
-    setFollowupAt(defaultFollowupDate()); setFollowupNotes(""); setAddError(""); setFollowupType("call");
-    setAddOpen(true);
-  }
-
-  function closeAdd() {
-    if (!saving) setAddOpen(false);
-  }
-
-  async function saveFollowup() {
-    if (!selectedLead) { setAddError("Search and select a lead first."); return; }
-    if (followupAt.getTime() < Date.now() - 60000) { setAddError("Choose a date and time in the future."); return; }
-    // Close the form and show the follow-up in the list at once; the server saves it in the background.
-    const lead = selectedLead;
-    const bookedAt = followupAt;
+  async function saveFollowup(form: AddFollowupValues) {
+    const { lead, type, at: bookedAt, notes } = form;
+    // The form is already closed and the follow-up shows in the list at once; the server saves it in the background.
     const tempId = `temp-${Date.now()}`;
-    setAddError(""); setSaving(true); setAddOpen(false);
+    setSaving(true);
     setFollowups((current) => [{
       id: tempId, lead_id: lead.id, lead_name: lead.name, lead_phone: lead.phone, lead_stage: lead.stage,
-      followup_type: followupType, next_followup_at: bookedAt.toISOString(), notes: followupNotes.trim() || undefined,
+      followup_type: type, next_followup_at: bookedAt.toISOString(), notes: notes.trim() || undefined,
     }, ...current]);
     const when = bookedAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
     // Show the day it was booked for. Days outside the date strip can't be highlighted, so stay on the current day for those.
     const bookedDay = startOfDay(bookedAt);
     if (!isSameDay(bookedAt, selectedDate) && bookedDay >= days[0] && bookedDay <= days[days.length - 1]) setSelectedDate(bookedDay);
     try {
-      await createLeadFollowup(lead.id, {
-        followup_type: followupType,
-        next_followup_at: bookedAt.toISOString(),
-        notes: followupNotes.trim() || undefined,
-      });
+      await createLeadFollowup(lead.id, { followup_type: type, next_followup_at: bookedAt.toISOString(), notes: notes.trim() || undefined });
       setTimeout(() => Alert.alert("Follow-up scheduled", `${lead.name} - ${when}`), 100);
       load(false, true, false);
     } catch (saveError) {
       // Take the placeholder out and give the form back with what was typed, so nothing is lost.
       setFollowups((current) => current.filter((item) => item.id !== tempId));
-      setAddOpen(true);
-      setAddError(errorMessage(saveError, "Could not schedule this follow-up."));
+      addSheet.current?.open(form, errorMessage(saveError, "Could not schedule this follow-up."));
     } finally { setSaving(false); }
   }
 
   // Grouping is by the phone's real "today": earlier days are overdue, the picked day is its own group,
   // and later days are upcoming.
   const { overdueList, dayList, upcomingList } = useMemo(() => {
-    const todayStart = startOfDay(new Date());
-    const byTime = (a: TodayFollowup, b: TodayFollowup) => new Date(a.next_followup_at).getTime() - new Date(b.next_followup_at).getTime();
-    // Leads in a lost (disqualified) stage are out of the pipeline, so their scheduled follow-ups are dropped.
-    const active = followups.filter((item) => {
+    const todayStart = startOfDay(new Date()).getTime();
+    const dayStart = startOfDay(selectedDate).getTime();
+    const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+    const overdue: { item: TodayFollowup; t: number }[] = [];
+    const day: { item: TodayFollowup; t: number }[] = [];
+    const upcoming: { item: TodayFollowup; t: number }[] = [];
+    // One pass, each date read once (a long history made the old filter-and-sort-three-times pass slow on every redraw).
+    for (const item of followups) {
+      // Leads in a lost (disqualified) stage are out of the pipeline, so their scheduled follow-ups are dropped.
       const stage = findStage(item.lead_stage);
-      return !(stage?.is_lost || (item.lead_stage || "").toLowerCase() === "lost");
-    });
-    return {
-      overdueList: active.filter((item) => new Date(item.next_followup_at) < todayStart).sort(byTime),
-      dayList: active.filter((item) => isSameDay(new Date(item.next_followup_at), selectedDate)).sort(byTime),
-      upcomingList: active.filter((item) => {
-        const due = new Date(item.next_followup_at);
-        return due >= todayStart && !isSameDay(due, selectedDate);
-      }).sort(byTime),
-    };
+      if (stage?.is_lost || (item.lead_stage || "").toLowerCase() === "lost") continue;
+      const t = new Date(item.next_followup_at).getTime();
+      // As before: a past day picked in the strip lists its follow-ups both under Overdue and as its own day.
+      const onDay = t >= dayStart && t < dayEnd.getTime();
+      if (t < todayStart) overdue.push({ item, t });
+      if (onDay) day.push({ item, t });
+      else if (t >= todayStart) upcoming.push({ item, t });
+    }
+    const sorted = (list: { item: TodayFollowup; t: number }[]) => list.sort((x, y) => x.t - y.t).map((entry) => entry.item);
+    return { overdueList: sorted(overdue), dayList: sorted(day), upcomingList: sorted(upcoming) };
   }, [followups, selectedDate, findStage]);
   useEffect(() => { setShown(SHOW_STEP); }, [filter, selectedDate]);
   const selectedIsToday = isSameDay(selectedDate, new Date());
@@ -546,79 +635,11 @@ export default function FollowupsScreen() {
         )}
       </ScrollView>
 
-      <Pressable accessibilityLabel="Add follow-up" accessibilityRole="button" style={[styles.fab, { bottom: insets.bottom + 86 }]} onPress={openAdd}>
+      <Pressable accessibilityLabel="Add follow-up" accessibilityRole="button" style={[styles.fab, { bottom: insets.bottom + 86 }]} onPress={() => addSheet.current?.open()}>
         <Ionicons name="add" size={24} color="#fff" />
       </Pressable>
 
-      <Modal visible={addOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeAdd}>
-        <Pressable style={styles.sheetBackdrop} onPress={closeAdd}>
-          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top }]} onPress={() => {}}>
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Add follow-up</Text>
-              <Pressable accessibilityLabel="Close" disabled={saving} hitSlop={10} onPress={closeAdd}>
-                <Ionicons name="close" size={22} color={saving ? colors.textMuted : UI.ink} />
-              </Pressable>
-            </View>
-            <ScrollView
-              style={styles.sheetBody}
-              contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 18) }}
-              keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
-            >
-              {addError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{addError}</Text></View> : null}
-
-              <Text style={[styles.sheetSectionLabel, { marginTop: 0 }]}>Lead name <Text style={styles.required}>*</Text></Text>
-              {selectedLead ? (
-                <View style={styles.selectedLead}>
-                  <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name} · {selectedLead.phone}</Text>
-                  <Pressable onPress={() => { setSelectedLead(null); setLeadQuery(""); }} hitSlop={8}><Ionicons name="close" size={16} color={colors.textSecondary} /></Pressable>
-                </View>
-              ) : (
-                <>
-                  <Searchbar
-                    style={styles.searchInput} inputStyle={styles.searchInputText}
-                    value={leadQuery} onChangeText={setLeadQuery} placeholder="Search & Select Lead"
-                    loading={searchingLeads} elevation={0}
-                  />
-                  {leadResults.length ? (
-                    <View style={styles.suggestions}>
-                      {leadResults.map((lead) => (
-                        <List.Item
-                          key={lead.id} title={lead.name} titleNumberOfLines={1}
-                          description={lead.phone}
-                          onPress={() => { setSelectedLead(lead); setLeadResults([]); }}
-                        />
-                      ))}
-                    </View>
-                  ) : null}
-                </>
-              )}
-
-              <Text style={styles.sheetSectionLabel}>Follow-up type</Text>
-              <View style={styles.typeRow}>
-                {FOLLOWUP_TYPES.map((item) => {
-                  const active = followupType === item.key;
-                  return (
-                    <Pressable key={item.key} onPress={() => setFollowupType(item.key)} style={[styles.typeChip, active && styles.typeChipActive]}>
-                      <Text style={[styles.typeChipText, active && styles.typeChipTextActive]}>{item.label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              <Text style={styles.sheetSectionLabel}>Follow-up date &amp; time</Text>
-              <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
-
-              <Text style={styles.sheetSectionLabel}>Follow-up note</Text>
-              <TextInput mode="outlined" value={followupNotes} onChangeText={setFollowupNotes} placeholder="Add a note (optional)" multiline numberOfLines={3} style={styles.sheetTextarea} outlineStyle={styles.sheetOutline} outlineColor={UI.formLine} activeOutlineColor={UI.teal} />
-
-              <View style={styles.sheetActions}>
-                <Button mode="outlined" textColor={UI.teal} onPress={closeAdd} disabled={saving} style={styles.sheetCancelButton} contentStyle={styles.sheetPrimaryButtonContent}>Cancel</Button>
-                <Button mode="contained" buttonColor={UI.teal} onPress={saveFollowup} loading={saving} disabled={saving} style={styles.sheetSaveButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
-              </View>
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <AddFollowupSheet ref={addSheet} saving={saving} onSave={saveFollowup} />
     </View>
   );
 }
