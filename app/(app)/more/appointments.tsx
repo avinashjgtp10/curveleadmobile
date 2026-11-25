@@ -56,9 +56,21 @@ function statusFor(item: TodayFollowup) {
   const when = new Date(item.next_followup_at);
   const now = new Date();
   if (Number.isNaN(when.getTime())) return "upcoming";
-  if (when < now && !isSameDay(when, now)) return "overdue";
+  // Overdue as on the web: the time has passed, even earlier today.
+  if (when < now) return "overdue";
   if (isSameDay(when, now)) return "today";
   return "upcoming";
+}
+
+// Which tab an appointment is listed under. "Today" counts every appointment on today's date (including ones whose time has
+// passed, which are also Overdue), like the web.
+function inTab(item: TodayFollowup, tab: "upcoming" | "today" | "overdue") {
+  const when = new Date(item.next_followup_at);
+  if (Number.isNaN(when.getTime())) return tab === "upcoming";
+  const now = new Date();
+  if (tab === "overdue") return when < now;
+  if (tab === "today") return isSameDay(when, now);
+  return when >= now && !isSameDay(when, now);
 }
 
 function formatDate(value: string) {
@@ -398,16 +410,16 @@ function AppointmentsContent() {
   useEffect(() => { load(false, !!cachedList); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const counts = useMemo(() => {
-    const upcoming = appointments.filter((item) => statusFor(item) === "upcoming").length;
-    const today = appointments.filter((item) => statusFor(item) === "today").length;
-    const overdue = appointments.filter((item) => statusFor(item) === "overdue").length;
+    const upcoming = appointments.filter((item) => inTab(item, "upcoming")).length;
+    const today = appointments.filter((item) => inTab(item, "today")).length;
+    const overdue = appointments.filter((item) => inTab(item, "overdue")).length;
     return { upcoming, today, overdue };
   }, [appointments]);
 
   const visibleAppointments = useMemo(() => {
     const text = query.trim().toLowerCase();
     return (activeTab === "completed" ? completedItems : appointments).filter((item) => {
-      if (activeTab !== "all" && activeTab !== "completed" && statusFor(item) !== activeTab) return false;
+      if (activeTab !== "all" && activeTab !== "completed" && !inTab(item, activeTab)) return false;
       if (typeFilter && followupTypeOrDefault(item.followup_type) !== typeFilter) return false;
       if (!text) return true;
       return [item.lead_name, item.lead_phone, item.followup_type, typeMeta(item.followup_type).label, item.notes].some((value) => String(value || "").toLowerCase().includes(text));

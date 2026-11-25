@@ -80,6 +80,16 @@ function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
 
+// "15 min", "2 hours", "3 days": how long ago a follow-up was due.
+function overdueFor(value: string) {
+  const minutes = Math.max(1, Math.floor((Date.now() - new Date(value).getTime()) / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"}`;
+}
+
 // "30 Oct · 4:00 PM", from the follow-up's real date.
 function whenLabel(value: string) {
   const date = new Date(value);
@@ -158,7 +168,7 @@ const FollowupCard = React.memo(function FollowupCard({ item, overdue, completin
         <View style={styles.whenWrap}>
           <Ionicons name="time-outline" size={16} color={overdue ? UI.red : UI.sub} />
           <View>
-            <Text style={[styles.whenLabel, overdue && { color: UI.red }]}>{overdue ? "Overdue since" : `${pretty(item.followup_type)} follow-up`}</Text>
+            <Text style={[styles.whenLabel, overdue && { color: UI.red }]}>{overdue ? `Overdue by ${overdueFor(item.next_followup_at)}` : `${pretty(item.followup_type)} follow-up`}</Text>
             <Text style={[styles.whenValue, overdue && { color: UI.red }]}>{whenLabel(item.next_followup_at)}</Text>
           </View>
         </View>
@@ -520,6 +530,7 @@ export default function FollowupsScreen() {
   // Grouping is by the phone's real "today": earlier days are overdue, the picked day is its own group,
   // and later days are upcoming.
   const { overdueList, dayList, upcomingList } = useMemo(() => {
+    const nowMs = Date.now();
     const todayStart = startOfDay(new Date()).getTime();
     const dayStart = startOfDay(selectedDate).getTime();
     const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
@@ -534,9 +545,10 @@ export default function FollowupsScreen() {
       const t = new Date(item.next_followup_at).getTime();
       // As before: a past day picked in the strip lists its follow-ups both under Overdue and as its own day.
       const onDay = t >= dayStart && t < dayEnd.getTime();
-      if (t < todayStart) overdue.push({ item, t });
+      // Overdue as on the web: the time has passed, even earlier today.
+      if (t < nowMs) overdue.push({ item, t });
       if (onDay) day.push({ item, t });
-      else if (t >= todayStart) upcoming.push({ item, t });
+      else if (t >= nowMs) upcoming.push({ item, t });
     }
     const sorted = (list: { item: TodayFollowup; t: number }[]) => list.sort((x, y) => x.t - y.t).map((entry) => entry.item);
     return { overdueList: sorted(overdue), dayList: sorted(day), upcomingList: sorted(upcoming) };
@@ -551,7 +563,11 @@ export default function FollowupsScreen() {
     { key: "day", title: dayTitle, right: dayDateLabel, items: dayList, overdue: false },
     { key: "upcoming", title: "Upcoming", right: "", items: upcomingList, overdue: false },
   ];
-  const visibleSections = sections.filter((section) => (filter === "all" || filter === section.key) && section.items.length > 0);
+  // In the combined view a follow-up whose time has passed today is already under Overdue, so it isn't listed twice.
+  const overdueIds = new Set(overdueList.map((entry) => entry.id));
+  const visibleSections = sections
+    .map((section) => filter === "all" && section.key === "day" ? { ...section, items: section.items.filter((entry) => !overdueIds.has(entry.id)) } : section)
+    .filter((section) => (filter === "all" || filter === section.key) && section.items.length > 0);
 
   const chips: { key: Filter; label: string; count?: number }[] = [
     // No counts while the first load is running: "0" would claim there is nothing yet.
