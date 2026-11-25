@@ -153,6 +153,25 @@ export async function fetchTodayFollowups(range?: { date_from?: string; date_to?
   return data.followups || [];
 }
 
+/** The days the Follow-ups screen asks for first: a week back to 90 days ahead, as local dates (yyyy-mm-dd). */
+export function nearFollowupsRange() {
+  const day = (offset: number) => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + offset);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  };
+  return { date_from: day(-7), date_to: day(90) };
+}
+
+/** Warm the shared request cache with the Leads list's first page (same request the Leads tab makes when it opens). */
+export function prefetchFirstLeadsPage() {
+  fetchLeads({ page: 1, limit: 20 }).catch(() => {});
+}
+
+/** Warm the shared request cache so the Follow-ups tab opens with its list already loaded. */
+export function prefetchNearFollowups() {
+  fetchTodayFollowups(nearFollowupsRange()).catch(() => {});
+}
+
 export async function completeLeadFollowup(followupId: string, outcome?: string) {
   const { data } = await apiClient.put<{ followup: LeadFollowup }>(`/followups/${followupId}/complete`, { outcome });
   return data.followup;

@@ -11,7 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { DashboardPeriod, DashboardSummary, fetchDashboard } from "@/api/dashboard";
-import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "@/api/leads";
+import { fetchLeads, fetchTodayFollowups, prefetchFirstLeadsPage, prefetchNearFollowups, TodayFollowup } from "@/api/leads";
 import { facebookSyncLeads } from "@/api/integrations";
 import { fetchNotifications, notifyLeadsAdded, setShownNotifications } from "@/api/notifications";
 import { fetchByStaff, StaffPerformance } from "@/api/reports";
@@ -457,6 +457,14 @@ export default function DashboardScreen() {
     }, 600);
     return () => { cancelled = true; clearTimeout(task); };
   }, [dashboardReady, canManage]);
+
+  // Once the dashboard is up, start the Follow-ups tab's first request so it opens with its list ready (delayed, so Home doesn't fire a burst).
+  useEffect(() => {
+    if (!dashboardReady) return;
+    const task = setTimeout(prefetchNearFollowups, 1200);
+    const leadsTask = setTimeout(prefetchFirstLeadsPage, 1800);
+    return () => { clearTimeout(task); clearTimeout(leadsTask); };
+  }, [dashboardReady]);
 
   // `silent` re-fetches in the background (no spinner, no error alert) when returning to the screen.
   const load = useCallback(async (refresh = false, silent = false) => {
