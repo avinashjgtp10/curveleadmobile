@@ -1014,7 +1014,7 @@ export default function LeadDetailScreen() {
 
       <Modal visible={stageSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeStageSheet}>
         <Pressable style={styles.sheetBackdrop} onPress={closeStageSheet}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) + keyboardHeight }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             {lostReasonStep ? (
               <>
@@ -1147,26 +1147,30 @@ export default function LeadDetailScreen() {
 
       <Modal visible={emailSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => !savingEmail && setEmailSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => !savingEmail && setEmailSheetOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+          <Pressable style={[styles.sheet, styles.emailSheet, { paddingBottom: Math.max(insets.bottom, 18) + keyboardHeight }]} onPress={() => {}}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Add Email</Text>
             <Text style={styles.sheetHint}>Save an email address for {lead.name}, then the email composer will open.</Text>
             {emailError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{emailError}</Text></View> : null}
-            <TextInput
-              mode="outlined"
-              label="Email address"
-              value={emailDraft}
-              onChangeText={(value) => { setEmailDraft(value); setEmailError(""); }}
-              placeholder="email@gmail.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="email"
-              disabled={savingEmail}
-              style={styles.sheetField}
-            />
-            <Button mode="contained" onPress={saveEmailAndOpen} loading={savingEmail} disabled={savingEmail} style={styles.sheetPrimaryButton} contentStyle={styles.sheetButtonContent}>Save & Email</Button>
-            <Button mode="outlined" onPress={() => setEmailSheetOpen(false)} disabled={savingEmail} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
+            <Text style={styles.emailLabel}>Email Address</Text>
+            <View style={[styles.emailInputBox, !!emailError && { borderColor: colors.danger }]}>
+              <RNTextInput
+                style={styles.emailInput}
+                value={emailDraft}
+                onChangeText={(value) => { setEmailDraft(value); setEmailError(""); }}
+                placeholder="email@gmail.com"
+                placeholderTextColor={UI.muted}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+                editable={!savingEmail}
+              />
+            </View>
+            <View style={styles.emailActions}>
+              <Button mode="outlined" onPress={() => setEmailSheetOpen(false)} disabled={savingEmail} textColor="#0b6b97" style={styles.emailCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
+              <Button mode="contained" onPress={saveEmailAndOpen} loading={savingEmail} disabled={savingEmail} buttonColor="#0b6b97" textColor="#ffffff" style={styles.emailSave} contentStyle={styles.sheetButtonContent}>Save & Email</Button>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1315,6 +1319,14 @@ const styles = StyleSheet.create({
   sheetPrimaryButton: { marginTop: 20 },
   sheetButtonContent: { height: 48 },
   sheetCancel: { marginTop: 10 },
+  // The Add Email form uses the same pale blue page, white field and teal buttons as the Add lead screen.
+  emailSheet: { backgroundColor: "#f0f6fa" },
+  emailLabel: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold", marginBottom: 6 },
+  emailInputBox: { minHeight: 46, borderRadius: 10, borderWidth: 1, borderColor: "#cfe3f1", backgroundColor: "#ffffff", paddingHorizontal: 14, justifyContent: "center" },
+  emailInput: { color: UI.ink, fontSize: 13 },
+  emailActions: { flexDirection: "row", gap: 12, marginTop: 20 },
+  emailCancel: { flex: 1, borderColor: "#cfe3f1", borderRadius: 999, backgroundColor: "#ffffff" },
+  emailSave: { flex: 1.4, borderRadius: 999 },
 
   stageList: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
   stageListDot: { width: 10, height: 10, borderRadius: 5, alignSelf: "center", marginLeft: 4 },
