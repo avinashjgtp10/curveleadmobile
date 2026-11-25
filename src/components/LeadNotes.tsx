@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, Text } from "react-native-paper";
 import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuth } from "@/contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/theme";
 import { LeadNote, NoteType, createLeadNote, deleteLeadNote, fetchLeadNotes, updateLeadNote } from "@/api/notes";
@@ -46,6 +48,8 @@ function loadNotes(leadId: string, fresh = false): Promise<LeadNote[]> {
 export function prefetchLeadNotes(leadId: string) { loadNotes(leadId).catch(() => {}); }
 
 export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onFormOpen, refreshSignal = 0 }: { leadId: string; onAdded?: () => void; onFormOpen?: (form: View | null) => void; refreshSignal?: number }) {
+  const { user } = useAuth();
+  const storageKey = user?.id ? `curvelead_notes_${user.id}_${leadId}` : null;
   const [notes, setNotes] = useState<LeadNote[]>(() => notesCache.get(leadId) ?? []);
   const [loading, setLoading] = useState(() => !notesCache.has(leadId));
   const [loadError, setLoadError] = useState("");
@@ -59,10 +63,26 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
 
   const load = useCallback(async (fresh = false) => {
     setLoadError("");
-    try { setNotes(await loadNotes(leadId, fresh)); }
+    try {
+      const loaded = await loadNotes(leadId, fresh);
+      setNotes(loaded);
+      if (storageKey) AsyncStorage.setItem(storageKey, JSON.stringify(loaded)).catch(() => {});
+    }
     catch (error) { setLoadError(errorMessage(error, "Could not load notes.")); }
     finally { setLoading(false); }
-  }, [leadId]);
+  }, [leadId, storageKey]);
+
+  // After the app was restarted nothing is in memory: show the notes saved on the phone while the fresh copy loads.
+  useEffect(() => {
+    if (!storageKey || notesCache.has(leadId)) return;
+    let cancelled = false;
+    AsyncStorage.getItem(storageKey).then((raw) => {
+      if (cancelled || !raw || notesCache.has(leadId)) return; // the fresh copy already arrived
+      const saved = JSON.parse(raw) as LeadNote[];
+      if (Array.isArray(saved)) { setNotes(saved); setLoading(false); }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [leadId, storageKey]);
 
   useEffect(() => { load(); }, [load, refreshSignal]);
   useEffect(() => { if (formOpen) onFormOpen?.(formRef.current); }, [formOpen, editingId]); // eslint-disable-line react-hooks/exhaustive-deps

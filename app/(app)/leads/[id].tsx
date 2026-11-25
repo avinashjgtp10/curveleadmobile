@@ -7,6 +7,8 @@ import {
   ActivityIndicator, Button, IconButton, List, RadioButton, Text, TextInput,
 } from "react-native-paper";
 import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuth } from "@/contexts/AuthContext";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -491,6 +493,8 @@ export default function LeadDetailScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ id: string; name?: string; phone?: string; stage?: string; source?: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const { user } = useAuth();
+  const storageKey = id && user?.id ? `curvelead_lead_${user.id}_${id}` : null;
   const saved = id ? detailCache.get(id) : undefined;
   const [lead, setLead] = useState<LeadDetails | null>(() => saved ? saved.lead : params.name && params.phone ? {
     id, name: params.name, phone: params.phone, stage: params.stage || "new", source: params.source,
@@ -567,6 +571,7 @@ export default function LeadDetailScreen() {
       const result = await fetchLeadDetails(id);
       detailCache.set(id, result);
       if (detailCache.size > 30) detailCache.delete(detailCache.keys().next().value as string);
+      if (storageKey) AsyncStorage.setItem(storageKey, JSON.stringify({ ...result, activities: result.activities.slice(0, 100) })).catch(() => {});
       setLead(result.lead); setActivities(result.activities); setFollowups(result.followups);
       setDetailsLoaded(true);
     } catch (loadError) {
@@ -574,7 +579,21 @@ export default function LeadDetailScreen() {
       setNotFound(axios.isAxiosError(loadError) && loadError.response?.status === 404);
       setError(errorMessage(loadError, "Could not load this lead."));
     } finally { setLoading(false); setRefreshing(false); }
-  }, [id]);
+  }, [id, storageKey]);
+
+  // After the app was restarted nothing is in memory: show the details saved on the phone while the fresh copy loads.
+  useEffect(() => {
+    if (!id || !storageKey || detailCache.has(id)) return;
+    let cancelled = false;
+    AsyncStorage.getItem(storageKey).then((raw) => {
+      if (cancelled || !raw || detailCache.has(id)) return; // the fresh copy already arrived
+      const stored = JSON.parse(raw) as Awaited<ReturnType<typeof fetchLeadDetails>>;
+      if (!stored?.lead) return;
+      setLead(stored.lead); setActivities(stored.activities ?? []); setFollowups(stored.followups ?? []);
+      setDetailsLoaded(true); setLoading(false);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [id, storageKey]);
 
   useEffect(() => { load(); }, [load]);
   // Stable callbacks, so the memoized notes and documents sections don't redraw whenever this screen does.

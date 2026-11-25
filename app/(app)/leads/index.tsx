@@ -23,6 +23,7 @@ import { openPhoneWhatsapp } from "@/api/openWhatsapp";
 import {
   bulkDeleteLeads, bulkUpdateLeads, fetchLeads, LeadListItem, trackContactActivity,
 } from "@/api/leads";
+import { onLeadCreated } from "@/lib/leadCreation";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchStaff, StaffMember } from "@/api/staff";
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
@@ -525,6 +526,8 @@ export default function LeadsScreen() {
     loadRef.current(1, false, true);
   }, []));
   useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); }, []);
+  // A lead added from the Add lead form saves in the background; show it as soon as the server has it.
+  useEffect(() => onLeadCreated(() => loadRef.current(1, false, true)), []);
 
   useEffect(() => {
     fetchPreferences()
