@@ -26,6 +26,24 @@ function dateText(value: string) {
 
 // Notes already loaded this session, so reopening a lead shows them at once while a fresh copy loads.
 const notesCache = new Map<string, LeadNote[]>();
+const inFlight = new Map<string, Promise<LeadNote[]>>();
+
+// One shared request per lead, so the screen can start it early and the section joins it instead of asking again.
+// `fresh` skips any request that may have started before a change was saved.
+function loadNotes(leadId: string, fresh = false): Promise<LeadNote[]> {
+  const existing = inFlight.get(leadId);
+  if (existing && !fresh) return existing;
+  const request = fetchLeadNotes(leadId).then((notes) => {
+    notesCache.set(leadId, notes);
+    if (notesCache.size > 30) notesCache.delete(notesCache.keys().next().value as string);
+    return notes;
+  }).finally(() => { if (inFlight.get(leadId) === request) inFlight.delete(leadId); });
+  inFlight.set(leadId, request);
+  return request;
+}
+
+/** Start loading a lead's notes in the background, alongside the lead details. */
+export function prefetchLeadNotes(leadId: string) { loadNotes(leadId).catch(() => {}); }
 
 export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onFormOpen, refreshSignal = 0 }: { leadId: string; onAdded?: () => void; onFormOpen?: (form: View | null) => void; refreshSignal?: number }) {
   const [notes, setNotes] = useState<LeadNote[]>(() => notesCache.get(leadId) ?? []);
@@ -39,14 +57,9 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
   const [saving, setSaving] = useState(false);
   const formRef = useRef<View>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     setLoadError("");
-    try {
-      const fresh = await fetchLeadNotes(leadId);
-      notesCache.set(leadId, fresh);
-      if (notesCache.size > 30) notesCache.delete(notesCache.keys().next().value as string);
-      setNotes(fresh);
-    }
+    try { setNotes(await loadNotes(leadId, fresh)); }
     catch (error) { setLoadError(errorMessage(error, "Could not load notes.")); }
     finally { setLoading(false); }
   }, [leadId]);
@@ -72,7 +85,7 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
     try {
       if (wasEditing) await updateLeadNote(leadId, wasEditing, content);
       else { await createLeadNote(leadId, { note: content, note_type: type }); onAdded?.(); }
-      load();
+      load(true);
     } catch (error) {
       // Put things back so nothing the person typed is lost.
       setNotes(previous); setText(content); setEditingId(wasEditing); setFormOpen(true);
@@ -86,7 +99,7 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
       { text: "Delete", style: "destructive", onPress: async () => {
         const previous = notes;
         setNotes((current) => current.filter((item) => item.id !== note.id));
-        try { await deleteLeadNote(leadId, note.id); load(); }
+        try { await deleteLeadNote(leadId, note.id); load(true); }
         catch (error) { setNotes(previous); Alert.alert("Couldn't delete", errorMessage(error, "Please try again.")); }
       } },
     ]);
@@ -135,7 +148,7 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
       ) : null}
 
       {loading ? <ActivityIndicator style={styles.loader} color={colors.primary} /> : loadError ? (
-        <Pressable onPress={() => { setLoading(true); load(); }}><Text style={styles.empty}>{loadError} Tap to retry.</Text></Pressable>
+        <Pressable onPress={() => { setLoading(true); load(true); }}><Text style={styles.empty}>{loadError} Tap to retry.</Text></Pressable>
       ) : notes.length === 0 ? (
         <Text style={styles.empty}>No notes yet. Add discussion notes from meetings or calls.</Text>
       ) : (

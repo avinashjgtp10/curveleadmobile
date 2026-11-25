@@ -536,9 +536,10 @@ export default function FollowupsScreen() {
   const visibleSections = sections.filter((section) => (filter === "all" || filter === section.key) && section.items.length > 0);
 
   const chips: { key: Filter; label: string; count?: number }[] = [
-    { key: "overdue", label: "Overdue", count: overdueList.length },
-    { key: "day", label: dayTitle, count: dayList.length },
-    { key: "upcoming", label: "Upcoming", count: upcomingList.length },
+    // No counts while the first load is running: "0" would claim there is nothing yet.
+    { key: "overdue", label: "Overdue", count: loading ? undefined : overdueList.length },
+    { key: "day", label: dayTitle, count: loading ? undefined : dayList.length },
+    { key: "upcoming", label: "Upcoming", count: loading ? undefined : upcomingList.length },
   ];
 
   return (

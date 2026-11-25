@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert, Keyboard, Linking, Modal, Platform, Pressable,
-  RefreshControl, ScrollView, StyleSheet, TextInput as RNTextInput, View,
+  RefreshControl, ScrollView, StyleSheet, TextInput as RNTextInput, ToastAndroid, View,
 } from "react-native";
 import {
   ActivityIndicator, Button, IconButton, List, RadioButton, Text, TextInput,
@@ -12,7 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
-import { LeadNotes } from "@/components/LeadNotes";
+import { LeadNotes, prefetchLeadNotes } from "@/components/LeadNotes";
 import { LeadDocuments } from "@/components/LeadDocuments";
 import { ActivitySheetType, LeadActivitySheet } from "@/components/LeadActivitySheet";
 import { useStages } from "@/hooks/useStages";
@@ -127,66 +127,6 @@ function ActionBox({ icon, value, chip, placeholder = "Not set", onPress }: {
     </View>
   );
 }
-
-const EditableField = React.memo(function EditableField({ icon, label, value, required, multiline, keyboardType, placeholder, validate, onSave }: {
-  icon: IconName; label: string; value: string; required?: boolean; multiline?: boolean;
-  keyboardType?: React.ComponentProps<typeof RNTextInput>["keyboardType"]; placeholder?: string;
-  validate?: (value: string) => string | null; onSave: (value: string) => Promise<void>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
-
-  function startEdit() { setDraft(value); setError(""); setEditing(true); }
-  function cancelEdit() { setDraft(value); setError(""); setEditing(false); }
-
-  async function save() {
-    const trimmed = draft.trim();
-    if (required && !trimmed) { setError("This field is required."); return; }
-    const validationError = validate?.(trimmed);
-    if (validationError) { setError(validationError); return; }
-    // Close at once (the parent already shows the new value); reopen with the error if the server refuses.
-    setError(""); setEditing(false); setSaving(true);
-    try {
-      await onSave(trimmed);
-    } catch (saveError) {
-      setDraft(trimmed); setEditing(true);
-      setError(errorMessage(saveError, "Could not save. Please try again."));
-    } finally { setSaving(false); }
-  }
-
-  return (
-    <FieldGroup label={label} required={required}>
-      <View style={[styles.inputArea, multiline && styles.inputAreaMultiline]}>
-        <Ionicons name={icon} size={16} color={colors.textSecondary} style={[styles.inputIcon, multiline && styles.inputIconTop]} />
-        {editing ? (
-          <RNTextInput
-            style={[styles.inputAreaText, multiline && styles.inputAreaTextMultiline]}
-            value={draft} onChangeText={setDraft} autoFocus keyboardType={keyboardType}
-            multiline={multiline} textAlignVertical={multiline ? "top" : "center"}
-            placeholder={placeholder} placeholderTextColor={colors.textMuted} editable={!saving}
-          />
-        ) : (
-          <Text style={styles.inputAreaText} numberOfLines={multiline ? 4 : 1}>{value || placeholder || "Not added"}</Text>
-        )}
-        {editing ? (
-          <View style={styles.inputActions}>
-            <IconButton icon="close" size={15} style={styles.inputActionButton} onPress={cancelEdit} disabled={saving} />
-            {saving ? <ActivityIndicator size="small" color={colors.primary} style={styles.inputActionButton} /> : (
-              <IconButton icon="check" size={16} style={styles.inputActionButton} onPress={save} disabled={saving} />
-            )}
-          </View>
-        ) : (
-          <IconButton icon="pencil" size={13} style={styles.pencilButton} onPress={startEdit} />
-        )}
-      </View>
-      {error ? <Text style={styles.fieldErrorText}>{error}</Text> : null}
-    </FieldGroup>
-  );
-});
 
 // Hoisted so the field's props stay the same between redraws of the page and the memoized field is skipped.
 const validateAmount = (value: string) => value && !/^\d+(\.\d+)?$/.test(value.replace(/[,₹\s]/g, "")) ? "Enter a valid amount." : null;
@@ -328,6 +268,95 @@ const profile = StyleSheet.create({
   label: { color: UI.sub, fontSize: 12, marginBottom: 6 },
   input: { minHeight: 42, borderWidth: 1, borderColor: UI.field, borderRadius: 10, paddingHorizontal: 12, color: UI.ink, fontSize: 14, backgroundColor: "#ffffff" },
   inputMulti: { minHeight: 70, paddingTop: 10 },
+});
+
+// The Overview "Lead details" card. The pencil turns the editable fields (notes, expected value, source) into inputs
+// all at once; ✓ saves them in one request and ✕ throws the changes away. Typing stays inside this card, so the page behind doesn't redraw.
+type DetailsDraft = { notes: string; deal_value: string; source: string };
+
+const LeadDetailsCard = React.memo(function LeadDetailsCard({ lead, onSave, top, middle, bottom }: {
+  lead: LeadDetails; onSave: (values: Partial<Record<keyof UpdateLeadInput, string>>) => Promise<void>;
+  top: React.ReactNode; middle: React.ReactNode; bottom: React.ReactNode;
+}) {
+  const fromLead = (): DetailsDraft => ({ notes: lead.notes || "", deal_value: lead.deal_value ? String(lead.deal_value) : "", source: lead.source || "" });
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<DetailsDraft>(fromLead);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function startEdit() { setDraft(fromLead()); setError(""); setEditing(true); }
+  function cancel() { if (!saving) { setError(""); setEditing(false); } }
+  const set = (key: keyof DetailsDraft) => (value: string) => setDraft((current) => ({ ...current, [key]: value }));
+
+  async function save() {
+    const next = { notes: draft.notes.trim(), deal_value: draft.deal_value.trim(), source: draft.source.trim() };
+    const amountError = validateAmount(next.deal_value);
+    if (amountError) { setError(amountError); return; }
+    const before = fromLead();
+    const changed = (Object.keys(next) as (keyof DetailsDraft)[]).filter((key) => next[key] !== before[key]);
+    if (!changed.length) { setError(""); setEditing(false); return; }
+    // Close at once (the page already shows the new values); reopen with what was typed and the error if the server refuses.
+    setError(""); setEditing(false); setSaving(true);
+    try {
+      await onSave(Object.fromEntries(changed.map((key) => [key, next[key]])));
+    } catch (saveError) {
+      setDraft(next); setEditing(true);
+      setError(errorMessage(saveError, "Could not save. Please try again."));
+    } finally { setSaving(false); }
+  }
+
+  const field = (label: string, icon: IconName, key: keyof DetailsDraft, shown: string, extra?: { multiline?: boolean; placeholder?: string; keyboardType?: React.ComponentProps<typeof RNTextInput>["keyboardType"] }) => (
+    <FieldGroup label={label}>
+      <View style={[styles.inputArea, extra?.multiline && styles.inputAreaMultiline]}>
+        <Ionicons name={icon} size={16} color={colors.textSecondary} style={[styles.inputIcon, extra?.multiline && styles.inputIconTop]} />
+        {editing ? (
+          <RNTextInput
+            style={[styles.inputAreaText, extra?.multiline && styles.inputAreaTextMultiline]} value={draft[key]} onChangeText={set(key)}
+            multiline={extra?.multiline} keyboardType={extra?.keyboardType} textAlignVertical={extra?.multiline ? "top" : "center"}
+            placeholder={extra?.placeholder} placeholderTextColor={colors.textMuted} editable={!saving}
+          />
+        ) : (
+          <Text style={[styles.inputAreaText, !shown && { color: UI.muted }]} numberOfLines={extra?.multiline ? 4 : 1}>{shown || extra?.placeholder || "Not added"}</Text>
+        )}
+      </View>
+    </FieldGroup>
+  );
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeaderSplit}>
+        <View style={styles.cardTitleRow}>
+          <Ionicons name="document-text-outline" size={16} color={UI.ink} />
+          <Text style={styles.cardTitle}>Lead details</Text>
+        </View>
+        {editing ? (
+          <View style={profile.actions}>
+            <Pressable onPress={cancel} disabled={saving} hitSlop={8} style={profile.actionBtn} accessibilityRole="button" accessibilityLabel="Cancel editing">
+              <Ionicons name="close" size={18} color={UI.sub} />
+            </Pressable>
+            <Pressable onPress={save} disabled={saving} hitSlop={8} style={[profile.actionBtn, profile.actionSave]} accessibilityRole="button" accessibilityLabel="Save lead details">
+              {saving ? <ActivityIndicator size="small" color={UI.blue} /> : <Ionicons name="checkmark" size={18} color={UI.blue} />}
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable onPress={startEdit} hitSlop={10} accessibilityRole="button" accessibilityLabel="Edit lead details">
+            <Ionicons name="pencil-outline" size={16} color={UI.sub} />
+          </Pressable>
+        )}
+      </View>
+
+      {error ? <Text style={profile.error}>{error}</Text> : null}
+
+      {top}
+      {field("Notes", "chatbubble-ellipses-outline", "notes", lead.notes || "", { multiline: true, placeholder: "Add useful context for your team…" })}
+      {middle}
+      <View style={{ height: 14 }} />
+      {field("Expected Value", "wallet-outline", "deal_value", lead.deal_value ? String(lead.deal_value) : "", { keyboardType: "decimal-pad", placeholder: "0" })}
+      {!editing && lead.deal_value ? <Text style={styles.moneyHint}>{money(lead.deal_value)}</Text> : null}
+      {field("Source", "megaphone-outline", "source", lead.source || "", { placeholder: "Add lead source" })}
+      {bottom}
+    </View>
+  );
 });
 
 const ActivityItem = React.memo(function ActivityItem({ item, last }: { item: LeadActivity; last: boolean }) {
@@ -532,6 +561,8 @@ export default function LeadDetailScreen() {
     if (!id) { setError("This lead link is invalid."); setLoading(false); return; }
     if (refresh) setRefreshing(true); else if (!detailCache.has(id)) setLoading(true);
     setError(""); setNotFound(false);
+    // Notes load alongside the lead instead of waiting for it, so they're ready when the section appears.
+    if (!refresh) prefetchLeadNotes(id);
     try {
       const result = await fetchLeadDetails(id);
       detailCache.set(id, result);
@@ -601,8 +632,6 @@ export default function LeadDetailScreen() {
   // Stable callbacks, so the memoized profile card and fields aren't redrawn whenever this page is.
   const saveFieldsLatest = useRef<(values: Partial<Record<keyof UpdateLeadInput, string>>) => Promise<void>>(async () => {});
   const saveFieldsStable = useCallback((values: Partial<Record<keyof UpdateLeadInput, string>>) => saveFieldsLatest.current(values), []);
-  const saveNotes = useCallback((value: string) => saveFieldsStable({ notes: value }), [saveFieldsStable]);
-  const saveDealValue = useCallback((value: string) => saveFieldsStable({ deal_value: value }), [saveFieldsStable]);
 
   // Several fields go in one request (the profile card used to send one per field, one after another).
   async function saveFields(values: Partial<Record<keyof UpdateLeadInput, string>>) {
@@ -728,6 +757,15 @@ export default function LeadDetailScreen() {
     const typeLabel = FOLLOWUP_TYPES.find((item) => item.key === values.type)?.label || "Follow-up";
     const message = `${typeLabel} on ${dateTime(values.at.toISOString())}.`;
     setSchedulingFollowup(true);
+    // Show the follow-up on the screen right away; the server's copy replaces it when it answers.
+    const tempId = `temp-${Date.now()}`;
+    const previous = followups;
+    setFollowups((current) => [
+      { id: tempId, followup_type: values.type, next_followup_at: values.at.toISOString(), notes: values.notes.trim() || undefined, is_completed: false },
+      ...current.map((item) => ({ ...item, is_completed: true })),
+    ]);
+    // On Android a small toast confirms at once; it doesn't block the screen like an alert would.
+    if (Platform.OS === "android") ToastAndroid.show(`Follow-up scheduled: ${message}`, ToastAndroid.SHORT);
     try {
       const created = await createLeadFollowup(lead.id, {
         followup_type: values.type,
@@ -735,10 +773,11 @@ export default function LeadDetailScreen() {
         notes: values.notes.trim() || undefined,
         meeting_url: values.type === "demo" ? values.meetingUrl.trim() || undefined : undefined,
       });
-      setFollowups((current) => [created, ...current.map((item) => ({ ...item, is_completed: true }))]);
-      setTimeout(() => Alert.alert("Follow-up scheduled", message), 100);
+      setFollowups((current) => current.map((item) => item.id === tempId ? created : item));
+      if (Platform.OS !== "android") setTimeout(() => Alert.alert("Follow-up scheduled", message), 100);
       load();
     } catch (followupError) {
+      setFollowups(previous);
       followupSheet.current?.open(values);
       setTimeout(() => Alert.alert("Couldn't schedule follow-up", errorMessage(followupError, "Please try again.")), 100);
     } finally { setSchedulingFollowup(false); }
@@ -884,56 +923,37 @@ export default function LeadDetailScreen() {
 
             <LeadNotes leadId={lead.id} refreshSignal={notesSignal} onAdded={reloadQuietly} onFormOpen={revealInScroll} />
 
-            <View style={styles.card}>
-              <View style={styles.cardHeaderSplit}>
-                <View style={styles.cardTitleRow}>
-                  <Ionicons name="document-text-outline" size={16} color={UI.ink} />
-                  <Text style={styles.cardTitle}>Lead details</Text>
+            <LeadDetailsCard
+              lead={lead} onSave={saveFieldsStable}
+              top={<>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Lead date</Text>
+                  <Text style={styles.detailValue}>{dateTime(lead.lead_date || lead.created_at)}</Text>
                 </View>
-                <Pressable onPress={() => setTab("details")} hitSlop={10} accessibilityRole="button" accessibilityLabel="Edit lead details">
-                  <Ionicons name="pencil-outline" size={16} color={UI.sub} />
+                <Pressable style={styles.detailRow} onPress={openAssignSheet} accessibilityRole="button" accessibilityLabel="Change assigned staff">
+                  <Text style={styles.detailLabel}>Assigned to staff</Text>
+                  <Text style={styles.detailValue}>{lead.assigned_to_name || "Unassigned"}</Text>
                 </Pressable>
-              </View>
+              </>}
+              middle={<>
+                <Text style={styles.fieldLabel}>Stage</Text>
+                <Pressable style={styles.selectField} onPress={openStageSheet} accessibilityRole="button" accessibilityLabel="Change stage">
+                  <Text style={styles.selectText}>{currentStage?.name || pretty(stage)}</Text>
+                  <Ionicons name="chevron-down" size={16} color={UI.sub} />
+                </Pressable>
 
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Lead date</Text>
-                <Text style={styles.detailValue}>{dateTime(lead.lead_date || lead.created_at)}</Text>
-              </View>
-              <Pressable style={styles.detailRow} onPress={openAssignSheet} accessibilityRole="button" accessibilityLabel="Change assigned staff">
-                <Text style={styles.detailLabel}>Assigned to staff</Text>
-                <Text style={styles.detailValue}>{lead.assigned_to_name || "Unassigned"}</Text>
-              </Pressable>
-
-              <EditableField
-                icon="chatbubble-ellipses-outline" label="Notes" value={lead.notes || ""} multiline
-                placeholder="Add useful context for your team…" onSave={saveNotes}
-              />
-
-              <Text style={styles.fieldLabel}>Stage</Text>
-              <Pressable style={styles.selectField} onPress={openStageSheet} accessibilityRole="button" accessibilityLabel="Change stage">
-                <Text style={styles.selectText}>{currentStage?.name || pretty(stage)}</Text>
-                <Ionicons name="chevron-down" size={16} color={UI.sub} />
-              </Pressable>
-
-              <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Status</Text>
-              <Pressable style={styles.selectField} onPress={() => setStatusSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Change status">
-                <Text style={[styles.selectText, !lead.lead_status && { color: UI.muted }]}>{lead.lead_status || "Not set"}</Text>
-                <Ionicons name="chevron-down" size={16} color={UI.sub} />
-              </Pressable>
-
-              <View style={{ height: 14 }} />
-              <EditableField
-                icon="wallet-outline" label="Expected Value" value={lead.deal_value ? String(lead.deal_value) : ""}
-                keyboardType="decimal-pad" placeholder="0"
-                validate={validateAmount}
-                onSave={saveDealValue}
-              />
-              {lead.deal_value ? <Text style={styles.moneyHint}>{money(lead.deal_value)}</Text> : null}
-
-              <FieldGroup label="Last Activity">
-                <StaticBox icon="checkmark-circle" iconColor={colors.success} value={lastActivity ? `${relativeTime(lastActivity.created_at)} · ${pretty(lastActivity.activity_type)}` : detailsLoaded ? "No activity yet" : error ? "Couldn't load" : "Loading…"} />
-              </FieldGroup>
-            </View>
+                <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Status</Text>
+                <Pressable style={styles.selectField} onPress={() => setStatusSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Change status">
+                  <Text style={[styles.selectText, !lead.lead_status && { color: UI.muted }]}>{lead.lead_status || "Not set"}</Text>
+                  <Ionicons name="chevron-down" size={16} color={UI.sub} />
+                </Pressable>
+              </>}
+              bottom={
+                <FieldGroup label="Last Activity">
+                  <StaticBox icon="checkmark-circle" iconColor={colors.success} value={lastActivity ? `${relativeTime(lastActivity.created_at)} · ${pretty(lastActivity.activity_type)}` : detailsLoaded ? "No activity yet" : error ? "Couldn't load" : "Loading…"} />
+                </FieldGroup>
+              }
+            />
 
             <LeadDocuments pickSignal={attachSignal} leadId={lead.id} onChanged={reloadWithSpinner} />
           </View>
