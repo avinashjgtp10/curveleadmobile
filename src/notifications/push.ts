@@ -60,6 +60,16 @@ export async function setAppBadge(count: number) {
   }
 }
 
+/** Removes the alerts already delivered to the phone's notification shade (the ones that arrived while the app was in the background). */
+export async function clearDeliveredNotifications() {
+  if (isExpoGo || Platform.OS === "web") return;
+  try {
+    await loadNotifications().dismissAllNotificationsAsync();
+  } catch {
+    // Nothing to clear, or the phone refused - the in-app list is the source of truth.
+  }
+}
+
 export async function ensureAndroidChannel() {
   if (isExpoGo || Platform.OS !== "android") return;
   const Notifications = loadNotifications();

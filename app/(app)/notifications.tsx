@@ -4,6 +4,7 @@ import { useT } from "@/i18n/LanguageContext";
 import { isMessageNotification, navigateToNotification } from "@/notifications/navigateToNotification";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
+import { clearDeliveredNotifications, setAppBadge } from "@/notifications/push";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
@@ -133,6 +134,9 @@ export default function NotificationsScreen() {
     setItems((current) => current.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })));
     try {
       await markAllNotificationsRead(items.map((item) => item.id));
+      // Everything is read, so the alerts waiting in the phone's notification shade and the number on the app icon go too.
+      clearDeliveredNotifications();
+      setAppBadge(0);
     } catch {
       setItems(previous);
       setError("");
