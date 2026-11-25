@@ -122,6 +122,12 @@ function localYmd(value: string) {
   if (Number.isNaN(date.getTime())) return "";
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
+function shiftYmd(value: string, days: number) {
+  if (!value) return "";
+  const [y, m, d] = value.split("-").map(Number);
+  const date = new Date(y, (m || 1) - 1, (d || 1) + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
 type LocalFilters = { status: string; health: string; sla: string; stage: string; from: string; to: string; stageName: (stage?: string) => string };
 function matchesLocalFilters(lead: LeadListItem, filters: LocalFilters) {
   // Stage and date are normally applied by the server; these checks catch a reply that didn't apply them.
@@ -489,7 +495,9 @@ export default function LeadsScreen() {
       let filterOnPhone = localActive;
       // The server should apply the stage and date filters. If it sent back leads that don't match them, it didn't:
       // fetch a larger batch once and filter it here, so the list always matches the chips.
-      if (!localActive && (filterStage || filterDateFrom || filterDateTo) && !append && result.leads.some((lead) => !matchesLocalFilters(lead, localFilters))) {
+      // A day of slack on each side, so a lead created near midnight (counted as another day by the server's time zone) doesn't trigger this.
+      const withSlack: LocalFilters = { ...localFilters, from: shiftYmd(filterDateFrom, -1), to: shiftYmd(filterDateTo, 1) };
+      if (!localActive && (filterStage || filterDateFrom || filterDateTo) && !append && result.leads.some((lead) => !matchesLocalFilters(lead, withSlack))) {
         if (id !== requestId.current) return;
         result = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...extraParams });
         // The newest 500 may not reach back to the dates asked for, so keep reading further batches (up to 3000 leads in all).
