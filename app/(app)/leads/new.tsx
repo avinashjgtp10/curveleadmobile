@@ -14,6 +14,7 @@ import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { createLead, createLeadFollowup } from "@/api/leads";
 import { fetchStaff, StaffMember } from "@/api/staff";
 import { notifyLeadCreated } from "@/api/notifications";
+import { emitLeadCreated, showToast } from "@/lib/leadCreation";
 
 // Same palette as the Team and follow-up forms: pale blue page, white fields, deep teal-blue actions.
 const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", red: "#d6334f" };
@@ -82,8 +83,51 @@ const LabeledInput = React.memo(function LabeledInput({ label, required, field, 
   );
 });
 
+type Draft = { form: FormState; countryCode: string; scheduleFollowup: boolean; followupAt: string; assignedTo: StaffMember | null };
+
+function parseDraft(value?: string): Draft | null {
+  if (!value) return null;
+  try { return JSON.parse(value) as Draft; } catch { return null; }
+}
+
+// Runs after the form has closed. On failure the form is opened again, filled in with what was typed.
+async function saveInBackground(payload: Parameters<typeof createLead>[0], followupAt: Date | null, draft: Draft, returnTo?: string) {
+  const reopen = (message?: string) => router.push({ pathname: "/(app)/leads/new", params: { draft: JSON.stringify(draft), draftError: message ?? "", ...(returnTo && { returnTo }) } });
+  try {
+    const lead = await createLead(payload);
+    if (followupAt) {
+      createLeadFollowup(lead.id, { followup_type: "call", next_followup_at: followupAt.toISOString() }).catch(() => {
+        // Say so instead of letting the person believe the follow-up exists; they can add it from the lead's page.
+        Alert.alert("Lead created, follow-up not saved", "The lead was added, but the follow-up couldn't be scheduled. Open the lead and add it again.");
+      });
+    }
+    notifyLeadCreated({ id: lead.id, name: payload.name, phone: payload.phone, source: payload.source }).catch(() => {});
+    showToast(`${payload.name} added`);
+    emitLeadCreated();
+  } catch (saveError) {
+    if (axios.isAxiosError(saveError)) {
+      const message = typeof saveError.response?.data?.error === "string" ? saveError.response.data.error : "Could not create this lead.";
+      const existingId = saveError.response?.data?.existing_id;
+      if (saveError.response?.status === 409 && typeof existingId === "string") {
+        Alert.alert("Lead already exists", message, [
+          { text: "Keep editing", style: "cancel", onPress: () => reopen() },
+          { text: "Open lead", onPress: () => router.push(`/(app)/leads/${existingId}`) },
+        ]);
+      } else if (saveError.response?.status === 403) {
+        Alert.alert("Lead limit reached", message, [
+          { text: "Not now", style: "cancel" },
+          { text: "View billing", onPress: () => router.push("/(app)/more/billing") },
+        ]);
+      } else Alert.alert("Couldn't create lead", message, [{ text: "Not now", style: "cancel" }, { text: "Edit and retry", onPress: () => reopen(message) }]);
+    } else {
+      Alert.alert("Couldn't create lead", "Check your connection and try again.", [{ text: "Not now", style: "cancel" }, { text: "Edit and retry", onPress: () => reopen("Could not create this lead. Check your connection and try again.") }]);
+    }
+  }
+}
+
 export default function NewLeadScreen() {
-  const { returnTo } = useLocalSearchParams<{ returnTo?: "dashboard" | "leads" }>();
+  const { returnTo, draft: draftParam, draftError } = useLocalSearchParams<{ returnTo?: "dashboard" | "leads"; draft?: string; draftError?: string }>();
+  const restored = useRef(parseDraft(draftParam)).current;
   const { isAdmin } = usePermission();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -96,17 +140,17 @@ export default function NewLeadScreen() {
       return () => parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) });
     }, [navigation, insets.bottom])
   );
-  const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const [form, setForm] = useState<FormState>(restored?.form ?? INITIAL_FORM);
   const [saving, setSaving] = useState(false);
-  const [country, setCountry] = useState<(typeof COUNTRIES)[number]>(COUNTRIES[0]);
+  const [country, setCountry] = useState<(typeof COUNTRIES)[number]>(COUNTRIES.find((item) => item.code === restored?.countryCode) ?? COUNTRIES[0]);
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
-  const [scheduleFollowup, setScheduleFollowup] = useState(false);
-  const [followupAt, setFollowupAt] = useState(defaultFollowupDate());
+  const [scheduleFollowup, setScheduleFollowup] = useState(restored?.scheduleFollowup ?? false);
+  const [followupAt, setFollowupAt] = useState(() => restored?.followupAt ? new Date(restored.followupAt) : defaultFollowupDate());
   const [staff, setStaff] = useState<StaffMember[]>([]);
-  const [assignedTo, setAssignedTo] = useState<StaffMember | null>(null);
+  const [assignedTo, setAssignedTo] = useState<StaffMember | null>(restored?.assignedTo ?? null);
   const [assignPickerOpen, setAssignPickerOpen] = useState(false);
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(restored ? draftError ?? "" : "");
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string; email?: string }>({});
   const selectedSource = SOURCES.find((item) => item.value === form.source);
 
@@ -169,59 +213,26 @@ export default function NewLeadScreen() {
     return !next.name && !next.phone && !next.email;
   }
 
-  async function handleSave() {
-    if (!validate()) return;
+  function handleSave() {
+    if (saving || !validate()) return;
+    const phone = `${country.dial}${localNumber()}`;
+    const payload = {
+      name: form.name.trim(),
+      phone,
+      source: form.source,
+      ...(form.email.trim() && { email: form.email.trim() }),
+      ...(form.location.trim() && { location: form.location.trim() }),
+      ...(form.business_name.trim() && { business_name: form.business_name.trim() }),
+      ...(form.address.trim() && { address: form.address.trim() }),
+      ...(form.notes.trim() && { notes: form.notes.trim() }),
+      ...(assignedTo && { assigned_to: assignedTo.id }),
+    };
+    const draft: Draft = { form, countryCode: country.code, scheduleFollowup, followupAt: followupAt.toISOString(), assignedTo };
+    // Close the form at once; the server saves in the background and the form comes back with what was typed if it refuses.
     setSaving(true);
-    setError("");
-    try {
-      const lead = await createLead({
-        name: form.name.trim(),
-        phone: `${country.dial}${localNumber()}`,
-        source: form.source,
-        ...(form.email.trim() && { email: form.email.trim() }),
-        ...(form.location.trim() && { location: form.location.trim() }),
-        ...(form.business_name.trim() && { business_name: form.business_name.trim() }),
-        ...(form.address.trim() && { address: form.address.trim() }),
-        ...(form.notes.trim() && { notes: form.notes.trim() }),
-        ...(assignedTo && { assigned_to: assignedTo.id }),
-      });
-      // The lead exists now, so open its page straight away; the follow-up (a second request) is saved in the background.
-      if (scheduleFollowup) {
-        createLeadFollowup(lead.id, { followup_type: "call", next_followup_at: followupAt.toISOString() }).catch(() => {
-          // Say so instead of letting the person believe the follow-up exists; they can add it from the lead's page.
-          Alert.alert("Lead created, follow-up not saved", "The lead was added, but the follow-up couldn't be scheduled. Open the lead and add it again.");
-        });
-      }
-      notifyLeadCreated({
-        id: lead.id,
-        name: form.name.trim(),
-        phone: `${country.dial}${localNumber()}`,
-        source: form.source,
-      }).catch(() => {});
-      // Pass what we already know so the lead page shows at once instead of a blank "Loading lead…".
-      router.replace({
-        pathname: "/(app)/leads/[id]",
-        params: { id: lead.id, name: form.name.trim(), phone: `${country.dial}${localNumber()}`, stage: "new", source: form.source },
-      });
-    } catch (saveError) {
-      if (axios.isAxiosError(saveError)) {
-        const message = typeof saveError.response?.data?.error === "string" ? saveError.response.data.error : "Could not create this lead.";
-        const existingId = saveError.response?.data?.existing_id;
-        if (saveError.response?.status === 409 && typeof existingId === "string") {
-          Alert.alert("Lead already exists", message, [
-            { text: "Keep editing", style: "cancel" },
-            { text: "Open lead", onPress: () => router.replace(`/(app)/leads/${existingId}`) },
-          ]);
-        } else if (saveError.response?.status === 403) {
-          Alert.alert("Lead limit reached", message, [
-            { text: "Not now", style: "cancel" },
-            { text: "View billing", onPress: () => router.push("/(app)/more/billing") },
-          ]);
-        } else setError(message);
-      } else setError("Could not create this lead. Check your connection and try again.");
-    } finally {
-      setSaving(false);
-    }
+    showToast("Saving lead…");
+    closeForm();
+    saveInBackground(payload, scheduleFollowup ? followupAt : null, draft, returnTo);
   }
 
   return (

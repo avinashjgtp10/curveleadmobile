@@ -4,6 +4,7 @@ import {
 } from "react-native";
 import { ActivityIndicator, Button, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -395,7 +396,10 @@ export default function FollowupsScreen() {
       const keptOlder = older ?? followupsRef.current.filter((f) => new Date(f.next_followup_at) < windowStart);
       const merged = keepUnchanged(followupsRef.current, [...keptOlder, ...near]);
       followupsRef.current = merged;
-      if (user?.id) followupsCache = { userId: user.id, list: merged };
+      if (user?.id) {
+        followupsCache = { userId: user.id, list: merged };
+        AsyncStorage.setItem(`curvelead_followups_${user.id}`, JSON.stringify(merged)).catch(() => {});
+      }
       setFollowups(merged);
     };
     try {
@@ -418,6 +422,20 @@ export default function FollowupsScreen() {
 
   // With a cached list on screen, the first refresh runs quietly instead of replacing it with a spinner.
   useEffect(() => { load(false, !!cached); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // After the app was restarted nothing is in memory: show the list saved on the phone while the fresh one loads.
+  useEffect(() => {
+    if (!user?.id || followupsCache?.userId === user.id) return;
+    let cancelled = false;
+    AsyncStorage.getItem(`curvelead_followups_${user.id}`).then((raw) => {
+      if (cancelled || !raw || followupsCache?.userId === user.id) return; // the fresh list already arrived
+      const saved = JSON.parse(raw) as TodayFollowup[];
+      if (!Array.isArray(saved)) return;
+      followupsRef.current = saved;
+      setFollowups(saved); setLoading(false);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   // The tab stays mounted, so follow-ups completed or added elsewhere (a lead's page, Appointments) would stay stale.
   // Refresh quietly whenever the tab is shown again.
