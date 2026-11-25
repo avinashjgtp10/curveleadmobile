@@ -38,6 +38,7 @@ let hiddenStagesCache: { userId: string; stages: string[] } | null = null;
 let leadsCache: { userId: string; hidden: string; leads: LeadListItem[]; total: number; pages: number } | null = null;
 // With a status, follow-up or reply-window filter on, this many leads are fetched at once and filtered on the phone.
 const LOCAL_FILTER_LIMIT = 500;
+const MAX_LOCAL_FILTER_BATCHES = 6; // batches of LOCAL_FILTER_LIMIT read when the phone has to apply stage/date filters itself
 const MAX_SILENT_PAGES = 3; // a background refresh re-fetches at most this many pages in one request
 const FILTERS = [
   { value: "", label: "All leads" },
@@ -114,7 +115,21 @@ function replyWindowOf(lead: LeadListItem) {
   if (!lead.last_incoming_message) return "none";
   return lead.is_24h_window_active ? "open" : "closed";
 }
-function matchesLocalFilters(lead: LeadListItem, filters: { status: string; health: string; sla: string }) {
+// "Follow Up", "follow_up" and "follow up" are the same stage.
+const stageKey = (value?: string) => (value || "").toLowerCase().replace(/[_\s]+/g, " ").trim();
+function localYmd(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+type LocalFilters = { status: string; health: string; sla: string; stage: string; from: string; to: string; stageName: (stage?: string) => string };
+function matchesLocalFilters(lead: LeadListItem, filters: LocalFilters) {
+  // Stage and date are normally applied by the server; these checks catch a reply that didn't apply them.
+  if (filters.stage && stageKey(lead.stage) !== stageKey(filters.stage) && stageKey(filters.stageName(lead.stage)) !== stageKey(filters.stage)) return false;
+  if (filters.from || filters.to) {
+    const day = localYmd(lead.created_at);
+    if (!day || (filters.from && day < filters.from) || (filters.to && day > filters.to)) return false;
+  }
   if (filters.status && (lead.lead_status || "").toLowerCase() !== filters.status.toLowerCase()) return false;
   if (filters.health && followupHealthOf(lead) !== filters.health) return false;
   if (filters.sla && replyWindowOf(lead) !== filters.sla) return false;
@@ -371,6 +386,8 @@ export default function LeadsScreen() {
   const { isAdmin } = usePermission();
   const { t } = useT();
   const { stages, colorFor, findStage } = useStages();
+  const findStageRef = useRef(findStage);
+  findStageRef.current = findStage;
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestId = useRef(0);
   const [leads, setLeads] = useState<LeadListItem[]>(cached?.leads ?? []);
@@ -451,14 +468,13 @@ export default function LeadsScreen() {
     else if (!silent && !keepList) setLoading(true); // keepList: pull-to-refresh shows its own spinner over the current list
     setError("");
     try {
-      const localFilters = { status: filterStatus, health: filterHealth, sla: filterSla };
+      const localFilters: LocalFilters = { status: filterStatus, health: filterHealth, sla: filterSla, stage: filterStage, from: filterDateFrom, to: filterDateTo, stageName: (stage) => findStageRef.current(stage)?.name ?? "" };
       const localActive = !!(filterStatus || filterHealth || filterSla);
       const loadedPages = silent ? Math.max(1, pageRef.current) : 1;
       // Deep scrolls would otherwise make this one request huge; only the first pages are refreshed, the rest stay as they were.
       const fetchPages = Math.min(loadedPages, MAX_SILENT_PAGES);
       const partial = loadedPages > fetchPages;
-      const result = await fetchLeads({
-        page: localActive ? 1 : nextPage, limit: localActive ? LOCAL_FILTER_LIMIT : PAGE_SIZE * fetchPages,
+      const extraParams = {
         ...(query && { search: searchTerm(query) }),
         ...(score && { score }),
         ...(filterStage && { stage: filterStage }),
@@ -468,9 +484,25 @@ export default function LeadsScreen() {
         ...(filterDateFrom && { date_from: filterDateFrom }),
         ...(filterDateTo && { date_to: filterDateTo }),
         ...(hiddenStages.length && { hide_stages: hiddenStages.join(",") }),
-      });
+      };
+      let result = await fetchLeads({ page: localActive ? 1 : nextPage, limit: localActive ? LOCAL_FILTER_LIMIT : PAGE_SIZE * fetchPages, ...extraParams });
+      let filterOnPhone = localActive;
+      // The server should apply the stage and date filters. If it sent back leads that don't match them, it didn't:
+      // fetch a larger batch once and filter it here, so the list always matches the chips.
+      if (!localActive && (filterStage || filterDateFrom || filterDateTo) && !append && result.leads.some((lead) => !matchesLocalFilters(lead, localFilters))) {
+        if (id !== requestId.current) return;
+        result = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...extraParams });
+        // The newest 500 may not reach back to the dates asked for, so keep reading further batches (up to 3000 leads in all).
+        const pagesToRead = Math.min(result.pagination.pages, MAX_LOCAL_FILTER_BATCHES);
+        for (let batch = 2; batch <= pagesToRead; batch++) {
+          const more = await fetchLeads({ page: batch, limit: LOCAL_FILTER_LIMIT, ...extraParams });
+          if (id !== requestId.current) return;
+          result = { ...result, leads: [...result.leads, ...more.leads] };
+        }
+        filterOnPhone = true;
+      }
       if (id !== requestId.current) return;
-      if (localActive) {
+      if (filterOnPhone) {
         const matching = result.leads.filter((lead) => matchesLocalFilters(lead, localFilters));
         setLeads(matching);
         pageRef.current = 1; setPage(1); setPages(1); setTotal(matching.length);
