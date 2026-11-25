@@ -37,6 +37,20 @@ const POPOVER_HEIGHT = 96;
 let callWatcher: { remove: () => void } | null = null; // waits for the user to come back from the dialer
 const MIN_CALL_AWAY_MS = 4000;
 let followupsCache:{ userId: string; list: TodayFollowup[] } | null = null;
+// Saved on the phone for the next app start. Written once things settle (not on every refresh) and only the follow-ups
+// closest to now, so a long overdue history never makes the screen stall while it is converted to text.
+const SAVED_FOLLOWUPS_MAX = 200;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+function saveFollowupsOnPhone(userId: string, list: TodayFollowup[]) {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const now = Date.now();
+    const nearest = [...list]
+      .sort((a, b) => Math.abs(new Date(a.next_followup_at).getTime() - now) - Math.abs(new Date(b.next_followup_at).getTime() - now))
+      .slice(0, SAVED_FOLLOWUPS_MAX);
+    AsyncStorage.setItem(`curvelead_followups_${userId}`, JSON.stringify(nearest)).catch(() => {});
+  }, 800);
+}
 const SHOW_STEP = 10; // cards rendered per section before "Show more"
 const DAYS_BEFORE_TODAY = 60;
 const DAYS_AFTER_TODAY = 90;
@@ -408,7 +422,7 @@ export default function FollowupsScreen() {
       followupsRef.current = merged;
       if (user?.id) {
         followupsCache = { userId: user.id, list: merged };
-        AsyncStorage.setItem(`curvelead_followups_${user.id}`, JSON.stringify(merged)).catch(() => {});
+        saveFollowupsOnPhone(user.id, merged);
       }
       setFollowups(merged);
     };
