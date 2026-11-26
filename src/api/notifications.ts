@@ -346,20 +346,22 @@ export async function alertNewServerNotifications() {
   const toShow = newestFirst(fresh.filter((item) => !alreadyShown(item) && !coveredByLeadAlert(item)));
   if (!toShow.length) return;
   if (toShow.length > MAX_INDIVIDUAL_ALERTS) {
-    await presentLocalNotification(`${toShow.length} new notifications`, toShow[0].title, { type: "summary" });
+    await presentLocalNotification(`${toShow.length} new notifications`, toShow[0].title, { type: "summary" }, { skipIfShown: true });
     return;
   }
   for (const item of toShow) {
     await presentLocalNotification(item.title, item.message, {
       type: item.type, lead_id: item.lead_id, lead_name: item.lead_name, lead_phone: item.lead_phone, lead_stage: item.lead_stage,
-    });
+    }, { skipIfShown: true });
   }
 }
 
 const SEEN_LEADS_KEY = "curvelead_alerted_lead_ids";
 const MAX_SEEN_LEADS = 300;
 const NEW_LEAD_TYPE = /new.?lead|lead.?(created|added)/i;
-const NEW_LEAD_MAX_AGE_MS = 15 * 60_000;
+// Android runs the app-closed check only every 15+ minutes, and often much later (battery saver, Doze). A shorter limit made
+// that check drop every lead that arrived more than 15 minutes before it ran: it marked them as seen and never rang.
+const NEW_LEAD_MAX_AGE_MS = 6 * 60 * 60_000;
 
 async function getSeenLeadIds() {
   try {
@@ -377,7 +379,8 @@ async function getSeenLeadIds() {
  * for each one it hasn't announced yet. The first check only remembers the current leads.
  */
 export async function alertNewLeads() {
-  const page = await fetchLeads({ page: 1, limit: 10 });
+  // 20, not 10: with the app closed for a while, more than 10 leads can arrive between two checks.
+  const page = await fetchLeads({ page: 1, limit: 20 });
   const newest = [...page.leads].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const raw = await AsyncStorage.getItem(SEEN_LEADS_KEY);
   const firstRun = raw === null;
@@ -403,13 +406,13 @@ export async function alertNewLeads() {
   });
   if (!recent.length) return;
   if (recent.length > MAX_INDIVIDUAL_ALERTS) {
-    await presentLocalNotification(`${recent.length} new leads`, "Open Leads to see them.", { type: "lead_created" });
+    await presentLocalNotification(`${recent.length} new leads`, "Open Leads to see them.", { type: "lead_created" }, { skipIfShown: true });
     return;
   }
   for (const lead of recent) {
     await presentLocalNotification(`New lead - ${lead.name}`, lead.source ? `Source: ${lead.source}` : "A new lead was added.", {
       type: "lead_created", lead_id: lead.id, lead_name: lead.name, lead_phone: lead.phone, lead_stage: lead.stage,
-    });
+    }, { skipIfShown: true });
   }
 }
 

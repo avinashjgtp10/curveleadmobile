@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { ActivityIndicator, Text } from "react-native-paper";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -126,6 +126,13 @@ export default function NotificationSettingsScreen() {
     }
   }
 
+  // Android stops apps it thinks are idle, which silences the app-closed check. This opens the battery-optimisation list
+  // (no extra permission needed); if the phone has no such screen, fall back to the app's own settings page.
+  async function openBatterySettings() {
+    try { await Linking.sendIntent("android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS"); }
+    catch { await Linking.openSettings().catch(() => {}); }
+  }
+
   const phone = PHONE_STATUS[permission || "unsupported"];
 
   return (
@@ -167,6 +174,14 @@ export default function NotificationSettingsScreen() {
           <Pressable onPress={reRegister} disabled={registering} hitSlop={6}>
             <Text style={styles.phoneAction}>{registering ? "Registering..." : "Re-register this phone"}</Text>
           </Pressable>
+          {Platform.OS === "android" ? (
+            <>
+              <Text style={[styles.phoneHint, { marginTop: 10 }]}>To get alerts while the app is closed, set CurveLead to "Unrestricted" (or "Not optimised") in battery settings. Some phones also need auto-start turned on.</Text>
+              <Pressable onPress={openBatterySettings} hitSlop={6}>
+                <Text style={styles.phoneAction}>Allow background alerts (battery settings)</Text>
+              </Pressable>
+            </>
+          ) : null}
         </View>
 
         <Text style={styles.sectionTitle}>NOTIFY ME ABOUT</Text>
