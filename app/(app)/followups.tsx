@@ -81,7 +81,9 @@ function keepUnchanged(prev: TodayFollowup[], next: TodayFollowup[]) {
   const old = new Map(prev.map((item) => [item.id, item]));
   return next.map((item) => {
     const before = old.get(item.id);
-    return before && JSON.stringify(before) === JSON.stringify(item) ? before : item;
+    // Field by field: stringifying every row of a long history on each refresh was a visible cost.
+    return before && before.next_followup_at === item.next_followup_at && before.followup_type === item.followup_type && before.notes === item.notes
+      && before.lead_name === item.lead_name && before.lead_phone === item.lead_phone && before.lead_stage === item.lead_stage ? before : item;
   });
 }
 
@@ -404,6 +406,8 @@ export default function FollowupsScreen() {
 
   // Only the newest request may update the screen, so a slow reply can't overwrite a later one.
   const requestId = useRef(0);
+  // Counts completions made on this screen, so a refresh that was already running can't put a completed follow-up back.
+  const localChanges = useRef(0);
   const followupsRef = useRef(followups);
   followupsRef.current = followups;
   // The screen is built from two requests: the days around today (small, fast, always fetched) and the older overdue
@@ -411,6 +415,7 @@ export default function FollowupsScreen() {
   // `silent` re-fetches in the background (no spinner, and a failure keeps the list on screen).
   const load = useCallback(async (refresh = false, silent = false, withOlder = true) => {
     const id = ++requestId.current;
+    const changesAtStart = localChanges.current;
     if (!silent) {
       refresh ? setRefreshing(true) : setLoading(true);
       setError("");
@@ -431,11 +436,11 @@ export default function FollowupsScreen() {
       const dayBefore = new Date(windowStart); dayBefore.setDate(dayBefore.getDate() - 1);
       const near = await fetchTodayFollowups({ date_from: ymd(windowStart), date_to: ymd(to) });
       if (id !== requestId.current) return;
-      apply(near, null);
+      if (localChanges.current === changesAtStart) apply(near, null);
       setLoading(false); setRefreshing(false);
       // The (possibly large) history is asked for only once the days around today are on screen, so it can't slow them down.
       const older = withOlder ? await fetchTodayFollowups({ date_from: OVERDUE_FROM, date_to: ymd(dayBefore) }).catch(() => null) : null;
-      if (older && id === requestId.current) apply(near, older);
+      if (older && id === requestId.current && localChanges.current === changesAtStart) apply(near, older);
     } catch (loadError) {
       if (id !== requestId.current) return;
       if (!silent) setError(errorMessage(loadError, "Could not load follow-ups."));
@@ -500,12 +505,15 @@ export default function FollowupsScreen() {
 
   const handleComplete = useCallback(async (item: TodayFollowup) => {
     // Remove it at once; put it back if the server refuses.
+    localChanges.current++;
     setCompletingId(item.id);
     setFollowups((current) => current.filter((f) => f.id !== item.id));
+    followupsRef.current = followupsRef.current.filter((f) => f.id !== item.id);
     if (followupsCache) followupsCache = { ...followupsCache, list: followupsCache.list.filter((f) => f.id !== item.id) };
     try {
       await completeLeadFollowup(item.id);
     } catch (completeError) {
+      localChanges.current++;
       setFollowups((current) => current.some((f) => f.id === item.id) ? current : [item, ...current]);
       if (followupsCache && !followupsCache.list.some((f) => f.id === item.id)) followupsCache = { ...followupsCache, list: [item, ...followupsCache.list] };
       // An alert, not the screen-level error, so one failed tap doesn't replace the whole list.
