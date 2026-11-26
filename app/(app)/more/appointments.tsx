@@ -350,6 +350,12 @@ function AppointmentsContent() {
   // The server only returns open appointments, so the Completed tab lists the ones finished in this session.
   const [completedItems, setCompletedItems] = useState<TodayFollowup[]>([]);
   const hasData = useRef(!!cachedList);
+  // Counts changes made on this screen, so a slower background load can tell its answer is out of date.
+  const localChanges = useRef(0);
+  // Keep the reopen cache in step with every change, not only with loads.
+  useEffect(() => {
+    if (user?.id && hasData.current) appointmentsCache = { userId: user.id, list: appointments.filter((row) => !row.id.startsWith("temp-")) };
+  }, [appointments, user?.id]);
   // Rows are drawn 30 at a time, so a long history doesn't make the screen heavy.
   const [shown, setShown] = useState(30);
   useEffect(() => { setShown(30); }, [activeTab, query, typeFilter]);
@@ -362,6 +368,7 @@ function AppointmentsContent() {
       refresh ? setRefreshing(true) : setLoading(true);
       setError("");
     }
+    const changesAtStart = localChanges.current;
     try {
       const future = new Date(); future.setDate(future.getDate() + 730);
       // On the first load, the days around today come first so the list appears fast; the full history follows.
@@ -372,18 +379,21 @@ function AppointmentsContent() {
         if (near && !hasData.current) { setAppointments(near); hasData.current = true; setLoading(false); }
       }
       const rows = await fetchTodayFollowups({ date_from: "1970-01-01", date_to: ymd(future) });
-      // Keep the old objects for rows that didn't change, so their memoized rows aren't redrawn.
+      hasData.current = true;
+      // The list was changed here (scheduled, completed, cancelled) while this was loading, so this answer is out of date
+      // and would wipe the change; the next load picks everything up.
+      if (localChanges.current !== changesAtStart) return;
+      // Keep the old objects for rows that didn't change, so their memoized rows aren't redrawn. Rows still being saved stay.
       setAppointments((current) => {
         const old = new Map(current.map((row) => [row.id, row]));
-        return rows.map((row) => { const before = old.get(row.id); return before && JSON.stringify(before) === JSON.stringify(row) ? before : row; });
+        const fresh = rows.map((row) => { const before = old.get(row.id); return before && JSON.stringify(before) === JSON.stringify(row) ? before : row; });
+        return [...current.filter((row) => row.id.startsWith("temp-")), ...fresh];
       });
-      hasData.current = true;
-      if (user?.id) appointmentsCache = { userId: user.id, list: rows };
     } catch {
       // A failed refresh must not hide a list that is already on screen.
       if (silent) return;
       if (refresh && hasData.current) Alert.alert("Couldn't refresh", "Showing the last loaded appointments.");
-      else setError("Could not load appointments.");
+      else if (!hasData.current) setError("Could not load appointments.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -431,6 +441,7 @@ function AppointmentsContent() {
   async function schedule(form: AppointmentValues) {
     const { lead, type, at, notes, replacing } = form;
     // The form is already closed; show the new time at once and save in the background. The form comes back if the server refuses.
+    localChanges.current++;
     const tempId = `temp-${Date.now()}`;
     const placeholder: TodayFollowup = {
       id: tempId, lead_id: lead.id, lead_name: lead.name, lead_phone: lead.phone, lead_stage: lead.stage,
@@ -471,6 +482,7 @@ function AppointmentsContent() {
     setCompletingId(item.id);
     try {
       await completeLeadFollowup(item.id);
+      localChanges.current++;
       setAppointments((current) => current.filter((appointment) => appointment.id !== item.id));
       setCompletedItems((current) => [item, ...current]);
     } catch {
@@ -491,6 +503,7 @@ function AppointmentsContent() {
           setCompletingId(item.id);
           try {
             await completeLeadFollowup(item.id, "Cancelled");
+            localChanges.current++;
             setAppointments((current) => current.filter((appointment) => appointment.id !== item.id));
           } catch {
             Alert.alert("Couldn't cancel appointment", "Please try again.");
