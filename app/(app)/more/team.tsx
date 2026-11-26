@@ -26,6 +26,8 @@ export default function TeamScreen() {
   const [waLoading, setWaLoading] = useState(false);
   const [waLoadFailed, setWaLoadFailed] = useState(false);
   const waRequest = useRef(0);
+  const permRequest = useRef(0);
+  const loadRequest = useRef(0);
   const [waSaving, setWaSaving] = useState(false);
   const [permMember, setPermMember] = useState<StaffMember | null>(null);
   const [permissions, setPermissions] = useState<StaffPermission[]>([]);
@@ -39,9 +41,13 @@ export default function TeamScreen() {
   async function load(showSpinner = true) {
     if (showSpinner) setLoading(true);
     setError("");
+    const requestId = ++loadRequest.current;
     try {
-      setStaff(await fetchStaff());
+      const members = await fetchStaff();
+      // Two loads can overlap; only the newest one may show its answer.
+      if (requestId === loadRequest.current) setStaff(members);
     } catch (loadError) {
+      if (requestId !== loadRequest.current) return;
       const message = axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string" ? loadError.response.data.error : "Could not load your team.";
       // Keep the list we already have on a failed refresh; only show the full error screen when there is nothing to show.
       if (staffRef.current.length) Alert.alert("Couldn't refresh", message);
@@ -88,7 +94,7 @@ export default function TeamScreen() {
     try {
       await saveStaffWhatsApp(waMember.id, { whatsapp_phone_number_id: waMemberNumber.trim(), whatsapp_access_token: waMemberToken.trim() || undefined });
       const name = waMember.name;
-      setWaMember(null);
+      closeWhatsapp();
       Alert.alert("WhatsApp number saved", `${name}'s WhatsApp number was updated.`);
     } catch (saveError) {
       Alert.alert("Couldn't save WhatsApp number", axios.isAxiosError(saveError) && typeof saveError.response?.data?.error === "string"
@@ -100,16 +106,34 @@ export default function TeamScreen() {
 
   async function openPermissionsModal(member: StaffMember) {
     setOpenMenuFor(null);
+    const requestId = ++permRequest.current;
     setPermMember(member); setPermissions([]); setPermissionsLoading(true);
     try {
       const loaded = await fetchStaffPermissions(member.id);
-      setPermissions(loaded);
+      // Ignore a slower answer for a member that is no longer open.
+      if (requestId === permRequest.current) setPermissions(loaded);
     } catch {
-      setPermMember(null);
-      Alert.alert("Couldn't load permissions", "Please check your connection and try again.");
+      if (requestId === permRequest.current) {
+        closePermissions();
+        Alert.alert("Couldn't load permissions", "Please check your connection and try again.");
+      }
     } finally {
-      setPermissionsLoading(false);
+      if (requestId === permRequest.current) setPermissionsLoading(false);
     }
+  }
+
+  function closePermissions() {
+    permRequest.current++;
+    setPermMember(null); setPermissions([]); setPermissionsLoading(false);
+  }
+
+  function closeWhatsapp() {
+    waRequest.current++;
+    setWaMember(null); setWaMemberToken(""); setWaLoading(false);
+  }
+
+  function closePassword() {
+    setPasswordMember(null); setNewPassword(""); setConfirmPassword("");
   }
 
   function togglePermission(key: string) {
@@ -122,7 +146,7 @@ export default function TeamScreen() {
     try {
       await saveStaffPermissions(permMember.id, permissions);
       const name = permMember.name;
-      setPermMember(null);
+      closePermissions();
       Alert.alert("Permissions saved", `${name}'s permissions were updated.`);
     } catch (saveError) {
       Alert.alert("Couldn't save permissions", axios.isAxiosError(saveError) && typeof saveError.response?.data?.error === "string"
@@ -151,7 +175,7 @@ export default function TeamScreen() {
     try {
       await setStaffPassword(passwordMember.id, newPassword);
       const name = passwordMember.name;
-      setPasswordMember(null);
+      closePassword();
       Alert.alert("Password updated", `${name}'s password has been changed.`);
     } catch (passwordError) {
       Alert.alert("Couldn't change password", axios.isAxiosError(passwordError) && typeof passwordError.response?.data?.error === "string"
@@ -218,12 +242,12 @@ export default function TeamScreen() {
         </ScrollView>
       )}
 
-      <Modal visible={!!waMember} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setWaMember(null)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setWaMember(null)}>
+      <Modal visible={!!waMember} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => closeWhatsapp()}>
+        <Pressable style={styles.modalBackdrop} onPress={() => closeWhatsapp()}>
           <Pressable style={[styles.teamModal, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]} onPress={() => {}}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{waMember?.name}&apos;s WhatsApp Number</Text>
-              <Pressable accessibilityLabel="Close" hitSlop={10} onPress={() => setWaMember(null)}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
+              <Pressable accessibilityLabel="Close" hitSlop={10} onPress={() => closeWhatsapp()}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
             </View>
             <View style={styles.teamModalBody}>
               {waLoadFailed ? <Text style={styles.waWarning}>Couldn&apos;t load the saved number. You can still enter a new one.</Text> : null}
@@ -239,7 +263,7 @@ export default function TeamScreen() {
                 style={[styles.teamNameInput, { marginTop: spacing.sm }]} outlineColor={UI.line} activeOutlineColor={UI.teal}
               />
               <View style={styles.modalActions}>
-                <Button mode="outlined" textColor={UI.teal} style={styles.cancelButton} onPress={() => setWaMember(null)} disabled={waSaving}>Cancel</Button>
+                <Button mode="outlined" textColor={UI.teal} style={styles.cancelButton} onPress={() => closeWhatsapp()} disabled={waSaving}>Cancel</Button>
                 <Button mode="contained" buttonColor={UI.teal} style={styles.sendButton} onPress={saveMemberWhatsapp} loading={waSaving} disabled={waSaving || waLoading}>Save</Button>
               </View>
             </View>
@@ -247,12 +271,12 @@ export default function TeamScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={!!permMember} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setPermMember(null)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setPermMember(null)}>
+      <Modal visible={!!permMember} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => closePermissions()}>
+        <Pressable style={styles.modalBackdrop} onPress={() => closePermissions()}>
           <Pressable style={[styles.teamModal, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]} onPress={() => {}}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{permMember?.name}&apos;s permissions</Text>
-              <Pressable accessibilityLabel="Close" hitSlop={10} onPress={() => setPermMember(null)}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
+              <Pressable accessibilityLabel="Close" hitSlop={10} onPress={() => closePermissions()}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
             </View>
             <ScrollView style={styles.permissionsScroll}>
               <View style={styles.teamModalBody}>
@@ -260,11 +284,11 @@ export default function TeamScreen() {
                 {permissions.map((permission) => (
                   <Pressable key={permission.key} style={styles.permissionRow} onPress={() => togglePermission(permission.key)}>
                     <Text style={styles.permissionText}>{permission.label}</Text>
-                    <Checkbox status={permission.granted ? "checked" : "unchecked"} onPress={() => togglePermission(permission.key)} color={UI.teal} />
+                    <View pointerEvents="none"><Checkbox status={permission.granted ? "checked" : "unchecked"} color={UI.teal} /></View>
                   </Pressable>
                 ))}
                 <View style={styles.modalActions}>
-                  <Button mode="outlined" textColor={UI.teal} style={styles.cancelButton} onPress={() => setPermMember(null)} disabled={permissionsSaving}>Cancel</Button>
+                  <Button mode="outlined" textColor={UI.teal} style={styles.cancelButton} onPress={() => closePermissions()} disabled={permissionsSaving}>Cancel</Button>
                   <Button mode="contained" buttonColor={UI.teal} style={styles.sendButton} onPress={savePermissions} loading={permissionsSaving} disabled={permissionsSaving || permissionsLoading}>Save</Button>
                 </View>
               </View>
@@ -273,12 +297,12 @@ export default function TeamScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={!!passwordMember} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setPasswordMember(null)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setPasswordMember(null)}>
+      <Modal visible={!!passwordMember} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => closePassword()}>
+        <Pressable style={styles.modalBackdrop} onPress={() => closePassword()}>
           <Pressable style={[styles.teamModal, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]} onPress={() => {}}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Change {passwordMember?.name}&apos;s Password</Text>
-              <Pressable accessibilityLabel="Close" hitSlop={10} onPress={() => setPasswordMember(null)}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
+              <Pressable accessibilityLabel="Close" hitSlop={10} onPress={() => closePassword()}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
             </View>
             <View style={styles.teamModalBody}>
               <TextInput
@@ -290,7 +314,7 @@ export default function TeamScreen() {
                 secureTextEntry style={[styles.teamNameInput, { marginTop: spacing.sm }]} outlineColor={UI.line} activeOutlineColor={UI.teal}
               />
               <View style={styles.modalActions}>
-                <Button mode="outlined" textColor={UI.teal} style={styles.cancelButton} onPress={() => setPasswordMember(null)} disabled={passwordSaving}>Cancel</Button>
+                <Button mode="outlined" textColor={UI.teal} style={styles.cancelButton} onPress={() => closePassword()} disabled={passwordSaving}>Cancel</Button>
                 <Button mode="contained" buttonColor={UI.teal} style={styles.sendButton} onPress={saveMemberPassword} loading={passwordSaving} disabled={passwordSaving}>Save</Button>
               </View>
             </View>
@@ -316,7 +340,7 @@ function MemberRow({ member, menuOpen, onToggleMenu, onWhatsapp, onPermissions, 
   member: StaffMember; menuOpen: boolean; onToggleMenu: () => void;
   onWhatsapp: () => void; onPermissions: () => void; onChangePassword: () => void;
 }) {
-  const initials = member.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+  const initials = (member.name || "").trim().split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
   const roleLabel = member.role === "super_admin" ? "Super Admin" : member.role === "admin" ? "Admin" : "Staff";
   return (
     <View style={[styles.memberRowWrap, menuOpen && styles.memberRowWrapRaised]}>
