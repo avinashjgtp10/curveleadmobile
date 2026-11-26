@@ -122,7 +122,22 @@ async function isAlertEnabled(type?: string) {
  * hasn't granted notification permission. `data.local` marks it so the in-app list doesn't
  * mirror it a second time (it's already saved there by the caller).
  */
-export async function presentLocalNotification(title: string, body: string | undefined, data: Record<string, string | undefined> = {}) {
+/** True when a notification with the same text is already in the phone's notification shade (e.g. the server's own push). */
+async function alreadyInShade(title: string, body: string | undefined) {
+  try {
+    const shown = await loadNotifications().getPresentedNotificationsAsync();
+    return shown.some((item) => item.request.content.title === title && (item.request.content.body ?? "") === (body ?? ""));
+  } catch {
+    return false;
+  }
+}
+
+export async function presentLocalNotification(
+  title: string, body: string | undefined, data: Record<string, string | undefined> = {},
+  // For alerts made by the new-lead / new-notification check: if the server already pushed the same alert (and the phone
+  // showed it while the app was closed), ringing a second copy would just be a duplicate.
+  options: { skipIfShown?: boolean } = {},
+) {
   if (isExpoGo || Platform.OS === "web") {
     console.warn("[push] local alert skipped: not supported in Expo Go / web — use a development build");
     return;
@@ -137,6 +152,7 @@ export async function presentLocalNotification(title: string, body: string | und
       console.warn("[push] local alert skipped: notification permission is", status, "— enable it in Android Settings > Apps > CurveLead > Notifications");
       return;
     }
+    if (options.skipIfShown && (await alreadyInShade(title, body))) return;
     const cleanData = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined));
     await Notifications.scheduleNotificationAsync({
       content: { title, body, sound: "default", data: { ...cleanData, local: "1" } },
