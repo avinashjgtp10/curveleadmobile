@@ -366,18 +366,21 @@ export default function SettingsScreen() {
     let active = true;
     const put = (key: string, value: string) => { if (active) setValues((current) => ({ ...current, [key]: value })); };
     (async () => {
-      await fetchPreferences().then((prefs) => {
-        const flags = Object.values(prefs.notification_prefs || {});
-        put("notifications", flags.length && flags.every((flag) => flag === false) ? "Off" : "On");
-      }).catch(() => {});
-      await fetchFacebookSyncStatus().then((status) => put("facebook", status.configured ? "Connected" : "Not set")).catch(() => {});
-      const ads = await fetchGoogleAdsIntegrations().catch(() => null);
-      const gmb = await fetchGmbConnection().catch(() => null);
+      // The five answers are independent, so they are asked together (one wait of about a second instead of five in a row).
+      const [, , ads, gmb] = await Promise.all([
+        fetchPreferences().then((prefs) => {
+          const flags = Object.values(prefs.notification_prefs || {});
+          put("notifications", flags.length && flags.every((flag) => flag === false) ? "Off" : "On");
+        }).catch(() => {}),
+        fetchFacebookSyncStatus().then((status) => put("facebook", status.configured ? "Connected" : "Not set")).catch(() => {}),
+        fetchGoogleAdsIntegrations().catch(() => null),
+        fetchGmbConnection().catch(() => null),
+        fetchSequences().then((list) => {
+          const active = list.filter((item) => item.is_active).length;
+          put("followups", active ? `${active} active` : "None");
+        }).catch(() => {}),
+      ]);
       if (ads || gmb) put("google", ads?.some((item) => item.is_active) || gmb?.connected ? "Connected" : "Not set");
-      await fetchSequences().then((list) => {
-        const active = list.filter((item) => item.is_active).length;
-        put("followups", active ? `${active} active` : "None");
-      }).catch(() => {});
       if (gmb) {
         if (!gmb.connected) put("locations", "None");
         else await fetchGmbLocations().then((list) => put("locations", String(list.length))).catch(() => {});

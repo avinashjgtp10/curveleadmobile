@@ -320,25 +320,31 @@ export default function CallingScreen() {
   const [status, setStatus] = useState<VoiceStatus | null>(null);
 
   // Each request is independent: one failing (or the workspace not having calling set up) never blanks the others.
-  // They run one after another so opening the screen doesn't burst the server's rate limit.
+  // They run in two small waves (not eight one-by-one calls, and not all at once, so the server's rate limit isn't burst):
+  // the first wave is what the History tab shows, so the screen appears after it while the rest fills in.
   const load = useCallback(async () => {
     const problems: Record<string, string> = {};
     // A failed request is recorded under its own name, so a tab can say "couldn't load" instead of looking empty.
     const run = async <T,>(key: string, fn: () => Promise<T>, apply: (value: T) => void) => {
       try { apply(await fn()); } catch (e) { problems[key] = errorText(e, "Couldn't load this. Please try again."); }
     };
-    await run("status", fetchVoiceStatus, setStatus);
-    await run("wallet", fetchVoiceWallet, setWallet);
-    await run("calls", () => fetchVoiceCalls(200), setCalls);
-    await run("transactions", fetchWalletTransactions, setTransactions);
-    await run("numbers", fetchVoiceNumbers, setNumbers);
-    await run("rates", fetchVoiceRates, setRates);
-    if (isAdmin) {
-      await run("report", fetchAgentReport, setReport);
-      await run("names", fetchStaff, (staff) => setNames(Object.fromEntries(staff.map((member) => [member.id, member.name]))));
-    }
-    setFailed(problems);
+    await Promise.all([
+      run("status", fetchVoiceStatus, setStatus),
+      run("wallet", fetchVoiceWallet, setWallet),
+      run("calls", () => fetchVoiceCalls(200), setCalls),
+    ]);
+    setFailed({ ...problems });
     setLoading(false); setRefreshing(false);
+    await Promise.all([
+      run("transactions", fetchWalletTransactions, setTransactions),
+      run("numbers", fetchVoiceNumbers, setNumbers),
+      run("rates", fetchVoiceRates, setRates),
+      ...(isAdmin ? [
+        run("report", fetchAgentReport, setReport),
+        run("names", fetchStaff, (staff) => setNames(Object.fromEntries(staff.map((member) => [member.id, member.name])))),
+      ] : []),
+    ]);
+    setFailed({ ...problems });
   }, [isAdmin]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 

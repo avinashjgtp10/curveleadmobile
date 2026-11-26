@@ -109,6 +109,7 @@ export default function LeadAutomationScreen() {
   const [error, setError] = useState("");
   const [sequences, setSequences] = useState<AutomationSequence[]>([]);
   const [rules, setRules] = useState<AutomationRule[]>([]);
+  const automationsLoaded = useRef(false);
   const [automationsLoading, setAutomationsLoading] = useState(false);
   const [automationsError, setAutomationsError] = useState("");
   const hasFilters = !!(query || statusFilter || stepFilter);
@@ -145,14 +146,15 @@ export default function LeadAutomationScreen() {
   }, [query, statusFilter, stepFilter]);
 
   const loadAutomations = useCallback(async () => {
-    setAutomationsLoading(true);
-    setAutomationsError("");
+    // Reopening refreshes in place; the spinner shows only the first time.
+    if (!automationsLoaded.current) { setAutomationsLoading(true); setAutomationsError(""); }
     try {
       const [sequenceList, ruleList] = await Promise.all([fetchSequences(), fetchRules()]);
       setSequences(sequenceList);
       setRules(ruleList);
+      automationsLoaded.current = true; setAutomationsError("");
     } catch (loadError) {
-      setAutomationsError(errorMessage(loadError, "Could not load your automations."));
+      if (!automationsLoaded.current) setAutomationsError(errorMessage(loadError, "Could not load your automations."));
     } finally {
       setAutomationsLoading(false);
       setRefreshing(false);
