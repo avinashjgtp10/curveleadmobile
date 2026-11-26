@@ -44,6 +44,12 @@ function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+// Cheap "did this row change" check; stringifying every row of a long history on each refresh was a visible cost.
+function sameRow(a: TodayFollowup, b: TodayFollowup) {
+  return a.id === b.id && a.next_followup_at === b.next_followup_at && a.followup_type === b.followup_type && a.notes === b.notes
+    && a.lead_name === b.lead_name && a.lead_phone === b.lead_phone && a.lead_stage === b.lead_stage;
+}
+
 function typeMeta(type?: string) {
   return TYPES.find((item) => item.key === type) || TYPES[0];
 }
@@ -330,6 +336,9 @@ function AppointmentSheet({ onSubmit }, ref) {
 
 // The last list loaded, so reopening the screen shows it at once while a fresh copy loads.
 let appointmentsCache: { userId: string; list: TodayFollowup[] } | null = null;
+// The whole history is big; it is downloaded again only after this long. In between, reopening re-checks just the days around today.
+const FULL_REFRESH_MS = 5 * 60_000;
+let appointmentsFullAt = 0;
 
 function AppointmentsContent() {
   const { user } = useAuth();
@@ -362,8 +371,27 @@ function AppointmentsContent() {
 
   const sheetRef = useRef<AppointmentSheetHandle>(null);
 
+  // After a save the list already shows the new time, so only the days around today are re-checked (a small request)
+  // instead of downloading the whole history again.
+  const refreshNear = useCallback(async () => {
+    try {
+      const from = new Date(); from.setDate(from.getDate() - 7); from.setHours(0, 0, 0, 0);
+      const to = new Date(); to.setDate(to.getDate() + 60);
+      const near = await fetchTodayFollowups({ date_from: ymd(from), date_to: ymd(to) });
+      setAppointments((current) => {
+        const old = new Map(current.map((row) => [row.id, row]));
+        const kept = current.filter((row) => row.id.startsWith("temp-") || new Date(row.next_followup_at) < from || new Date(row.next_followup_at) > to);
+        const fresh = near.map((row) => { const before = old.get(row.id); return before && sameRow(before, row) ? before : row; });
+        const ids = new Set(fresh.map((row) => row.id));
+        return [...fresh, ...kept.filter((row) => !ids.has(row.id))];
+      });
+    } catch { /* the list on screen is already right; the next open re-syncs */ }
+  }, []);
+
   // `silent` re-syncs in the background: no spinner, and a failure keeps the list on screen without an alert.
   const load = useCallback(async (refresh = false, silent = false) => {
+    // A list is already on screen and the full history was downloaded recently: only re-check the days around today.
+    if (silent && !refresh && hasData.current && Date.now() - appointmentsFullAt < FULL_REFRESH_MS) { await refreshNear(); return; }
     if (!silent) {
       refresh ? setRefreshing(true) : setLoading(true);
       setError("");
@@ -380,13 +408,14 @@ function AppointmentsContent() {
       }
       const rows = await fetchTodayFollowups({ date_from: "1970-01-01", date_to: ymd(future) });
       hasData.current = true;
+      appointmentsFullAt = Date.now();
       // The list was changed here (scheduled, completed, cancelled) while this was loading, so this answer is out of date
       // and would wipe the change; the next load picks everything up.
       if (localChanges.current !== changesAtStart) return;
       // Keep the old objects for rows that didn't change, so their memoized rows aren't redrawn. Rows still being saved stay.
       setAppointments((current) => {
         const old = new Map(current.map((row) => [row.id, row]));
-        const fresh = rows.map((row) => { const before = old.get(row.id); return before && JSON.stringify(before) === JSON.stringify(row) ? before : row; });
+        const fresh = rows.map((row) => { const before = old.get(row.id); return before && sameRow(before, row) ? before : row; });
         return [...current.filter((row) => row.id.startsWith("temp-")), ...fresh];
       });
     } catch {
@@ -398,24 +427,7 @@ function AppointmentsContent() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id]);
-
-  // After a save the list already shows the new time, so only the days around today are re-checked (a small request)
-  // instead of downloading the whole history again.
-  const refreshNear = useCallback(async () => {
-    try {
-      const from = new Date(); from.setDate(from.getDate() - 7); from.setHours(0, 0, 0, 0);
-      const to = new Date(); to.setDate(to.getDate() + 60);
-      const near = await fetchTodayFollowups({ date_from: ymd(from), date_to: ymd(to) });
-      setAppointments((current) => {
-        const old = new Map(current.map((row) => [row.id, row]));
-        const kept = current.filter((row) => row.id.startsWith("temp-") || new Date(row.next_followup_at) < from || new Date(row.next_followup_at) > to);
-        const fresh = near.map((row) => { const before = old.get(row.id); return before && JSON.stringify(before) === JSON.stringify(row) ? before : row; });
-        const ids = new Set(fresh.map((row) => row.id));
-        return [...fresh, ...kept.filter((row) => !ids.has(row.id))];
-      });
-    } catch { /* the list on screen is already right; the next open re-syncs */ }
-  }, []);
+  }, [user?.id, refreshNear]);
 
   useEffect(() => { load(false, !!cachedList); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View, Pressable } from "react-native";
 import { ActivityIndicator, Button, Card, Text } from "react-native-paper";
 import axios from "axios";
@@ -32,10 +32,12 @@ export default function QuotationsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const hasData = useRef(false);
+  // Coming back to the screen refreshes in place: the spinner shows only while there is nothing to show yet.
   const load = useCallback(async () => {
-    setLoading(true); setError("");
-    try { setQuotations(await fetchQuotations()); }
-    catch (loadError) { setError(errorMessage(loadError, "Could not load quotations.")); }
+    if (!hasData.current) { setLoading(true); setError(""); }
+    try { setQuotations(await fetchQuotations()); hasData.current = true; setError(""); }
+    catch (loadError) { if (!hasData.current) setError(errorMessage(loadError, "Could not load quotations.")); }
     finally { setLoading(false); }
   }, []);
 

@@ -89,13 +89,12 @@ export default function MoreScreen() {
     if (!isAdmin) return undefined;
     if (seatsCache && seatsCache.planName === planName && Date.now() - seatsCache.at < SEATS_TTL_MS) return undefined;
     let cancelled = false;
-    // One after the other, and the cache is only written once both answers are in.
+    // Asked together, and the cache is only written once both answers are in.
     (async () => {
       try {
-        const members = await fetchStaff();
+        const [members, plans] = await Promise.all([fetchStaff(), fetchPlans()]);
         const used = members.filter((member) => member.is_active !== false).length;
         if (!cancelled) setSeatsUsed(used);
-        const plans = await fetchPlans();
         const plan = plans.find((item) => item.name === planName);
         const limit = plan ? plan.max_users ?? null : undefined;
         seatsCache = { at: Date.now(), planName, used, limit };

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Text } from "react-native-paper";
 import { router, useFocusEffect } from "expo-router";
@@ -15,13 +15,17 @@ export default function LocationsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const hasData = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true); setError("");
+    // Coming back to the screen refreshes in place: the spinner shows only while there is nothing to show yet.
+    if (!hasData.current) { setLoading(true); setError(""); }
     try {
       const status = await fetchGmbConnection();
       setConnected(status.connected);
       setLocations(status.connected ? await fetchGmbLocations() : []);
+      hasData.current = true; setError("");
     } catch (e) {
+      if (hasData.current) return;
       // A rejected Google token is not a CurveLead sign-out: ask them to reconnect Google instead.
       setError(axios.isAxiosError(e) && e.response?.status === 401 ? "Google needs to be reconnected." : "Couldn't load your locations. Please try again.");
     }
