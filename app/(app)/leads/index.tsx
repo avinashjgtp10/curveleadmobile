@@ -712,13 +712,19 @@ export default function LeadsScreen() {
   }
 
   async function changeStageTo(stage: string) {
+    // Show the new stage at once and close the sheet; the server saves in the background and the old stages come back if it refuses.
+    const ids = Array.from(selectedIds);
+    const chosen = new Set(ids);
+    const previous = leads;
+    setLeads((current) => current.map((lead) => chosen.has(lead.id) ? { ...lead, stage, lead_status: "" } : lead));
+    setStageSheetOpen(false);
+    exitSelectMode();
     setBulkBusy(true);
     try {
-      await bulkUpdateLeads({ ids: Array.from(selectedIds), stage });
-      setStageSheetOpen(false);
-      exitSelectMode();
-      load();
+      await bulkUpdateLeads({ ids, stage });
+      load(1, false, true); // quiet re-sync: no spinner over the list
     } catch (stageError) {
+      setLeads(previous);
       Alert.alert("Couldn't update stage", errorMessage(stageError, "You may not have permission to do this."));
     } finally { setBulkBusy(false); }
   }

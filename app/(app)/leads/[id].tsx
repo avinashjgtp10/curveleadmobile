@@ -561,12 +561,15 @@ export default function LeadDetailScreen() {
   const [activitySheet, setActivitySheet] = useState<ActivitySheetType | null>(null);
   const [notesSignal, setNotesSignal] = useState(0);
 
+  const notesPrefetchedFor = useRef<string | null>(null);
   const load = useCallback(async (refresh = false) => {
     if (!id) { setError("This lead link is invalid."); setLoading(false); return; }
     if (refresh) setRefreshing(true); else if (!detailCache.has(id)) setLoading(true);
     setError(""); setNotFound(false);
     // Notes load alongside the lead instead of waiting for it, so they're ready when the section appears.
-    if (!refresh) prefetchLeadNotes(id);
+    // Only the first time: the notes section reloads itself after a change, so every later reload of the lead (after a stage,
+    // status or note change) asking for the notes again just added more waiting requests.
+    if (!refresh && notesPrefetchedFor.current !== id) { notesPrefetchedFor.current = id; prefetchLeadNotes(id); }
     try {
       const result = await fetchLeadDetails(id);
       detailCache.set(id, result);
