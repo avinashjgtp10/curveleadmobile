@@ -66,7 +66,7 @@ export interface DashboardSummary {
   recentLeads: DashboardLead[];
 }
 
-export async function fetchDashboard(period: DashboardPeriod) {
+export async function fetchDashboard(period: DashboardPeriod, options: { fresh?: boolean } = {}) {
   const params = {
     period: "custom",
     ...rangeFor(period),
@@ -74,6 +74,7 @@ export async function fetchDashboard(period: DashboardPeriod) {
   try {
     const { data } = await apiClient.get<DashboardSummary>("/reports/summary", {
       params,
+      ...(options.fresh ? { fresh: true } : {}),
     });
     return data;
   } catch (error) {

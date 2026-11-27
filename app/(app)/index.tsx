@@ -472,8 +472,9 @@ export default function DashboardScreen() {
     setError("");
     try {
       const [summary, todayFollowups] = await Promise.all([
-        fetchDashboard(period),
-        fetchTodayFollowups().catch(() => null),
+        // Pull to refresh asks the server again instead of reusing an answer from the last few seconds.
+        fetchDashboard(period, { fresh: refresh }),
+        fetchTodayFollowups(undefined, { fresh: refresh }).catch(() => null),
       ]);
       setData(summary);
       if (user?.id && period === "last_7_days") dashboardCache = { userId: user.id, data: summary, followups: todayFollowups ?? dashboardCache?.followups ?? [] };
