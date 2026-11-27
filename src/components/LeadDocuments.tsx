@@ -57,7 +57,13 @@ export const LeadDocuments = React.memo(function LeadDocuments({ leadId, onChang
     finally { setLoading(false); }
   }, [leadId]);
 
-  useEffect(() => { load(); }, [load]);
+  // Documents sit below the notes and details, so they wait a moment: the lead, its notes and the pipeline lists get the
+  // connection first. A lead whose documents were already seen refreshes them at once.
+  useEffect(() => {
+    if (filesCache.has(leadId)) { load(); return; }
+    const timer = setTimeout(load, 1200);
+    return () => clearTimeout(timer);
+  }, [load, leadId]);
 
   // The parent bumps pickSignal (e.g. from the floating "Attachment" action) to open the file picker.
   const handledSignal = useRef(pickSignal);
