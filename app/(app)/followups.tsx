@@ -440,12 +440,13 @@ export default function FollowupsScreen() {
     try {
       const to = startOfDay(new Date()); to.setDate(to.getDate() + DAYS_AFTER_TODAY);
       const dayBefore = new Date(windowStart); dayBefore.setDate(dayBefore.getDate() - 1);
-      const near = await fetchTodayFollowups({ date_from: ymd(windowStart), date_to: ymd(to) });
+      // Pull to refresh must ask the server again, not reuse an answer from the last few seconds.
+      const near = await fetchTodayFollowups({ date_from: ymd(windowStart), date_to: ymd(to) }, { fresh: refresh });
       if (id !== requestId.current) return;
       if (localChanges.current === changesAtStart && pendingSaves.current === 0) apply(near, null);
       setLoading(false); setRefreshing(false);
       // The (possibly large) history is asked for only once the days around today are on screen, so it can't slow them down.
-      const older = withOlder ? await fetchTodayFollowups({ date_from: OVERDUE_FROM, date_to: ymd(dayBefore) }).catch(() => null) : null;
+      const older = withOlder ? await fetchTodayFollowups({ date_from: OVERDUE_FROM, date_to: ymd(dayBefore) }, { fresh: refresh }).catch(() => null) : null;
       if (older && id === requestId.current && localChanges.current === changesAtStart && pendingSaves.current === 0) apply(near, older);
     } catch (loadError) {
       if (id !== requestId.current) return;

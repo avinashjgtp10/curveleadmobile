@@ -110,12 +110,14 @@ let epoch = 0;
 // Live data that is polled or must always be current is never served from the cache.
 const UNCACHED = /\/(whatsapp|notifications|auth)(\/|\?|$)/;
 const rawGet = apiClient.get.bind(apiClient) as (url: string, config?: object) => Promise<unknown>;
-(apiClient as unknown as { get: typeof rawGet }).get = (url, config) => {
-  const key = `${url}|${JSON.stringify((config as { params?: unknown } | undefined)?.params ?? {})}`;
-  const existing = inFlight.get(key);
+(apiClient as unknown as { get: typeof rawGet }).get = (url, passedConfig) => {
+  // `fresh: true` (pull to refresh) skips the saved answers and the shared in-flight request, so the person really gets the server's current data.
+  const { fresh, ...config } = (passedConfig ?? {}) as { fresh?: boolean; params?: unknown };
+  const key = `${url}|${JSON.stringify(config.params ?? {})}`;
+  const existing = fresh ? undefined : inFlight.get(key);
   if (existing) return existing;
   // A response from the last few seconds is reused, so going back to a page shows its data at once instead of waiting on the server.
-  const hit = recent.get(key);
+  const hit = fresh ? undefined : recent.get(key);
   const stable = STABLE.test(url);
   if (hit && Date.now() - hit.at < (stable ? STABLE_TTL_MS : RECENT_TTL_MS)) return Promise.resolve(hit.response);
   const startEpoch = epoch;
