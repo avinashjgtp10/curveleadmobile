@@ -40,6 +40,7 @@ let leadsCache: { userId: string; hidden: string; leads: LeadListItem[]; total: 
 // With a status, follow-up or reply-window filter on, this many leads are fetched at once and filtered on the phone.
 const LOCAL_FILTER_LIMIT = 500;
 const MAX_LOCAL_FILTER_BATCHES = 6; // batches of LOCAL_FILTER_LIMIT read when the phone has to apply stage/date filters itself
+const MAX_SEARCH_BATCHES = 20; // when the server's search finds nothing, up to 20 x 500 = 10,000 leads are read and searched on the phone
 const MAX_SILENT_PAGES = 3; // a background refresh re-fetches at most this many pages in one request
 const FILTERS = [
   { value: "", label: "All leads" },
@@ -525,14 +526,23 @@ export default function LeadsScreen() {
         }
         filterOnPhone = true;
       }
-      // The server found nothing for the typed words. Its search may only cover part of a name or number, so look through the
-      // newest leads on the phone before telling the person there is no match.
-      if (query && !append && !result.leads.length) {
+      // The server found nothing for the typed words, or sent back its ordinary list without applying them. Its search may only cover
+      // part of a name or number, so read through ALL leads (old and new, in batches) on the phone before saying there is no match.
+      if (query && !append && !result.leads.some((lead) => matchesSearchText(lead, query))) {
         const { search: _skip, ...withoutSearch } = extraParams as Record<string, unknown>;
-        const everything = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
+        const serverLeads = result.leads;
+        let batch = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
         if (id !== requestId.current) return;
-        const found = everything.leads.filter((lead) => matchesSearchText(lead, query));
-        if (found.length) { result = { ...everything, leads: found }; filterOnPhone = true; }
+        const found = batch.leads.filter((lead) => matchesSearchText(lead, query));
+        const lastBatch = Math.min(batch.pagination.pages, MAX_SEARCH_BATCHES);
+        for (let number = 2; number <= lastBatch; number++) {
+          batch = await fetchLeads({ page: number, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
+          if (id !== requestId.current) return;
+          found.push(...batch.leads.filter((lead) => matchesSearchText(lead, query)));
+        }
+        if (found.length) { result = { ...batch, leads: found }; filterOnPhone = true; }
+        // A full page that contains none of the typed words is the server's ordinary list: it ignored the search, so there is no match.
+        else if (serverLeads.length >= PAGE_SIZE) { result = { ...result, leads: [], pagination: { ...result.pagination, total: 0, pages: 1 } }; }
       }
       if (id !== requestId.current) return;
       if (filterOnPhone) {
