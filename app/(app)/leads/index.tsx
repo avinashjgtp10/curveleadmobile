@@ -398,6 +398,8 @@ export default function LeadsScreen() {
   const findStageRef = useRef(findStage);
   findStageRef.current = findStage;
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // When the phone has to filter by status itself, every load downloads up to 500 leads. Remember when that last happened.
+  const lastLoad = useRef({ at: 0, onPhone: false });
   const requestId = useRef(0);
   const [leads, setLeads] = useState<LeadListItem[]>(cached?.leads ?? []);
   const [total, setTotal] = useState(cached?.total ?? 0);
@@ -528,6 +530,7 @@ export default function LeadsScreen() {
       setPage(shownPages);
       setPages(silent ? Math.max(1, Math.ceil(result.pagination.total / PAGE_SIZE)) : result.pagination.pages);
       setTotal(result.pagination.total);
+      lastLoad.current = { at: Date.now(), onPhone: filterOnPhone };
       const unfiltered = !query && !score && !filterStage && !filterSource && !filterAssignedTo && !filterDateFrom && !filterDateTo;
       if (unfiltered && !append && user?.id) leadsCache = { userId: user.id, hidden: hiddenStages.join(","), leads: result.leads, total: result.pagination.total, pages: Math.max(1, Math.ceil(result.pagination.total / PAGE_SIZE)) };
     } catch (loadError) {
@@ -566,6 +569,9 @@ export default function LeadsScreen() {
   const focusedOnce = useRef(false);
   useFocusEffect(useCallback(() => {
     if (!focusedOnce.current) { focusedOnce.current = true; return; } // the effect above handles the first load
+    // Edits made on a lead's page are already applied to this list, so don't re-download up to 500 leads just because the
+    // person came back; pull to refresh still does it, and so does the next visit after a minute.
+    if (lastLoad.current.onPhone && Date.now() - lastLoad.current.at < 60_000) return;
     loadRef.current(1, false, true);
   }, []));
   useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); }, []);
@@ -573,14 +579,15 @@ export default function LeadsScreen() {
   useEffect(() => onLeadCreated(() => loadRef.current(1, false, true)), []);
   // An edit made on a lead's page (name, source, stage...) shows here immediately; the refresh on return then confirms it.
   useEffect(() => onLeadChanged((patch) => {
-    // A lead moved out of the stage being filtered on leaves the list at once instead of lingering until the refresh.
-    const leftFilter = !!filterStage && typeof patch.stage === "string" && patch.stage.toLowerCase() !== filterStage.toLowerCase();
+    // A lead changed so that it no longer matches the stage, status or source being filtered on leaves the list at once.
+    const differs = (wanted: string, value: unknown) => !!wanted && typeof value === "string" && value.toLowerCase() !== wanted.toLowerCase();
+    const leftFilter = differs(filterStage, patch.stage) || differs(filterStatus, patch.lead_status) || differs(filterSource, patch.source);
     setLeads((current) => leftFilter
       ? current.filter((lead) => lead.id !== patch.id)
       : current.some((lead) => lead.id === patch.id)
         ? current.map((lead) => lead.id === patch.id ? { ...lead, ...patch } : lead)
         : current);
-  }), [filterStage]);
+  }), [filterStage, filterStatus, filterSource]);
 
   useEffect(() => {
     fetchPreferences()
