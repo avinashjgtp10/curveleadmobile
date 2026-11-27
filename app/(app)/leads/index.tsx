@@ -37,6 +37,11 @@ const PAGE_SIZE = 20;
 let hiddenStagesCache: { userId: string; stages: string[] } | null = null;
 // `hidden` is the hidden-stages setting the list was fetched with, so a list is only reused when it matches the current setting.
 let leadsCache: { userId: string; hidden: string; leads: LeadListItem[]; total: number; pages: number } | null = null;
+// Leads read for the phone-side search, kept for a few minutes: every pause while typing would otherwise download them all again
+// (up to 20 requests each), which also eats into the server's request limit.
+let scanCache: { key: string; at: number; leads: LeadListItem[]; firstPageIds: string[] } | null = null;
+const SCAN_CACHE_MS = 5 * 60_000;
+
 // With a status, follow-up or reply-window filter on, this many leads are fetched at once and filtered on the phone.
 const LOCAL_FILTER_LIMIT = 500;
 const MAX_LOCAL_FILTER_BATCHES = 6; // batches of LOCAL_FILTER_LIMIT read when the phone has to apply stage/date filters itself
@@ -531,18 +536,30 @@ export default function LeadsScreen() {
       if (query && !append && !result.leads.some((lead) => matchesSearchText(lead, query))) {
         const { search: _skip, ...withoutSearch } = extraParams as Record<string, unknown>;
         const serverLeads = result.leads;
-        let batch = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
-        if (id !== requestId.current) return;
-        const found = batch.leads.filter((lead) => matchesSearchText(lead, query));
-        const lastBatch = Math.min(batch.pagination.pages, MAX_SEARCH_BATCHES);
-        for (let number = 2; number <= lastBatch; number++) {
-          batch = await fetchLeads({ page: number, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
+        const scanKey = `${user?.id ?? ""}|${JSON.stringify(withoutSearch)}`;
+        let everything: LeadListItem[];
+        let firstPageIds: string[];
+        let totalPages = 1;
+        if (scanCache && scanCache.key === scanKey && Date.now() - scanCache.at < SCAN_CACHE_MS) {
+          everything = scanCache.leads; firstPageIds = scanCache.firstPageIds;
+        } else {
+          let batch = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
           if (id !== requestId.current) return;
-          found.push(...batch.leads.filter((lead) => matchesSearchText(lead, query)));
+          everything = [...batch.leads];
+          firstPageIds = batch.leads.map((lead) => lead.id);
+          totalPages = Math.min(batch.pagination.pages, MAX_SEARCH_BATCHES);
+          for (let number = 2; number <= totalPages; number++) {
+            batch = await fetchLeads({ page: number, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
+            if (id !== requestId.current) return;
+            everything.push(...batch.leads);
+          }
+          scanCache = { key: scanKey, at: Date.now(), leads: everything, firstPageIds };
         }
-        if (found.length) { result = { ...batch, leads: found }; filterOnPhone = true; }
-        // A full page that contains none of the typed words is the server's ordinary list: it ignored the search, so there is no match.
-        else if (serverLeads.length >= PAGE_SIZE) { result = { ...result, leads: [], pagination: { ...result.pagination, total: 0, pages: 1 } }; }
+        const found = everything.filter((lead) => matchesSearchText(lead, query));
+        // The server ignored the search only if what it sent is exactly the start of the ordinary list (it may legitimately match on a field the phone doesn't show, like a business name).
+        const serverIgnoredSearch = serverLeads.length >= PAGE_SIZE && serverLeads.every((lead, index) => lead.id === firstPageIds[index]);
+        if (found.length) { result = { leads: found, pagination: { total: found.length, page: 1, limit: found.length, pages: 1 } }; filterOnPhone = true; }
+        else if (serverIgnoredSearch) { result = { ...result, leads: [], pagination: { ...result.pagination, total: 0, pages: 1 } }; }
       }
       if (id !== requestId.current) return;
       if (filterOnPhone) {
