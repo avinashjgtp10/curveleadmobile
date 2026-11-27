@@ -35,11 +35,14 @@ const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void 
 
   // Slow breathing glow so the button invites a tap without being distracting.
   useEffect(() => {
+    // A few pulses, then it rests: an animation that never stops redraws the tab bar on every frame of every screen, which costs
+    // smoothness (and battery) on mid-range Android phones.
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
         Animated.timing(pulse, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
+      ]),
+      { iterations: 3 }
     );
     loop.start();
     return () => loop.stop();

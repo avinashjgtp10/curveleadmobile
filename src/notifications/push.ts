@@ -103,7 +103,7 @@ const TYPE_TO_GROUP: Record<string, string> = {
 };
 
 /** Honors the person's Notification Settings switches (cached on this phone by the settings screen). */
-async function isAlertEnabled(type?: string) {
+export async function isAlertEnabled(type?: string) {
   // Server notifications carry the settings key itself as their type (new_messages, hot_leads, ...), so it is honored too.
   const group = type ? TYPE_TO_GROUP[type] ?? type : undefined;
   if (!group) return true;

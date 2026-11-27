@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { emitLeadChanged } from "@/lib/leadCreation";
 import {
   Alert, Keyboard, Linking, Modal, Platform, Pressable,
   RefreshControl, ScrollView, StyleSheet, TextInput as RNTextInput, ToastAndroid, View,
@@ -599,6 +600,16 @@ export default function LeadDetailScreen() {
   }, [id, storageKey]);
 
   useEffect(() => { load(); }, [load]);
+  // Tell the leads list about every change to this lead right away, so going back shows it without waiting for the list to reload.
+  // The first value this page shows is not a change (it may be an older saved copy), so only later ones are sent.
+  const announcedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lead) return;
+    if (announcedFor.current !== lead.id) { announcedFor.current = lead.id; return; }
+    const { id: leadId, name, phone, email, source, stage, lead_status, lead_score, assigned_to_name, next_followup_at } = lead;
+    const fields = { name, phone, email, source, stage, lead_status, lead_score, assigned_to_name, next_followup_at };
+    emitLeadChanged({ id: leadId, ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) });
+  }, [lead]);
   // Stable callbacks, so the memoized notes and documents sections don't redraw whenever this screen does.
   const reloadQuietly = useCallback(() => { load(); }, [load]);
   const reloadWithSpinner = useCallback(() => { load(true); }, [load]);
@@ -669,6 +680,8 @@ export default function LeadDetailScreen() {
       const same = (Object.keys(payload) as (keyof UpdateLeadInput)[]).every((key) => (updated as unknown as Record<string, unknown>)[key] === (payload as Record<string, unknown>)[key]);
       if (!same) setLead((current) => current ? { ...current, ...updated } : updated);
       detailCache.delete(lead.id);
+      // The copy saved on the phone still has the old values; drop it so a restart doesn't flash them before the fresh copy arrives.
+      if (storageKey) AsyncStorage.removeItem(storageKey).catch(() => {});
     } catch (saveError) {
       setLead(previous);
       throw saveError;
@@ -842,9 +855,6 @@ export default function LeadDetailScreen() {
   const currentStage = stages.find((item) => item.name.toLowerCase() === stage.toLowerCase());
   // Chat isn't a tab of this screen: it opens the WhatsApp conversation, so it is the last stop of the arrows.
   const TAB_ORDER = [["overview", "Overview"], ["details", "Details"], ["activities", "Activities"], ["chat", "Chat"]] as const;
-  const tabIndex = TAB_ORDER.findIndex(([key]) => key === tab);
-  const prevTab = TAB_ORDER[tabIndex - 1];
-  const nextTab = TAB_ORDER[tabIndex + 1];
   const openTab = (key: (typeof TAB_ORDER)[number][0]) => key === "chat"
     ? router.push({ pathname: "/(app)/more/whatsapp", params: { leadId: lead.id, name: lead.name, phone: lead.phone, openAt: String(Date.now()) } })
     : setTab(key);
@@ -857,15 +867,12 @@ export default function LeadDetailScreen() {
   return (
     <View style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable onPress={() => prevTab ? openTab(prevTab[0]) : router.back()} hitSlop={10} style={[styles.navButton, styles.navLeft]} accessibilityRole="button" accessibilityLabel={prevTab ? `Previous: ${prevTab[1]}` : "Back to leads"}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={[styles.navButton, styles.navLeft]} accessibilityRole="button" accessibilityLabel="Back to leads">
           <Ionicons name="chevron-back" size={20} color={UI.ink} />
-          <Text style={styles.navName} numberOfLines={1}>{prevTab ? prevTab[1] : "Leads"}</Text>
+          <Text style={styles.navName} numberOfLines={1}>Leads</Text>
         </Pressable>
         <Text style={styles.headerTitle}>Lead details</Text>
-        <Pressable onPress={() => nextTab && openTab(nextTab[0])} disabled={!nextTab} hitSlop={10} style={[styles.navButton, styles.navRight, !nextTab && { opacity: 0.35 }]} accessibilityRole="button" accessibilityLabel={nextTab ? `Next: ${nextTab[1]}` : "Next"}>
-          {nextTab ? <Text style={styles.navName} numberOfLines={1}>{nextTab[1]}</Text> : null}
-          <Ionicons name="chevron-forward" size={20} color={UI.ink} />
-        </Pressable>
+        <View style={styles.navButton} />
       </View>
 
       <ScrollView

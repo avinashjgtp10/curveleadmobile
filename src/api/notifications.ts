@@ -1,7 +1,7 @@
 import { apiClient } from "./client";
 import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "./leads";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { presentLocalNotification } from "@/notifications/push";
+import { isAlertEnabled, presentLocalNotification } from "@/notifications/push";
 
 const LOCAL_NOTIFICATIONS_KEY = "curvelead_local_notifications";
 const BULK_ADDED_AT_KEY = "curvelead_bulk_leads_added_at";
@@ -217,7 +217,9 @@ export async function markNotificationRead(id: string) {
       await AsyncStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(localNotifications.map((item) => item.id === id ? { ...item, read_at: item.read_at || readAt } : item)));
     }
   });
-  await apiClient.put(`/notifications/${id}/read`).catch(() => {});
+  // Notifications made on this phone (and follow-up reminders) don't exist on the server; asking would only fail.
+  if (/^(local|followup)-/.test(id)) return;
+  await apiClient.put(`/notifications/${encodeURIComponent(id)}/read`).catch(() => {});
 }
 
 /** Mirrors an incoming push notification into the same local store the in-app list reads from. */
@@ -343,7 +345,11 @@ export async function alertNewServerNotifications() {
     const y = new Date(other.created_at || "").getTime();
     return Number.isNaN(x) || Number.isNaN(y) || Math.abs(x - y) <= SAME_EVENT_MS;
   });
-  const toShow = newestFirst(fresh.filter((item) => !alreadyShown(item) && !coveredByLeadAlert(item)));
+  const candidates = fresh.filter((item) => !alreadyShown(item) && !coveredByLeadAlert(item));
+  // Types the person switched off in Notification Settings must not be counted: they would otherwise tip a quiet batch into
+  // the "N new notifications" summary, which has its own type and so rings no matter what was switched off.
+  const enabled = await Promise.all(candidates.map((item) => isAlertEnabled(item.type)));
+  const toShow = newestFirst(candidates.filter((_, index) => enabled[index]));
   if (!toShow.length) return;
   if (toShow.length > MAX_INDIVIDUAL_ALERTS) {
     await presentLocalNotification(`${toShow.length} new notifications`, toShow[0].title, { type: "summary" }, { skipIfShown: true });
