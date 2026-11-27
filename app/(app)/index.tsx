@@ -32,6 +32,9 @@ const PERIOD_OPTIONS: { key: DashboardPeriod; label: string }[] = [
   { key: "last_30_days", label: "Last 30 days" },
 ];
 
+// The web dashboard opens on "this month", so the app does too: the same period gives the same numbers on both.
+const DEFAULT_PERIOD: DashboardPeriod = "this_month";
+
 const LAST_SYNC_KEY = "meta_leads_last_sync";
 const META_SYNC_THROTTLE_MS = 2 * 60 * 1000;
 
@@ -364,9 +367,9 @@ export default function DashboardScreen() {
   // The grid shows the everyday tools; the rest are in the More tab.
   const manageItems = DASHBOARD_TOOLS.map((label) => visibleTools.find((item) => item.label === label)).filter((item): item is GridItem => !!item);
   const insets = useSafeAreaInsets();
-  const [period, setPeriod] = useState<DashboardPeriod>("last_7_days");
+  const [period, setPeriod] = useState<DashboardPeriod>(DEFAULT_PERIOD);
   const [periodOpen, setPeriodOpen] = useState(false);
-  const periodLabel = PERIOD_OPTIONS.find((item) => item.key === period)?.label || "Last 7 days";
+  const periodLabel = PERIOD_OPTIONS.find((item) => item.key === period)?.label || "This month";
   const cached = dashboardCache && dashboardCache.userId === user?.id ? dashboardCache : null;
   const [data, setData] = useState<DashboardSummary | null>(cached?.data ?? null);
   const dataRef = useRef<DashboardSummary | null>(null);
@@ -476,7 +479,7 @@ export default function DashboardScreen() {
         fetchTodayFollowups().catch(() => null),
       ]);
       setData(summary);
-      if (user?.id && period === "last_7_days") dashboardCache = { userId: user.id, data: summary, followups: todayFollowups ?? dashboardCache?.followups ?? [] };
+      if (user?.id && period === DEFAULT_PERIOD) dashboardCache = { userId: user.id, data: summary, followups: todayFollowups ?? dashboardCache?.followups ?? [] };
       // A failed follow-ups request keeps the last list instead of showing "No upcoming follow-ups".
       if (todayFollowups) setUpcomingFollowups(todayFollowups);
       // The focus effect below already fetches notifications on first open; only pull-to-refresh needs it here.
@@ -501,7 +504,7 @@ export default function DashboardScreen() {
   // With saved numbers on screen, the first refresh runs quietly instead of showing a spinner.
   const firstLoad = useRef(true);
   useEffect(() => {
-    const quiet = firstLoad.current && !!cached && period === "last_7_days";
+    const quiet = firstLoad.current && !!cached && period === DEFAULT_PERIOD;
     firstLoad.current = false;
     load(false, quiet);
     // eslint-disable-next-line react-hooks/exhaustive-deps
