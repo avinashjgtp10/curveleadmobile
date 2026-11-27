@@ -61,15 +61,28 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
   const [saving, setSaving] = useState(false);
   const formRef = useRef<View>(null);
 
+  // Each load gets a number; an answer that is no longer the newest is dropped. Without this, a slow request started before a
+  // save could arrive afterwards and wipe the note that was just added from the screen.
+  const loadSeq = useRef(0);
   const load = useCallback(async (fresh = false) => {
+    const mine = ++loadSeq.current;
     setLoadError("");
     try {
       const loaded = await loadNotes(leadId, fresh);
+      if (mine !== loadSeq.current) return;
       setNotes(loaded);
       if (storageKey) AsyncStorage.setItem(storageKey, JSON.stringify(loaded)).catch(() => {});
     }
-    catch (error) { setLoadError(errorMessage(error, "Could not load notes.")); }
-    finally { setLoading(false); }
+    catch (error) { if (mine === loadSeq.current) setLoadError(errorMessage(error, "Could not load notes.")); }
+    finally { if (mine === loadSeq.current) setLoading(false); }
+  }, [leadId, storageKey]);
+
+  // Keeps what the screen shows, the in-memory copy and the saved copy the same, so reopening the lead never shows an older list.
+  const showNotes = useCallback((next: LeadNote[]) => {
+    loadSeq.current++; // any request still on its way is older than this change
+    setNotes(next);
+    notesCache.set(leadId, next);
+    if (storageKey) AsyncStorage.setItem(storageKey, JSON.stringify(next.filter((item) => !item.id.startsWith("temp-")))).catch(() => {});
   }, [leadId, storageKey]);
 
   // After the app was restarted nothing is in memory: show the notes saved on the phone while the fresh copy loads.
@@ -97,7 +110,7 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
     const previous = notes;
     const wasEditing = editingId;
     const tempId = `temp-${Date.now()}`;
-    setNotes(wasEditing
+    showNotes(wasEditing
       ? notes.map((item) => item.id === wasEditing ? { ...item, note: content } : item)
       : [{ id: tempId, note: content, note_type: type, created_by_name: "You", created_at: new Date().toISOString() }, ...notes]);
     setFormOpen(false); setEditingId(null); setText("");
@@ -108,7 +121,7 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
       load(true);
     } catch (error) {
       // Put things back so nothing the person typed is lost.
-      setNotes(previous); setText(content); setEditingId(wasEditing); setFormOpen(true);
+      showNotes(previous); setText(content); setEditingId(wasEditing); setFormOpen(true);
       setFieldError(errorMessage(error, "Couldn't save the note. Please try again."));
     } finally { setSaving(false); }
   }
@@ -118,9 +131,9 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: async () => {
         const previous = notes;
-        setNotes((current) => current.filter((item) => item.id !== note.id));
+        showNotes(previous.filter((item) => item.id !== note.id));
         try { await deleteLeadNote(leadId, note.id); load(true); }
-        catch (error) { setNotes(previous); Alert.alert("Couldn't delete", errorMessage(error, "Please try again.")); }
+        catch (error) { showNotes(previous); Alert.alert("Couldn't delete", errorMessage(error, "Please try again.")); }
       } },
     ]);
   }

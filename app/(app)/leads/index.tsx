@@ -21,9 +21,10 @@ import { useT } from "@/i18n/LanguageContext";
 import { telUrl } from "@/api/phone";
 import { openPhoneWhatsapp } from "@/api/openWhatsapp";
 import {
-  bulkDeleteLeads, bulkUpdateLeads, fetchLeads, LeadListItem, trackContactActivity,
+  bulkDeleteLeads, bulkUpdateLeads, fetchLeadDetails, fetchLeads, LeadListItem, trackContactActivity,
 } from "@/api/leads";
-import { onLeadCreated } from "@/lib/leadCreation";
+import { onLeadChanged, onLeadCreated } from "@/lib/leadCreation";
+import { prefetchLeadNotes } from "@/components/LeadNotes";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchStaff, StaffMember } from "@/api/staff";
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
@@ -264,6 +265,8 @@ const LeadRow = React.memo(function LeadRow({ lead, selectMode, selected, canDel
   return (
     <Pressable
       style={({ pressed }) => [styles.leadCard, selected && styles.leadCardSelected, pressed && styles.pressed]}
+      // Start loading the lead and its notes as soon as the finger lands; the details screen then reuses this request instead of starting it after the screen opens.
+      onPressIn={() => { if (!selectMode) { fetchLeadDetails(lead.id).catch(() => {}); prefetchLeadNotes(lead.id); } }}
       onPress={() => selectMode ? onToggleSelect() : openLead()}
       onLongPress={() => { if (!selectMode) onLongPress(); }}
     >
@@ -568,6 +571,16 @@ export default function LeadsScreen() {
   useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); }, []);
   // A lead added from the Add lead form saves in the background; show it as soon as the server has it.
   useEffect(() => onLeadCreated(() => loadRef.current(1, false, true)), []);
+  // An edit made on a lead's page (name, source, stage...) shows here immediately; the refresh on return then confirms it.
+  useEffect(() => onLeadChanged((patch) => {
+    // A lead moved out of the stage being filtered on leaves the list at once instead of lingering until the refresh.
+    const leftFilter = !!filterStage && typeof patch.stage === "string" && patch.stage.toLowerCase() !== filterStage.toLowerCase();
+    setLeads((current) => leftFilter
+      ? current.filter((lead) => lead.id !== patch.id)
+      : current.some((lead) => lead.id === patch.id)
+        ? current.map((lead) => lead.id === patch.id ? { ...lead, ...patch } : lead)
+        : current);
+  }), [filterStage]);
 
   useEffect(() => {
     fetchPreferences()

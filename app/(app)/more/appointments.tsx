@@ -269,7 +269,9 @@ function AppointmentSheet({ onSubmit }, ref) {
     if (!selectedLead) { setFormError("Select a lead first."); return; }
     if (appointmentAt.getTime() < Date.now() - 60000) { setFormError("Choose a date and time in the future."); return; }
     setFormError(""); setSheetOpen(false);
-    onSubmit({ lead: selectedLead, type: appointmentType, at: appointmentAt, notes, replacing: reschedulingAppointment });
+    const values = { lead: selectedLead, type: appointmentType, at: appointmentAt, notes, replacing: reschedulingAppointment };
+    // Let the form start closing first; redrawing a long appointment list in the same frame made the Save tap feel stuck.
+    requestAnimationFrame(() => onSubmit(values));
   }
 
   return (
@@ -491,13 +493,17 @@ function AppointmentsContent() {
   }, []);
 
   const markCompleted = useCallback(async (item: TodayFollowup) => {
+    // Move it at once and tell the server in the background; put it back if the server refuses.
+    localChanges.current++;
     setCompletingId(item.id);
+    setAppointments((current) => current.filter((appointment) => appointment.id !== item.id));
+    setCompletedItems((current) => [item, ...current]);
     try {
       await completeLeadFollowup(item.id);
-      localChanges.current++;
-      setAppointments((current) => current.filter((appointment) => appointment.id !== item.id));
-      setCompletedItems((current) => [item, ...current]);
     } catch {
+      localChanges.current++;
+      setCompletedItems((current) => current.filter((done) => done.id !== item.id));
+      setAppointments((current) => current.some((appointment) => appointment.id === item.id) ? current : [item, ...current]);
       Alert.alert("Couldn't update appointment", "Please try again.");
     } finally {
       setCompletingId(null);
@@ -512,12 +518,14 @@ function AppointmentsContent() {
       {
         text: "Cancel appointment", style: "destructive",
         onPress: async () => {
+          localChanges.current++;
           setCompletingId(item.id);
+          setAppointments((current) => current.filter((appointment) => appointment.id !== item.id));
           try {
             await completeLeadFollowup(item.id, "Cancelled");
-            localChanges.current++;
-            setAppointments((current) => current.filter((appointment) => appointment.id !== item.id));
           } catch {
+            localChanges.current++;
+            setAppointments((current) => current.some((appointment) => appointment.id === item.id) ? current : [item, ...current]);
             Alert.alert("Couldn't cancel appointment", "Please try again.");
           } finally {
             setCompletingId(null);
