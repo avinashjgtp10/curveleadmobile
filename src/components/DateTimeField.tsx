@@ -12,6 +12,17 @@ export function defaultFollowupDate() {
   return date;
 }
 
+// The pickers compare the minimum down to the millisecond, so "now" as the minimum can leave today itself unselectable.
+// They get the start of that day instead; a time that has already passed today is moved to a few minutes from now.
+function startOfDay(date: Date) { const d = new Date(date); d.setHours(0, 0, 0, 0); return d; }
+function notInThePast(date: Date, minimum?: Date) {
+  if (!minimum || date.getTime() >= minimum.getTime() - 60_000) return date;
+  const next = new Date(Date.now() + 5 * 60_000);
+  next.setSeconds(0, 0);
+  next.setMinutes(Math.ceil(next.getMinutes() / 5) * 5);
+  return next;
+}
+
 function formatDateTime(date: Date) {
   return date.toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
@@ -32,7 +43,7 @@ export function DateTimeField({ value, onChange, minimumDate, mode = "datetime" 
       DateTimePickerAndroid.open({
         value,
         mode: "date",
-        minimumDate,
+        minimumDate: minimumDate ? startOfDay(minimumDate) : undefined,
         onChange: (dateEvent, pickedDate) => {
           if (dateEvent.type !== "set" || !pickedDate) return;
           if (dateOnly) { onChange(pickedDate); return; }
@@ -43,7 +54,7 @@ export function DateTimeField({ value, onChange, minimumDate, mode = "datetime" 
               if (timeEvent.type !== "set" || !pickedTime) return;
               const combined = new Date(pickedDate);
               combined.setHours(pickedTime.getHours(), pickedTime.getMinutes(), 0, 0);
-              onChange(combined);
+              onChange(notInThePast(combined, minimumDate));
             },
           });
         },
@@ -67,8 +78,8 @@ export function DateTimeField({ value, onChange, minimumDate, mode = "datetime" 
           <Pressable style={styles.backdrop} onPress={() => setIosPickerOpen(false)}>
             <Pressable style={styles.sheet} onPress={() => {}}>
               <View style={styles.sheetHandle} />
-              <DateTimePicker value={draft} mode={dateOnly ? "date" : "datetime"} display="spinner" minimumDate={minimumDate} onChange={(_, date) => date && setDraft(date)} />
-              <Button mode="contained" onPress={() => { onChange(draft); setIosPickerOpen(false); }} style={styles.doneButton} contentStyle={styles.doneButtonContent}>Done</Button>
+              <DateTimePicker value={draft} mode={dateOnly ? "date" : "datetime"} display="spinner" minimumDate={minimumDate ? startOfDay(minimumDate) : undefined} onChange={(_, date) => date && setDraft(date)} />
+              <Button mode="contained" onPress={() => { onChange(dateOnly ? draft : notInThePast(draft, minimumDate)); setIosPickerOpen(false); }} style={styles.doneButton} contentStyle={styles.doneButtonContent}>Done</Button>
             </Pressable>
           </Pressable>
         </Modal>
