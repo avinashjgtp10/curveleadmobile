@@ -180,7 +180,7 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
         </View>
       ) : null}
 
-      {loading ? <ActivityIndicator style={styles.loader} color={colors.primary} /> : loadError ? (
+      {loading ? <View style={styles.loadingRow}><ActivityIndicator size="small" color={colors.primary} /><Text style={styles.empty}>Loading notes…</Text></View> : loadError ? (
         <Pressable onPress={() => { setLoading(true); load(true); }}><Text style={styles.empty}>{loadError} Tap to retry.</Text></Pressable>
       ) : notes.length === 0 ? (
         <Text style={styles.empty}>No notes yet. Add discussion notes from meetings or calls.</Text>
@@ -234,6 +234,7 @@ const styles = StyleSheet.create({
   saveButton: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: "#2457e6", minWidth: 96, alignItems: "center" },
   saveText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   loader: { marginVertical: 18 },
+  loadingRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 8 },
   empty: { color: "#94a3b8", fontSize: 12, textAlign: "center", paddingVertical: 18 },
   list: { gap: 8, marginTop: 12 },
   note: { padding: 12, borderRadius: 14, backgroundColor: "#f8fbfd" },
