@@ -400,6 +400,20 @@ let followupSheetShowing = false;
 
 type FollowupSheetHandle = { open: (initial?: FollowupValues | null) => void };
 
+// The follow-up form uses the same colours as the Add lead form: soft blue borders, deep teal actions, rounded buttons.
+const fu = {
+  teal: "#0b6b97",
+  label: { color: "#0f172a", fontSize: 12, fontFamily: "Inter_700Bold", marginBottom: 6 } as const,
+  labelGap: { marginTop: 14 } as const,
+  field: { minHeight: 46, borderRadius: 10, borderWidth: 1, borderColor: "#cfe3f1", backgroundColor: "#ffffff", paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", color: "#0f172a", fontSize: 13 } as const,
+  fieldActive: { borderColor: "#0b6b97", borderWidth: 2 } as const,
+  list: { marginTop: 6, backgroundColor: "#ffffff", borderRadius: 10, borderWidth: 1, borderColor: "#cfe3f1", overflow: "hidden" } as const,
+  itemSelected: { backgroundColor: "#e1eef7" } as const,
+  primary: { height: 44, borderRadius: 999, backgroundColor: "#0b6b97", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 16 } as const,
+  primaryText: { color: "#ffffff", fontSize: 14, fontWeight: "800" } as const,
+  cancel: { marginTop: 10, borderRadius: 999, borderColor: "#cfe3f1", backgroundColor: "#ffffff" } as const,
+};
+
 // It owns whether it is open, so opening and closing it never redraws the lead page behind it.
 const FollowupSheet = React.memo(React.forwardRef<FollowupSheetHandle, {
   saving: boolean; bottomInset: number; onSubmit: (values: FollowupValues) => void;
@@ -435,7 +449,9 @@ const FollowupSheet = React.memo(React.forwardRef<FollowupSheetHandle, {
       return;
     }
     setVisible(false);
-    onSubmit({ type, at, notes, meetingUrl });
+    // Let the sheet start closing first; the page behind it redraws (new follow-up, banner) one frame later, so the tap feels instant.
+    const values = { type, at, notes, meetingUrl };
+    requestAnimationFrame(() => onSubmit(values));
   }
 
   return (
@@ -445,22 +461,22 @@ const FollowupSheet = React.memo(React.forwardRef<FollowupSheetHandle, {
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetTitle}>Schedule Follow-up</Text>
           <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1 }}>
-            <Text style={styles.fieldLabel}>Date &amp; Time<Text style={styles.required}> *</Text></Text>
-            <DateTimeField value={at} onChange={setAt} minimumDate={new Date()} />
+            <Text style={fu.label}>Date &amp; Time<Text style={styles.required}> *</Text></Text>
+            <DateTimeField value={at} onChange={setAt} minimumDate={new Date()} quickPicks />
 
-            <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Type</Text>
-            <Pressable style={[styles.selectField, typePickerOpen && { borderColor: UI.blue }]} onPress={() => { Keyboard.dismiss(); setTypePickerOpen((open) => !open); }} accessibilityRole="button" accessibilityLabel="Follow-up type" accessibilityState={{ expanded: typePickerOpen }}>
+            <Text style={[fu.label, fu.labelGap]}>Type</Text>
+            <Pressable style={[fu.field, typePickerOpen && fu.fieldActive]} onPress={() => { Keyboard.dismiss(); setTypePickerOpen((open) => !open); }} accessibilityRole="button" accessibilityLabel="Follow-up type" accessibilityState={{ expanded: typePickerOpen }}>
               <Text style={styles.selectText}>{FOLLOWUP_TYPES.find((item) => item.key === type)?.label}</Text>
               <Ionicons name={typePickerOpen ? "chevron-up" : "chevron-down"} size={16} color={UI.sub} />
             </Pressable>
             {typePickerOpen ? (
-              <View style={styles.dropdownList}>
+              <View style={fu.list}>
                 {FOLLOWUP_TYPES.map((item, index) => {
                   const selected = item.key === type;
                   return (
-                    <Pressable key={item.key} style={[styles.dropdownItem, index > 0 && styles.dropdownItemDivider, selected && styles.pickerItemSelected]} onPress={() => { setType(item.key); setTypePickerOpen(false); }} accessibilityRole="menuitem">
-                      <Text style={[styles.pickerItemText, selected && { color: UI.blue, fontWeight: "800" }]}>{item.label}</Text>
-                      {selected ? <Ionicons name="checkmark" size={16} color={UI.blue} /> : null}
+                    <Pressable key={item.key} style={[styles.dropdownItem, index > 0 && styles.dropdownItemDivider, selected && fu.itemSelected]} onPress={() => { setType(item.key); setTypePickerOpen(false); }} accessibilityRole="menuitem">
+                      <Text style={[styles.pickerItemText, selected && { color: fu.teal, fontWeight: "800" }]}>{item.label}</Text>
+                      {selected ? <Ionicons name="checkmark" size={16} color={fu.teal} /> : null}
                     </Pressable>
                   );
                 })}
@@ -469,20 +485,20 @@ const FollowupSheet = React.memo(React.forwardRef<FollowupSheetHandle, {
 
             {type === "demo" ? (
               <>
-                <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Meeting link (optional)</Text>
-                <RNTextInput style={styles.textField} value={meetingUrl} onChangeText={setMeetingUrl} placeholder="https://meet.google.com/…" placeholderTextColor={UI.muted} autoCapitalize="none" keyboardType="url" />
+                <Text style={[fu.label, fu.labelGap]}>Meeting link (optional)</Text>
+                <RNTextInput style={fu.field} value={meetingUrl} onChangeText={setMeetingUrl} placeholder="https://meet.google.com/…" placeholderTextColor={UI.muted} autoCapitalize="none" keyboardType="url" />
               </>
             ) : null}
 
-            <Text style={[styles.fieldLabel, styles.fieldLabelGap]}>Notes (optional)</Text>
-            <RNTextInput style={styles.textField} value={notes} onChangeText={setNotes} placeholder="e.g. Discuss pricing" placeholderTextColor={UI.muted} />
+            <Text style={[fu.label, fu.labelGap]}>Notes (optional)</Text>
+            <RNTextInput style={fu.field} value={notes} onChangeText={setNotes} placeholder="e.g. Discuss pricing" placeholderTextColor={UI.muted} />
           </ScrollView>
 
-          <Pressable style={[styles.primaryButton, saving && { opacity: 0.7 }]} onPress={submit} disabled={saving} accessibilityRole="button">
+          <Pressable style={[fu.primary, saving && { opacity: 0.7 }]} onPress={submit} disabled={saving} accessibilityRole="button">
             {saving ? <ActivityIndicator size="small" color="#fff" /> : null}
-            <Text style={styles.primaryButtonText}>Schedule Follow-up</Text>
+            <Text style={fu.primaryText}>Schedule Follow-up</Text>
           </Pressable>
-          <Button mode="outlined" onPress={onClose} disabled={saving} style={styles.sheetCancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
+          <Button mode="outlined" onPress={onClose} disabled={saving} textColor={fu.teal} style={fu.cancel} contentStyle={styles.sheetButtonContent}>Cancel</Button>
         </Pressable>
       </Pressable>
     </Modal>

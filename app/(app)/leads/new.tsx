@@ -367,7 +367,7 @@ export default function NewLeadScreen() {
 
         {scheduleFollowup ? (
           <View style={styles.followupPicker}>
-            <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
+            <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} quickPicks />
           </View>
         ) : null}
 

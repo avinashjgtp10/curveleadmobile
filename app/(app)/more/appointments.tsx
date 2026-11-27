@@ -311,7 +311,7 @@ function AppointmentSheet({ onSubmit }, ref) {
               )}
 
               <Text style={styles.sheetLabel}>Date & Time <Text style={styles.required}>*</Text></Text>
-              <DateTimeField value={appointmentAt} onChange={setAppointmentAt} minimumDate={new Date()} />
+              <DateTimeField value={appointmentAt} onChange={setAppointmentAt} minimumDate={new Date()} quickPicks />
 
               <Text style={styles.sheetLabel}>Type</Text>
               <View style={styles.typeRow}>

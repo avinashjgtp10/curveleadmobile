@@ -297,7 +297,8 @@ function AddFollowupSheet({ saving, onSave }, ref) {
     if (!selectedLead) { setAddError("Search and select a lead first."); return; }
     if (followupAt.getTime() < Date.now() - 60000) { setAddError("Choose a date and time in the future."); return; }
     setAddError(""); setAddOpen(false);
-    onSave({ lead: selectedLead, type: followupType, at: followupAt, notes: followupNotes });
+    const values = { lead: selectedLead, type: followupType, at: followupAt, notes: followupNotes };
+    requestAnimationFrame(() => onSave(values)); // the form closes first, then the list behind it updates
   }
 
   return (
@@ -357,7 +358,7 @@ function AddFollowupSheet({ saving, onSave }, ref) {
               </View>
 
               <Text style={styles.sheetSectionLabel}>Follow-up date &amp; time</Text>
-              <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
+              <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} quickPicks />
 
               <Text style={styles.sheetSectionLabel}>Follow-up note</Text>
               <TextInput mode="outlined" value={followupNotes} onChangeText={setFollowupNotes} placeholder="Add a note (optional)" multiline numberOfLines={3} style={styles.sheetTextarea} outlineStyle={styles.sheetOutline} outlineColor={UI.formLine} activeOutlineColor={UI.teal} />
