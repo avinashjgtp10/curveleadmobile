@@ -848,7 +848,8 @@ export default function LeadsScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      {loading && !leads.length ? (
+      {/* While searching, the list (with the search box in its header) stays mounted: swapping it for a loading screen rebuilt the box and dropped the keyboard after a search with no results. */}
+      {loading && !leads.length && !query ? (
         <View style={styles.loadingWrap}>{header}<View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.loadingText}>{t("Loading leads…")}</Text></View></View>
       ) : error && !leads.length ? (
         <View style={styles.loadingWrap}>{header}<View style={styles.center}><Text style={styles.errorTitle}>{t("Couldn't load leads")}</Text><Text style={styles.errorMessage}>{error}</Text><Pressable style={styles.retry} onPress={() => load()}><Text style={styles.retryText}>{t("Try again")}</Text></Pressable></View></View>
@@ -872,14 +873,16 @@ export default function LeadsScreen() {
               ? <Pressable style={styles.loadMoreButton} onPress={() => load(page + 1, true)}><Text style={styles.loadMoreText}>{t("Load more")} ({leads.length}/{total})</Text></Pressable>
               : <Text style={styles.endText}>{t("All {n} leads loaded", { n: total })}</Text>
           ) : null}
-          ListEmptyComponent={
+          ListEmptyComponent={loading ? (
+            <View style={styles.empty}><ActivityIndicator color={colors.primary} /></View>
+          ) : (
             <View style={styles.empty}>
               <View style={styles.emptyIcon}><Ionicons name="people-outline" size={26} color={colors.primary} /></View>
               <Text style={styles.emptyTitle}>{query || activeFilterCount ? t("No matching leads") : t("No leads yet")}</Text>
               <Text style={styles.emptyText}>{query || activeFilterCount ? t("Try changing your search or filter.") : t("Add your first lead to start building your pipeline.")}</Text>
               {!query && !activeFilterCount ? <Pressable style={styles.emptyButton} onPress={goToNewLead}><Text style={styles.emptyButtonText}>{t("＋ Add first lead")}</Text></Pressable> : null}
             </View>
-          }
+          )}
         />
       )}
 
