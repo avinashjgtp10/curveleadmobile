@@ -42,6 +42,24 @@ let leadsCache: { userId: string; hidden: string; leads: LeadListItem[]; total: 
 let scanCache: { key: string; at: number; leads: LeadListItem[]; firstPageIds: string[] } | null = null;
 const SCAN_CACHE_MS = 5 * 60_000;
 
+/** Reads every lead (old and new, 500 at a time, up to MAX_SEARCH_BATCHES batches) so the phone can search them. null = a newer request took over. */
+async function scanAllLeads(withoutSearch: Record<string, unknown>, userId: string, isCurrent: () => boolean) {
+  const key = `${userId}|${JSON.stringify(withoutSearch)}`;
+  if (scanCache && scanCache.key === key && Date.now() - scanCache.at < SCAN_CACHE_MS) return scanCache;
+  let batch = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
+  if (!isCurrent()) return null;
+  const leads = [...batch.leads];
+  const firstPageIds = batch.leads.map((lead) => lead.id);
+  const lastBatch = Math.min(batch.pagination.pages, MAX_SEARCH_BATCHES);
+  for (let number = 2; number <= lastBatch; number++) {
+    batch = await fetchLeads({ page: number, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
+    if (!isCurrent()) return null;
+    leads.push(...batch.leads);
+  }
+  scanCache = { key, at: Date.now(), leads, firstPageIds };
+  return scanCache;
+}
+
 // With a status, follow-up or reply-window filter on, this many leads are fetched at once and filtered on the phone.
 const LOCAL_FILTER_LIMIT = 500;
 const MAX_LOCAL_FILTER_BATCHES = 6; // batches of LOCAL_FILTER_LIMIT read when the phone has to apply stage/date filters itself
@@ -536,25 +554,10 @@ export default function LeadsScreen() {
       if (query && !append && !result.leads.some((lead) => matchesSearchText(lead, query))) {
         const { search: _skip, ...withoutSearch } = extraParams as Record<string, unknown>;
         const serverLeads = result.leads;
-        const scanKey = `${user?.id ?? ""}|${JSON.stringify(withoutSearch)}`;
-        let everything: LeadListItem[];
-        let firstPageIds: string[];
-        let totalPages = 1;
-        if (scanCache && scanCache.key === scanKey && Date.now() - scanCache.at < SCAN_CACHE_MS) {
-          everything = scanCache.leads; firstPageIds = scanCache.firstPageIds;
-        } else {
-          let batch = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
-          if (id !== requestId.current) return;
-          everything = [...batch.leads];
-          firstPageIds = batch.leads.map((lead) => lead.id);
-          totalPages = Math.min(batch.pagination.pages, MAX_SEARCH_BATCHES);
-          for (let number = 2; number <= totalPages; number++) {
-            batch = await fetchLeads({ page: number, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
-            if (id !== requestId.current) return;
-            everything.push(...batch.leads);
-          }
-          scanCache = { key: scanKey, at: Date.now(), leads: everything, firstPageIds };
-        }
+        const scan = await scanAllLeads(withoutSearch, user?.id ?? "", () => id === requestId.current);
+        if (!scan) return;
+        const everything = scan.leads;
+        const firstPageIds = scan.firstPageIds;
         const found = everything.filter((lead) => matchesSearchText(lead, query));
         // The server ignored the search only if what it sent is exactly the start of the ordinary list (it may legitimately match on a field the phone doesn't show, like a business name).
         const serverIgnoredSearch = serverLeads.length >= PAGE_SIZE && serverLeads.every((lead, index) => lead.id === firstPageIds[index]);
@@ -567,6 +570,23 @@ export default function LeadsScreen() {
         setLeads(matching);
         pageRef.current = 1; setPage(1); setPages(1); setTotal(matching.length);
         return;
+      }
+      // The server answered, but its search may leave out older leads. Show its answer now, then add any older leads the phone
+      // finds by reading all of them (kept for a few minutes, so only the first search pays for it).
+      if (query && !append && !silent) {
+        const { search: _skip, ...withoutSearch } = extraParams as Record<string, unknown>;
+        scanAllLeads(withoutSearch, user?.id ?? "", () => id === requestId.current).then((scan) => {
+          if (!scan || id !== requestId.current) return;
+          const extra = scan.leads.filter((lead) => matchesSearchText(lead, query) && matchesLocalFilters(lead, localFilters));
+          if (!extra.length) return;
+          setLeads((current) => {
+            const have = new Set(current.map((lead) => lead.id));
+            const added = extra.filter((lead) => !have.has(lead.id));
+            if (!added.length) return current;
+            setTotal((count) => count + added.length);
+            return [...current, ...added].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+          });
+        }).catch(() => {});
       }
       setLeads((current) => append ? [...current, ...result.leads.filter((lead) => !current.some((item) => item.id === lead.id))]
         : partial ? [...reuseUnchanged(current, result.leads), ...current.slice(result.leads.length).filter((lead) => !result.leads.some((fresh) => fresh.id === lead.id))]
