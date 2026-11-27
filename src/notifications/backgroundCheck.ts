@@ -26,9 +26,10 @@ if (mods && !mods.TaskManager.isTaskDefined(BACKGROUND_CHECK_TASK)) {
     try {
       const { getStoredToken } = require("@/api/client") as typeof import("@/api/client");
       if (!(await getStoredToken())) return mods.BackgroundTask.BackgroundTaskResult.Success; // signed out
-      const { alertNewLeads, alertNewServerNotifications } = require("@/api/notifications") as typeof import("@/api/notifications");
+      const { alertNewLeads, alertNewServerNotifications, alertOverdueFollowups } = require("@/api/notifications") as typeof import("@/api/notifications");
       await alertNewLeads().catch(() => {});
       await alertNewServerNotifications().catch(() => {});
+      await alertOverdueFollowups().catch(() => {});
       return mods.BackgroundTask.BackgroundTaskResult.Success;
     } catch {
       return mods.BackgroundTask.BackgroundTaskResult.Failed;

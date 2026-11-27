@@ -11,6 +11,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
+import { cancelFollowupReminder, scheduleFollowupReminder } from "@/notifications/followupReminders";
+import { notifyFollowupScheduled } from "@/api/notifications";
 import { useStages } from "@/hooks/useStages";
 import { phoneSearchTerm, telUrl } from "@/api/phone";
 import {
@@ -516,6 +518,7 @@ export default function FollowupsScreen() {
     if (followupsCache) followupsCache = { ...followupsCache, list: followupsCache.list.filter((f) => f.id !== item.id) };
     try {
       await completeLeadFollowup(item.id);
+      cancelFollowupReminder(item.id);
       // The copy saved on the phone must not bring it back after a restart.
       if (followupsCache) saveFollowupsOnPhone(followupsCache.userId, followupsCache.list);
     } catch (completeError) {
@@ -549,7 +552,9 @@ export default function FollowupsScreen() {
     const bookedDay = startOfDay(bookedAt);
     if (!isSameDay(bookedAt, selectedDate) && bookedDay >= days[0] && bookedDay <= days[days.length - 1]) setSelectedDate(bookedDay);
     try {
-      await createLeadFollowup(lead.id, { followup_type: type, next_followup_at: bookedAt.toISOString(), notes: notes.trim() || undefined });
+      const created = await createLeadFollowup(lead.id, { followup_type: type, next_followup_at: bookedAt.toISOString(), notes: notes.trim() || undefined });
+      scheduleFollowupReminder({ followupId: created.id, leadId: lead.id, leadName: lead.name, leadPhone: lead.phone, leadStage: lead.stage, at: bookedAt, type });
+      notifyFollowupScheduled({ id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage }, when).catch(() => {});
       setTimeout(() => Alert.alert("Follow-up scheduled", `${lead.name} - ${when}`), 100);
       load(false, true, false);
     } catch (saveError) {

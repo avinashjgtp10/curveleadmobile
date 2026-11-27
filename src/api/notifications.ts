@@ -2,6 +2,7 @@ import { apiClient } from "./client";
 import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "./leads";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { isAlertEnabled, presentLocalNotification } from "@/notifications/push";
+import { clearFollowupReminders } from "@/notifications/followupReminders";
 
 const LOCAL_NOTIFICATIONS_KEY = "curvelead_local_notifications";
 const BULK_ADDED_AT_KEY = "curvelead_bulk_leads_added_at";
@@ -292,6 +293,23 @@ export async function notifyMessageFailed(lead: { id: string; name: string; phon
   });
 }
 
+/** A follow-up was scheduled or rescheduled from this phone: saved in the list and shown as a pop-up with sound. */
+export async function notifyFollowupScheduled(lead: { id: string; name: string; phone?: string; stage?: string }, when: string, rescheduled = false) {
+  const input: LocalNotificationInput = {
+    title: `${rescheduled ? "Follow-up rescheduled" : "Follow-up scheduled"} - ${lead.name}`,
+    message: when,
+    type: "followup_scheduled",
+    lead_id: lead.id,
+    lead_name: lead.name,
+    lead_phone: lead.phone,
+    lead_stage: lead.stage,
+  };
+  await saveLocalNotification(input);
+  await presentLocalNotification(input.title, input.message, {
+    type: input.type, lead_id: input.lead_id, lead_name: input.lead_name, lead_phone: input.lead_phone, lead_stage: input.lead_stage,
+  });
+}
+
 export async function notifyLeadsDeleted(leads: { id: string; name: string }[]) {
   if (!leads.length) return;
   // One entry and one alert for the whole batch: separate entries would flood the 100-item list and push out older ones.
@@ -422,10 +440,52 @@ export async function alertNewLeads() {
   }
 }
 
+const OVERDUE_ALERTED_KEY = "curvelead_alerted_overdue_ids";
+const MAX_OVERDUE_ALERTED = 300;
+const OVERDUE_MAX_AGE_MS = 24 * 60 * 60_000;
+// The reminder set for the follow-up's time already rang at that moment; "overdue" is announced only once it is clearly late.
+const OVERDUE_MIN_AGE_MS = 10 * 60_000;
+
+/**
+ * Follow-ups that have just gone overdue ring once, even if the server sent no push and the reminder set for their time was
+ * missed (e.g. the follow-up was made on the web). The first check only remembers what is already overdue.
+ */
+export async function alertOverdueFollowups() {
+  const day = (offset: number) => { const d = new Date(); d.setDate(d.getDate() + offset); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+  const list = await fetchTodayFollowups({ date_from: day(-1), date_to: day(0) });
+  const now = Date.now();
+  const overdue = list.filter((item) => {
+    const at = new Date(item.next_followup_at).getTime();
+    return !Number.isNaN(at) && now - at >= OVERDUE_MIN_AGE_MS && now - at <= OVERDUE_MAX_AGE_MS;
+  });
+  const raw = await AsyncStorage.getItem(OVERDUE_ALERTED_KEY);
+  const firstRun = raw === null;
+  let seen: string[] = [];
+  try { seen = raw ? (JSON.parse(raw) as string[]) : []; } catch { seen = []; }
+  const seenSet = new Set(seen);
+  const fresh = overdue.filter((item) => !seenSet.has(item.id));
+  if (!fresh.length) {
+    if (firstRun) await AsyncStorage.setItem(OVERDUE_ALERTED_KEY, "[]");
+    return;
+  }
+  await AsyncStorage.setItem(OVERDUE_ALERTED_KEY, JSON.stringify([...seen, ...fresh.map((item) => item.id)].slice(-MAX_OVERDUE_ALERTED)));
+  if (firstRun) return;
+  if (fresh.length > MAX_INDIVIDUAL_ALERTS) {
+    await presentLocalNotification(`${fresh.length} follow-ups overdue`, "Open Tasks to see them.", { type: "followup" }, { skipIfShown: true });
+    return;
+  }
+  for (const item of fresh) {
+    await presentLocalNotification(`Follow-up overdue - ${item.lead_name}`, item.followup_type ? `${item.followup_type} follow-up` : undefined, {
+      type: "followup", lead_id: item.lead_id, lead_name: item.lead_name, lead_phone: item.lead_phone, lead_stage: item.lead_stage,
+    }, { skipIfShown: true });
+  }
+}
+
 /** Signing out: the next person to sign in on this phone starts with a fresh "already announced" baseline. */
 export async function resetAlertBaseline() {
-  await Promise.all([ALERTED_IDS_KEY, SEEN_LEADS_KEY, BULK_ADDED_AT_KEY].map((key) => AsyncStorage.removeItem(key).catch(() => {})));
+  await Promise.all([ALERTED_IDS_KEY, SEEN_LEADS_KEY, BULK_ADDED_AT_KEY, OVERDUE_ALERTED_KEY].map((key) => AsyncStorage.removeItem(key).catch(() => {})));
   await clearUserCaches();
+  await clearFollowupReminders();
 }
 
 // The list the Notifications screen showed last, kept so reopening it paints at once.

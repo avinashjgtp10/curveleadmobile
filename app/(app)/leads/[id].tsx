@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { emitLeadChanged } from "@/lib/leadCreation";
+import { cancelFollowupReminder, scheduleFollowupReminder } from "@/notifications/followupReminders";
+import { notifyFollowupScheduled } from "@/api/notifications";
 import {
   Alert, Keyboard, Linking, Modal, Platform, Pressable,
   RefreshControl, ScrollView, StyleSheet, TextInput as RNTextInput, ToastAndroid, View,
@@ -809,6 +811,10 @@ export default function LeadDetailScreen() {
         meeting_url: values.type === "demo" ? values.meetingUrl.trim() || undefined : undefined,
       });
       setFollowups((current) => current.map((item) => item.id === tempId ? created : item));
+      // Ring a reminder at the follow-up's time (even with the app closed), drop the ones this replaces, and confirm with a notification.
+      previous.filter((item) => !item.is_completed).forEach((item) => { cancelFollowupReminder(item.id); });
+      scheduleFollowupReminder({ followupId: created.id, leadId: lead.id, leadName: lead.name, leadPhone: lead.phone, leadStage: lead.stage, at: values.at, type: values.type });
+      notifyFollowupScheduled({ id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage }, message, previous.some((item) => !item.is_completed)).catch(() => {});
       if (Platform.OS !== "android") setTimeout(() => Alert.alert("Follow-up scheduled", message), 100);
       load();
     } catch (followupError) {
