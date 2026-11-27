@@ -527,12 +527,15 @@ export default function LeadsScreen() {
       }
       // The server found nothing for the typed words. Its search may only cover part of a name or number, so look through the
       // newest leads on the phone before telling the person there is no match.
-      if (query && !append && !result.leads.length) {
+      // (Also when it sent leads back but none of them contain the typed words: then it ignored the search and just returned its list.)
+      if (query && !append && !result.leads.some((lead) => matchesSearchText(lead, query))) {
         const { search: _skip, ...withoutSearch } = extraParams as Record<string, unknown>;
         const everything = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
         if (id !== requestId.current) return;
         const found = everything.leads.filter((lead) => matchesSearchText(lead, query));
         if (found.length) { result = { ...everything, leads: found }; filterOnPhone = true; }
+        // A full page of leads that contain none of the typed words is the server's ordinary list: it ignored the search, so there is no match.
+        else if (result.leads.length >= PAGE_SIZE) { result = { ...result, leads: [], pagination: { ...result.pagination, total: 0, pages: 1 } }; }
       }
       if (id !== requestId.current) return;
       if (filterOnPhone) {
