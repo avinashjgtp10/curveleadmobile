@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { fetchStagesWithStatuses, LeadStage, LeadStatus } from "@/api/stages";
 
 const PALETTE: Record<string, { bg: string; text: string }> = {
@@ -24,6 +25,9 @@ export function colorForWord(word?: string) {
   return PALETTE[word.toLowerCase()] || DEFAULT_COLOR;
 }
 
+// Saved on the phone too (cleared on sign-out), so after a restart the status and stage lists are there at once instead of
+// the sheets sitting empty until the server answers.
+export const STAGES_STORAGE_KEY = "curvelead_stages_cache";
 let cachedStages: LeadStage[] | null = null;
 let inflight: Promise<LeadStage[]> | null = null;
 
@@ -39,6 +43,7 @@ export function useStages() {
       const result = await inflight;
       cachedStages = result;
       setStages(result);
+      AsyncStorage.setItem(STAGES_STORAGE_KEY, JSON.stringify(result)).catch(() => {});
     } catch {
       setError("Could not load pipeline stages.");
     } finally {
@@ -49,7 +54,14 @@ export function useStages() {
 
   useEffect(() => {
     if (cachedStages) { setStages(cachedStages); setLoading(false); return; }
+    let cancelled = false;
+    AsyncStorage.getItem(STAGES_STORAGE_KEY).then((raw) => {
+      if (cancelled || cachedStages || !raw) return; // the fresh copy already arrived, or nothing saved
+      const saved = JSON.parse(raw) as LeadStage[];
+      if (Array.isArray(saved) && saved.length) { setStages(saved); setLoading(false); }
+    }).catch(() => {});
     load();
+    return () => { cancelled = true; };
   }, [load]);
 
   // Stable between renders (they only change when the stage list does), so memoized rows and effects that depend on
