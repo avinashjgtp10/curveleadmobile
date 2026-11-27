@@ -531,7 +531,8 @@ export default function LeadsScreen() {
         ...(filterDateTo && { date_to: filterDateTo }),
         ...(hiddenStages.length && { hide_stages: hiddenStages.join(",") }),
       };
-      let result = await fetchLeads({ page: localActive ? 1 : nextPage, limit: localActive ? LOCAL_FILTER_LIMIT : PAGE_SIZE * fetchPages, ...extraParams });
+      // Pull to refresh (keepList) must ask the server again, not reuse an answer from the last few seconds.
+      let result = await fetchLeads({ page: localActive ? 1 : nextPage, limit: localActive ? LOCAL_FILTER_LIMIT : PAGE_SIZE * fetchPages, ...extraParams }, { fresh: keepList });
       let filterOnPhone = localActive;
       // The server should apply the stage and date filters. If it sent back leads that don't match them, it didn't:
       // fetch a larger batch once and filter it here, so the list always matches the chips.

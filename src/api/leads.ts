@@ -76,10 +76,10 @@ export async function fetchLeads(params?: {
   date_to?: string;
   page?: number;
   limit?: number;
-}) {
+}, options: { fresh?: boolean } = {}) {
   // A long list on a weak connection can take more than the default 15 seconds; failing then shows as a network error.
   // One quick retry covers a dropped connection (e.g. switching between wifi and mobile data).
-  const request = () => apiClient.get<LeadsPage>("/leads", { params, timeout: 30000 });
+  const request = () => apiClient.get<LeadsPage>("/leads", { params, timeout: 30000, ...(options.fresh ? { fresh: true } : {}) });
   let data: LeadsPage;
   try { ({ data } = await request()); }
   catch (error) {
