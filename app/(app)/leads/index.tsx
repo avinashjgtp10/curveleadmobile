@@ -196,6 +196,24 @@ function relativeDate(value: string, t: (text: string, vars?: Record<string, str
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
+// The exact date and time the lead came in, like the web list ("27 Nov 2026" over "7:00 am").
+function createdParts(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { day: "", time: "" };
+  return {
+    day: date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
+    time: date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }).toLowerCase(),
+  };
+}
+
+// The web's "Follow-up health": red when a follow-up is overdue, amber when one is due today, otherwise good.
+function healthBadge(lead: LeadListItem) {
+  const health = followupHealthOf(lead);
+  if (health === "overdue") return { label: "Overdue", color: "#b91c1c", bg: "#fde1e1" };
+  if (health === "today") return { label: "Due today", color: "#c2710c", bg: "#fde9c9" };
+  return { label: "Good", color: "#0f7b5f", bg: "#d9f5e8" };
+}
+
 function dateBucket(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Earlier";
@@ -269,6 +287,7 @@ const LeadRow = React.memo(function LeadRow({ lead, selectMode, selected, canDel
   }
   const stageColors = colorFor(lead.stage);
   const stageLabel = findStage(lead.stage)?.name || pretty(lead.stage);
+  const health = healthBadge(lead);
   const openLead = () => router.push({
     pathname: "/(app)/leads/[id]",
     params: { id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage || "new", source: lead.source || "" },
@@ -326,7 +345,8 @@ const LeadRow = React.memo(function LeadRow({ lead, selectMode, selected, canDel
           ) : null}
         </View>
         <View style={styles.timeCol}>
-          <Text style={styles.timeText}>{relativeDate(lead.created_at, t)}</Text>
+          <Text style={styles.timeText}>{createdParts(lead.created_at).day}</Text>
+          <Text style={styles.timeText}>{createdParts(lead.created_at).time}</Text>
           {!selectMode ? (
             <View ref={anchorRef} collapsable={false}>
               <Pressable onPress={openMenu} hitSlop={10} accessibilityRole="button" accessibilityLabel="Lead actions" style={styles.moreButton}>
@@ -340,6 +360,9 @@ const LeadRow = React.memo(function LeadRow({ lead, selectMode, selected, canDel
       <View style={styles.metaRow}>
         <View style={[styles.stageTag, { backgroundColor: stageColors.bg }]}>
           <Text style={[styles.stageTagText, { color: stageColors.text }]} numberOfLines={1}>{stageLabel}</Text>
+        </View>
+        <View style={[styles.healthTag, { backgroundColor: health.bg }]}>
+          <Text style={[styles.healthTagText, { color: health.color }]} numberOfLines={1}>{t(health.label)}</Text>
         </View>
         <Text style={styles.assignedText} numberOfLines={1}>
           {lead.assigned_to_name ? `${t("Assigned to staff")}: ` : ""}<Text style={styles.sourceStrong}>{lead.assigned_to_name || t("Unassigned")}</Text>
@@ -907,7 +930,7 @@ export default function LeadsScreen() {
         </View>
       )}
       <View style={styles.searchRow}>
-        <LeadSearchBox initial={searchText.current} resetSignal={searchReset} onChange={updateSearch} onSubmit={submitSearch} placeholder={t("Search by name or phone…")} />
+        <LeadSearchBox initial={searchText.current} resetSignal={searchReset} onChange={updateSearch} onSubmit={submitSearch} placeholder={t("Name, phone or lead ID")} />
         <Pressable
           style={[styles.filterButton, activeFilterCount > 0 && styles.filterButtonActive]} onPress={openFiltersSheet}
           accessibilityLabel={activeFilterCount ? `Filters (${activeFilterCount} active)` : "Filters"}
@@ -1275,6 +1298,8 @@ const styles = StyleSheet.create({
   stageTagText: { fontSize: 10, fontFamily: "Inter_700Bold", flexShrink: 1 },
   sourceTag: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, backgroundColor: "#eef2f6", maxWidth: 110 },
   sourceTagText: { color: colors.textSecondary, fontSize: 11, fontWeight: "700" },
+  healthTag: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
+  healthTagText: { fontSize: 10.5, fontFamily: "Inter_700Bold" },
   assignedText: { flex: 1, color: "#64748b", fontSize: 10.5, textAlign: "right" },
   leadActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   quickAction: { flex: 1, height: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10 },
