@@ -701,9 +701,19 @@ export default function LeadsScreen() {
     return order.map((title) => ({ title, data: map.get(title)! }));
   }, [leads]);
 
+  // Clearing the search shows the full list again at once: the list saved from the last unfiltered load is put back while the
+  // fresh one loads, instead of leaving the one or two search results on screen until the server answers.
+  const restoreFullList = useRef<() => void>(() => {});
+  restoreFullList.current = () => {
+    const noOtherFilter = !score && !filterStage && !filterStatus && !filterHealth && !filterSla && !filterSource && !filterAssignedTo && !filterDateFrom && !filterDateTo;
+    if (!noOtherFilter || !leadsCache || leadsCache.userId !== user?.id || leadsCache.hidden !== hiddenStages.join(",")) return;
+    setLeads(leadsCache.leads); pageRef.current = 1; setPage(1); setPages(leadsCache.pages); setTotal(leadsCache.total);
+  };
+
   const updateSearch = useCallback((value: string) => {
     searchText.current = value;
     if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!value.trim()) { restoreFullList.current(); setQuery(""); return; } // cleared: no typing pause
     searchTimer.current = setTimeout(() => setQuery(value.trim()), 350);
   }, []);
 
@@ -711,6 +721,7 @@ export default function LeadsScreen() {
   const submitSearch = useCallback((value: string) => {
     searchText.current = value;
     if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!value.trim()) restoreFullList.current();
     setQuery(value.trim());
   }, []);
 
