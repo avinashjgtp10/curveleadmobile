@@ -439,5 +439,5 @@ export const setShownNotifications = (list: AppNotification[]) => { shownList = 
  */
 export async function clearUserCaches() {
   shownList = null;
-  await Promise.all([LOCAL_NOTIFICATIONS_KEY, READ_IDS_KEY, "whatsapp_inbox_cache_v1", "curvelead_stages_cache"].map((key) => AsyncStorage.removeItem(key).catch(() => {})));
+  await Promise.all([LOCAL_NOTIFICATIONS_KEY, READ_IDS_KEY, "whatsapp_inbox_cache_v1"].map((key) => AsyncStorage.removeItem(key).catch(() => {})));
 }
