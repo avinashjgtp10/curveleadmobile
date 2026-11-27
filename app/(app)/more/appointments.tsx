@@ -1,3 +1,5 @@
+import { cancelFollowupReminder, scheduleFollowupReminder } from "@/notifications/followupReminders";
+import { notifyFollowupScheduled } from "@/api/notifications";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Dimensions, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
@@ -471,7 +473,11 @@ function AppointmentsContent() {
         next_followup_at: created.next_followup_at || placeholder.next_followup_at,
         notes: created.notes || placeholder.notes,
       } : item));
+      const whenText = at.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+      scheduleFollowupReminder({ followupId: created.id, leadId: lead.id, leadName: lead.name, leadPhone: lead.phone, leadStage: lead.stage, at, type });
+      notifyFollowupScheduled({ id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage }, whenText, !!replacing).catch(() => {});
       if (replacing) {
+        cancelFollowupReminder(replacing.id);
         // The new appointment already exists, so a failure here must not look like the whole reschedule failed
         // (retrying would create a duplicate).
         try { await completeLeadFollowup(replacing.id, "Rescheduled"); }
@@ -500,6 +506,7 @@ function AppointmentsContent() {
     setCompletedItems((current) => [item, ...current]);
     try {
       await completeLeadFollowup(item.id);
+      cancelFollowupReminder(item.id);
     } catch {
       localChanges.current++;
       setCompletedItems((current) => current.filter((done) => done.id !== item.id));
@@ -523,6 +530,7 @@ function AppointmentsContent() {
           setAppointments((current) => current.filter((appointment) => appointment.id !== item.id));
           try {
             await completeLeadFollowup(item.id, "Cancelled");
+            cancelFollowupReminder(item.id);
           } catch {
             localChanges.current++;
             setAppointments((current) => current.some((appointment) => appointment.id === item.id) ? current : [item, ...current]);
