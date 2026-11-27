@@ -531,7 +531,7 @@ export default function LeadDetailScreen() {
     }, 250);
   }, []);
 
-  const { stages, colorFor, statusesFor } = useStages();
+  const { stages, colorFor, statusesFor, loading: stagesLoading } = useStages();
   const [stageSheetOpen, setStageSheetOpen] = useState(false);
   const [updatingStage, setUpdatingStage] = useState(false);
   const [lostReasonStep, setLostReasonStep] = useState(false);
@@ -1052,6 +1052,7 @@ export default function LeadDetailScreen() {
             ) : (
               <>
                 <Text style={styles.sheetTitle}>Stage</Text>
+                {!stages.length && stagesLoading ? <ActivityIndicator style={{ marginVertical: 24 }} color={colors.primary} /> : null}
                 <View style={styles.stageList}>
                   {stages.map((item) => {
                     const active = item.name.toLowerCase() === stage.toLowerCase();
@@ -1128,6 +1129,8 @@ export default function LeadDetailScreen() {
                   );
                 })}
               </View>
+            ) : stagesLoading ? (
+              <ActivityIndicator style={{ marginVertical: 24 }} color={colors.primary} />
             ) : (
               <Text style={styles.sheetHint}>No statuses configured for this stage yet — manage them from the web dashboard.</Text>
             )}
