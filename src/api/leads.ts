@@ -148,8 +148,8 @@ export interface TodayFollowup {
   notes?: string;
 }
 
-export async function fetchTodayFollowups(range?: { date_from?: string; date_to?: string }) {
-  const { data } = await apiClient.get<{ followups: TodayFollowup[] }>("/leads/followups/today", { params: range });
+export async function fetchTodayFollowups(range?: { date_from?: string; date_to?: string }, options: { fresh?: boolean } = {}) {
+  const { data } = await apiClient.get<{ followups: TodayFollowup[] }>("/leads/followups/today", { params: range, ...(options.fresh ? { fresh: true } : {}) });
   return data.followups || [];
 }
 
