@@ -366,9 +366,19 @@ function searchTerm(query: string) {
   return q.startsWith("+") ? digits : digits.replace(/^0+(?=\d)/, "");
 }
 
+// Used when the server's search finds nothing: the same words, checked on the phone against name, number, email and lead number.
+function matchesSearchText(lead: LeadListItem, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const digits = searchTerm(query).replace(/\D/g, "");
+  const leadDigits = (lead.phone || "").replace(/\D/g, "");
+  if (digits.length >= 3 && /^[\d\s()+-]+$/.test(q) && leadDigits.includes(digits)) return true;
+  return [lead.name, lead.phone, lead.email, lead.lead_number].some((value) => String(value || "").toLowerCase().includes(q));
+}
+
 // Keeps the typed text itself, so a keystroke redraws only this box and not the whole Leads screen.
-const LeadSearchBox = React.memo(function LeadSearchBox({ initial, resetSignal, onChange, placeholder }: {
-  initial: string; resetSignal: number; onChange: (value: string) => void; placeholder: string;
+const LeadSearchBox = React.memo(function LeadSearchBox({ initial, resetSignal, onChange, onSubmit, placeholder }: {
+  initial: string; resetSignal: number; onChange: (value: string) => void; onSubmit: (value: string) => void; placeholder: string;
 }) {
   const [text, setText] = useState(initial);
   const firstReset = useRef(true);
@@ -381,6 +391,7 @@ const LeadSearchBox = React.memo(function LeadSearchBox({ initial, resetSignal, 
     <Searchbar
       icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 13, minHeight: 44 }} style={styles.searchBox} value={text} onChangeText={change}
       placeholder={placeholder} placeholderTextColor={colors.textMuted} onClearIconPress={() => change("")}
+      returnKeyType="search" onSubmitEditing={() => onSubmit(text)}
     />
   );
 });
@@ -513,6 +524,15 @@ export default function LeadsScreen() {
           result = { ...result, leads: [...result.leads, ...more.leads] };
         }
         filterOnPhone = true;
+      }
+      // The server found nothing for the typed words. Its search may only cover part of a name or number, so look through the
+      // newest leads on the phone before telling the person there is no match.
+      if (query && !append && !result.leads.length) {
+        const { search: _skip, ...withoutSearch } = extraParams as Record<string, unknown>;
+        const everything = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
+        if (id !== requestId.current) return;
+        const found = everything.leads.filter((lead) => matchesSearchText(lead, query));
+        if (found.length) { result = { ...everything, leads: found }; filterOnPhone = true; }
       }
       if (id !== requestId.current) return;
       if (filterOnPhone) {
@@ -677,6 +697,13 @@ export default function LeadsScreen() {
     searchTimer.current = setTimeout(() => setQuery(value.trim()), 350);
   }, []);
 
+  // The keyboard's search key searches right away instead of waiting out the typing pause.
+  const submitSearch = useCallback((value: string) => {
+    searchText.current = value;
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    setQuery(value.trim());
+  }, []);
+
   function refresh() {
     setRefreshing(true);
     load(1, false, false, true);
@@ -821,7 +848,7 @@ export default function LeadsScreen() {
         </View>
       )}
       <View style={styles.searchRow}>
-        <LeadSearchBox initial={searchText.current} resetSignal={searchReset} onChange={updateSearch} placeholder={t("Search by name or phone…")} />
+        <LeadSearchBox initial={searchText.current} resetSignal={searchReset} onChange={updateSearch} onSubmit={submitSearch} placeholder={t("Search by name or phone…")} />
         <Pressable
           style={[styles.filterButton, activeFilterCount > 0 && styles.filterButtonActive]} onPress={openFiltersSheet}
           accessibilityLabel={activeFilterCount ? `Filters (${activeFilterCount} active)` : "Filters"}
