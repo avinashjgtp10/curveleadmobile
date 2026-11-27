@@ -408,6 +408,9 @@ export default function FollowupsScreen() {
   const requestId = useRef(0);
   // Counts completions made on this screen, so a refresh that was already running can't put a completed follow-up back.
   const localChanges = useRef(0);
+  // Completions still on their way to the server. A refresh that runs meanwhile gets the old list back (the follow-up still open),
+  // so its answer must not be put on screen.
+  const pendingSaves = useRef(0);
   const followupsRef = useRef(followups);
   followupsRef.current = followups;
   // The screen is built from two requests: the days around today (small, fast, always fetched) and the older overdue
@@ -436,11 +439,11 @@ export default function FollowupsScreen() {
       const dayBefore = new Date(windowStart); dayBefore.setDate(dayBefore.getDate() - 1);
       const near = await fetchTodayFollowups({ date_from: ymd(windowStart), date_to: ymd(to) });
       if (id !== requestId.current) return;
-      if (localChanges.current === changesAtStart) apply(near, null);
+      if (localChanges.current === changesAtStart && pendingSaves.current === 0) apply(near, null);
       setLoading(false); setRefreshing(false);
       // The (possibly large) history is asked for only once the days around today are on screen, so it can't slow them down.
       const older = withOlder ? await fetchTodayFollowups({ date_from: OVERDUE_FROM, date_to: ymd(dayBefore) }).catch(() => null) : null;
-      if (older && id === requestId.current && localChanges.current === changesAtStart) apply(near, older);
+      if (older && id === requestId.current && localChanges.current === changesAtStart && pendingSaves.current === 0) apply(near, older);
     } catch (loadError) {
       if (id !== requestId.current) return;
       if (!silent) setError(errorMessage(loadError, "Could not load follow-ups."));
@@ -506,19 +509,26 @@ export default function FollowupsScreen() {
   const handleComplete = useCallback(async (item: TodayFollowup) => {
     // Remove it at once; put it back if the server refuses.
     localChanges.current++;
+    pendingSaves.current++;
     setCompletingId(item.id);
     setFollowups((current) => current.filter((f) => f.id !== item.id));
     followupsRef.current = followupsRef.current.filter((f) => f.id !== item.id);
     if (followupsCache) followupsCache = { ...followupsCache, list: followupsCache.list.filter((f) => f.id !== item.id) };
     try {
       await completeLeadFollowup(item.id);
+      // The copy saved on the phone must not bring it back after a restart.
+      if (followupsCache) saveFollowupsOnPhone(followupsCache.userId, followupsCache.list);
     } catch (completeError) {
       localChanges.current++;
       setFollowups((current) => current.some((f) => f.id === item.id) ? current : [item, ...current]);
       if (followupsCache && !followupsCache.list.some((f) => f.id === item.id)) followupsCache = { ...followupsCache, list: [item, ...followupsCache.list] };
       // An alert, not the screen-level error, so one failed tap doesn't replace the whole list.
       Alert.alert("Couldn't complete follow-up", errorMessage(completeError, "Could not update this follow-up."));
-    } finally { setCompletingId(null); }
+    } finally {
+      pendingSaves.current--;
+      localChanges.current++; // a refresh that started while this was saving is out of date
+      setCompletingId(null);
+    }
   }, []);
 
   const openLead = useCallback((item: TodayFollowup) => {
