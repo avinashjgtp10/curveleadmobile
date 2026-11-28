@@ -351,8 +351,9 @@ export async function alertNewServerNotifications() {
     if (firstRun) await AsyncStorage.setItem(ALERTED_IDS_KEY, "[]");
     return;
   }
-  await AsyncStorage.setItem(ALERTED_IDS_KEY, JSON.stringify([...seen, ...fresh.map((item) => item.id)].slice(-MAX_ALERTED_IDS)));
-  if (firstRun) return;
+  // Remembered only after the alerts were shown, so if the phone stops the app part-way they are shown at the next check, not lost.
+  const remember = () => AsyncStorage.setItem(ALERTED_IDS_KEY, JSON.stringify([...seen, ...fresh.map((item) => item.id)].slice(-MAX_ALERTED_IDS)));
+  if (firstRun) { await remember(); return; }
 
   // A push that arrived while the app was open was already shown (and mirrored locally) - don't ring for it twice.
   const local = await getLocalNotifications();
@@ -368,9 +369,10 @@ export async function alertNewServerNotifications() {
   // the "N new notifications" summary, which has its own type and so rings no matter what was switched off.
   const enabled = await Promise.all(candidates.map((item) => isAlertEnabled(item.type)));
   const toShow = newestFirst(candidates.filter((_, index) => enabled[index]));
-  if (!toShow.length) return;
+  if (!toShow.length) { await remember(); return; }
   if (toShow.length > MAX_INDIVIDUAL_ALERTS) {
     await presentLocalNotification(`${toShow.length} new notifications`, toShow[0].title, { type: "summary" }, { skipIfShown: true });
+    await remember();
     return;
   }
   for (const item of toShow) {
@@ -378,6 +380,7 @@ export async function alertNewServerNotifications() {
       type: item.type, lead_id: item.lead_id, lead_name: item.lead_name, lead_phone: item.lead_phone, lead_stage: item.lead_stage,
     }, { skipIfShown: true });
   }
+  await remember();
 }
 
 const SEEN_LEADS_KEY = "curvelead_alerted_lead_ids";
@@ -414,8 +417,9 @@ export async function alertNewLeads() {
     if (firstRun) await AsyncStorage.setItem(SEEN_LEADS_KEY, "[]");
     return;
   }
-  await AsyncStorage.setItem(SEEN_LEADS_KEY, JSON.stringify([...seen, ...fresh.map((lead) => lead.id)].slice(-MAX_SEEN_LEADS)));
-  if (firstRun) return;
+  // Remembered only after the alerts were shown, so if the phone stops the app part-way they are shown at the next check, not lost.
+  const remember = () => AsyncStorage.setItem(SEEN_LEADS_KEY, JSON.stringify([...seen, ...fresh.map((lead) => lead.id)].slice(-MAX_SEEN_LEADS)));
+  if (firstRun) { await remember(); return; }
 
   // Leads added from this phone already rang through notifyLeadCreated / notifyLeadsAdded.
   const local = await getLocalNotifications();
@@ -428,9 +432,10 @@ export async function alertNewLeads() {
     if (createdAt <= bulkAt + 5000) return false;
     return !madeHere.has(lead.id) && (Number.isNaN(age) || age <= NEW_LEAD_MAX_AGE_MS);
   });
-  if (!recent.length) return;
+  if (!recent.length) { await remember(); return; }
   if (recent.length > MAX_INDIVIDUAL_ALERTS) {
     await presentLocalNotification(`${recent.length} new leads`, "Open Leads to see them.", { type: "lead_created" }, { skipIfShown: true });
+    await remember();
     return;
   }
   for (const lead of recent) {
@@ -438,6 +443,7 @@ export async function alertNewLeads() {
       type: "lead_created", lead_id: lead.id, lead_name: lead.name, lead_phone: lead.phone, lead_stage: lead.stage,
     }, { skipIfShown: true });
   }
+  await remember();
 }
 
 const OVERDUE_ALERTED_KEY = "curvelead_alerted_overdue_ids";
@@ -468,10 +474,12 @@ export async function alertOverdueFollowups() {
     if (firstRun) await AsyncStorage.setItem(OVERDUE_ALERTED_KEY, "[]");
     return;
   }
-  await AsyncStorage.setItem(OVERDUE_ALERTED_KEY, JSON.stringify([...seen, ...fresh.map((item) => item.id)].slice(-MAX_OVERDUE_ALERTED)));
-  if (firstRun) return;
+  // Remembered only after the alerts were shown, so if the phone stops the app part-way they are shown at the next check, not lost.
+  const remember = () => AsyncStorage.setItem(OVERDUE_ALERTED_KEY, JSON.stringify([...seen, ...fresh.map((item) => item.id)].slice(-MAX_OVERDUE_ALERTED)));
+  if (firstRun) { await remember(); return; }
   if (fresh.length > MAX_INDIVIDUAL_ALERTS) {
     await presentLocalNotification(`${fresh.length} follow-ups overdue`, "Open Tasks to see them.", { type: "followup" }, { skipIfShown: true });
+    await remember();
     return;
   }
   for (const item of fresh) {
@@ -479,6 +487,7 @@ export async function alertOverdueFollowups() {
       type: "followup", lead_id: item.lead_id, lead_name: item.lead_name, lead_phone: item.lead_phone, lead_stage: item.lead_stage,
     }, { skipIfShown: true });
   }
+  await remember();
 }
 
 /** Signing out: the next person to sign in on this phone starts with a fresh "already announced" baseline. */

@@ -1078,7 +1078,7 @@ export default function LeadDetailScreen() {
                 <View style={styles.stageList}>
                   {stages.map((item) => {
                     const active = item.name.toLowerCase() === stage.toLowerCase();
-                    const itemColors = colorFor(item.color);
+                    const itemColors = colorFor(item.name);
                     return (
                       <List.Item
                         key={item.id || item.name} title={item.name} titleStyle={styles.stageListText}

@@ -410,7 +410,8 @@ function searchTerm(query: string) {
   if (!/^[\d\s()+-]+$/.test(q)) return q;
   const digits = q.replace(/\D/g, "");
   if (!digits) return q;
-  return q.startsWith("+") ? digits : digits.replace(/^0+(?=\d)/, "");
+  // A phone number loses its leading 0; a short digits-only search (up to 6 digits, like a lead ID "0012") keeps it.
+  return q.startsWith("+") || digits.length <= 6 ? digits : digits.replace(/^0+(?=\d)/, "");
 }
 
 // Used when the server's search finds nothing: the same words, checked on the phone against name, number, email and lead number.
@@ -575,7 +576,10 @@ export default function LeadsScreen() {
       }
       // The server found nothing for the typed words, or sent back its ordinary list without applying them. Its search may only cover
       // part of a name or number, so read through ALL leads (old and new, in batches) on the phone before saying there is no match.
-      if (query && !append && !result.leads.some((lead) => matchesSearchText(lead, query))) {
+      // A short answer (fewer than a full page) means the server did filter, e.g. by a business name the phone can't see,
+      // so the full scan is skipped; an empty answer or a full page (the ordinary list) still gets checked.
+      const serverFiltered = result.leads.length > 0 && result.leads.length < PAGE_SIZE;
+      if (query && !append && !serverFiltered && !result.leads.some((lead) => matchesSearchText(lead, query))) {
         const { search: _skip, ...withoutSearch } = extraParams as Record<string, unknown>;
         const serverLeads = result.leads;
         const scan = await scanAllLeads(withoutSearch, user?.id ?? "", () => id === requestId.current);
