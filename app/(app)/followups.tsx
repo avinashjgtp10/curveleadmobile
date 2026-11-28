@@ -13,6 +13,7 @@ import { colors, tabBarStyleFor } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { cancelFollowupReminder, scheduleFollowupReminder } from "@/notifications/followupReminders";
 import { notifyFollowupScheduled } from "@/api/notifications";
+import { onLeadChanged } from "@/lib/leadCreation";
 import { useStages } from "@/hooks/useStages";
 import { phoneSearchTerm, telUrl } from "@/api/phone";
 import {
@@ -456,6 +457,9 @@ export default function FollowupsScreen() {
     }
   }, [user?.id]);
 
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   // With a cached list on screen, the first refresh runs quietly instead of replacing it with a spinner.
   useEffect(() => { load(false, !!cached); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -472,6 +476,30 @@ export default function FollowupsScreen() {
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [user?.id]);
+
+  // A lead edited on its own page (name, phone, stage) shows on its follow-up cards at once, instead of the old values staying
+  // until the next refresh. A lead moved into a lost stage leaves the list, as the server hides those follow-ups.
+  const findStageRef = useRef(findStage);
+  findStageRef.current = findStage;
+  useEffect(() => onLeadChanged((patch) => {
+    const touched = ["name", "phone", "stage"].some((key) => typeof patch[key] === "string");
+    if (!touched || !followupsRef.current.some((f) => f.lead_id === patch.id)) return;
+    const lost = typeof patch.stage === "string" && !!findStageRef.current(patch.stage)?.is_lost;
+    const apply = (list: TodayFollowup[]) => lost
+      ? list.filter((f) => f.lead_id !== patch.id)
+      : list.map((f) => f.lead_id !== patch.id ? f : {
+        ...f,
+        ...(typeof patch.name === "string" && { lead_name: patch.name }),
+        ...(typeof patch.phone === "string" && { lead_phone: patch.phone }),
+        ...(typeof patch.stage === "string" && { lead_stage: patch.stage }),
+      });
+    followupsRef.current = apply(followupsRef.current);
+    setFollowups(followupsRef.current);
+    if (followupsCache) {
+      followupsCache = { ...followupsCache, list: apply(followupsCache.list) };
+      saveFollowupsOnPhone(followupsCache.userId, followupsCache.list);
+    }
+  }), []);
 
   // The tab stays mounted, so follow-ups completed or added elsewhere (a lead's page, Appointments) would stay stale.
   // Refresh quietly whenever the tab is shown again.
@@ -518,11 +546,16 @@ export default function FollowupsScreen() {
     setFollowups((current) => current.filter((f) => f.id !== item.id));
     followupsRef.current = followupsRef.current.filter((f) => f.id !== item.id);
     if (followupsCache) followupsCache = { ...followupsCache, list: followupsCache.list.filter((f) => f.id !== item.id) };
+    let saved = false;
     try {
       await completeLeadFollowup(item.id);
-      cancelFollowupReminder(item.id);
-      // The copy saved on the phone must not bring it back after a restart.
-      if (followupsCache) saveFollowupsOnPhone(followupsCache.userId, followupsCache.list);
+      saved = true;
+      // The server has it now. Nothing below may put the card back: a failure here is not a failed completion.
+      try {
+        cancelFollowupReminder(item.id);
+        // The copy saved on the phone must not bring it back after a restart.
+        if (followupsCache) saveFollowupsOnPhone(followupsCache.userId, followupsCache.list);
+      } catch { /* the follow-up is completed either way */ }
     } catch (completeError) {
       localChanges.current++;
       setFollowups((current) => current.some((f) => f.id === item.id) ? current : [item, ...current]);
@@ -533,6 +566,8 @@ export default function FollowupsScreen() {
       pendingSaves.current--;
       localChanges.current++; // a refresh that started while this was saving is out of date
       setCompletingId(null);
+      // Confirm with the server (quietly, older overdue history included), so the list and the lead's details match what it saved.
+      if (saved && pendingSaves.current === 0) loadRef.current(false, true, true);
     }
   }, []);
 

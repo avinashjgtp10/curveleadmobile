@@ -42,6 +42,16 @@ let leadsCache: { userId: string; hidden: string; leads: LeadListItem[]; total: 
 let scanCache: { key: string; at: number; leads: LeadListItem[]; firstPageIds: string[] } | null = null;
 const SCAN_CACHE_MS = 5 * 60_000;
 
+/**
+ * What the phone-side search reads leads with: no search text, and no stage or date filter either. The phone applies those two
+ * itself (matchesLocalFilters, tolerant of "Follow Up" vs "follow_up"), so a stage name the server matches differently
+ * can't hide a lead that is in the filtered list.
+ */
+function phoneSearchParams(extraParams: Record<string, unknown>) {
+  const { search: _search, stage: _stage, date_field: _field, date_from: _from, date_to: _to, ...rest } = extraParams;
+  return rest;
+}
+
 /** Reads every lead (old and new, 500 at a time, up to MAX_SEARCH_BATCHES batches) so the phone can search them. null = a newer request took over. */
 async function scanAllLeads(withoutSearch: Record<string, unknown>, userId: string, isCurrent: () => boolean) {
   const key = `${userId}|${JSON.stringify(withoutSearch)}`;
@@ -161,7 +171,8 @@ function matchesLocalFilters(lead: LeadListItem, filters: LocalFilters) {
     const day = localYmd(lead.created_at);
     if (!day || (filters.from && day < filters.from) || (filters.to && day > filters.to)) return false;
   }
-  if (filters.status && (lead.lead_status || "").toLowerCase() !== filters.status.toLowerCase()) return false;
+  // Same tolerance as the stage: "Not Reachable", "not_reachable" and "not reachable" are one status.
+  if (filters.status && stageKey(lead.lead_status) !== stageKey(filters.status)) return false;
   if (filters.health && followupHealthOf(lead) !== filters.health) return false;
   if (filters.sla && replyWindowOf(lead) !== filters.sla) return false;
   return true;
@@ -580,7 +591,7 @@ export default function LeadsScreen() {
       // so the full scan is skipped; an empty answer or a full page (the ordinary list) still gets checked.
       const serverFiltered = result.leads.length > 0 && result.leads.length < PAGE_SIZE;
       if (query && !append && !serverFiltered && !result.leads.some((lead) => matchesSearchText(lead, query))) {
-        const { search: _skip, ...withoutSearch } = extraParams as Record<string, unknown>;
+        const withoutSearch = phoneSearchParams(extraParams);
         const serverLeads = result.leads;
         const scan = await scanAllLeads(withoutSearch, user?.id ?? "", () => id === requestId.current);
         if (!scan) return;
@@ -602,7 +613,7 @@ export default function LeadsScreen() {
       // The server answered, but its search may leave out older leads. Show its answer now, then add any older leads the phone
       // finds by reading all of them (kept for a few minutes, so only the first search pays for it).
       if (query && !append && !silent) {
-        const { search: _skip, ...withoutSearch } = extraParams as Record<string, unknown>;
+        const withoutSearch = phoneSearchParams(extraParams);
         scanAllLeads(withoutSearch, user?.id ?? "", () => id === requestId.current).then((scan) => {
           if (!scan || id !== requestId.current) return;
           const extra = scan.leads.filter((lead) => matchesSearchText(lead, query) && matchesLocalFilters(lead, localFilters));

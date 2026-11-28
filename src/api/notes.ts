@@ -16,7 +16,8 @@ export async function fetchLeadNotes(leadId: string) {
 }
 
 export async function createLeadNote(leadId: string, input: { note: string; note_type: NoteType }) {
-  await apiClient.post(`/notes/lead/${leadId}`, input);
+  const { data } = await apiClient.post<{ note?: LeadNote }>(`/notes/lead/${leadId}`, input);
+  return data?.note;
 }
 
 export async function updateLeadNote(leadId: string, noteId: string, note: string) {
