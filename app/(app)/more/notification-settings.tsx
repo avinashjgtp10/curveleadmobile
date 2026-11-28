@@ -8,7 +8,8 @@ import { colors } from "@/theme";
 import { FALLBACK_NOTIFICATION_GROUPS, NotificationGroup, fetchNotificationGroups } from "@/api/notifications";
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { NOTIFICATION_PREFS_CACHE_KEY, NotificationPermission, getAlertAbilities, getNotificationPermission, requestNotificationPermission } from "@/notifications/push";
+import { NOTIFICATION_PREFS_CACHE_KEY, NotificationPermission, getAlertAbilities, getNotificationPermission, presentLocalNotification, requestNotificationPermission } from "@/notifications/push";
+import { isExpoGo } from "@/notifications/environment";
 import { PushStatus, getPushStatus, registerDevice } from "@/notifications/pushStatus";
 
 const PUSH_STATE_LABEL: Record<PushStatus["state"], string> = {
@@ -58,6 +59,24 @@ export default function NotificationSettingsScreen() {
     } finally {
       setRegistering(false);
     }
+  }
+
+  // Shows a real notification made on this phone, with no server involved. If it appears, the phone is fine and only server pushes
+  // are missing; if it doesn't, the phone is blocking this app (notification permission, "Lead alerts" channel, or battery limits).
+  async function sendTest() {
+    if (isExpoGo) {
+      Alert.alert("Not available in Expo Go", "Notifications don't work in Expo Go. Install the CurveLead development or release build.");
+      return;
+    }
+    const status = await getNotificationPermission();
+    if (status !== "granted") {
+      Alert.alert("Notifications are off", "Allow notifications for CurveLead in your phone settings, then try again.", [
+        { text: "Open settings", onPress: () => Linking.openSettings() }, { text: "OK" },
+      ]);
+      return;
+    }
+    await presentLocalNotification("CurveLead test", "If you can see this, notifications work on this phone.", { type: "test" });
+    Alert.alert("Test sent", "Pull down your notification bar. If nothing appears there, your phone is blocking CurveLead: check Settings > Apps > CurveLead > Notifications (turn on 'Lead alerts') and battery settings.");
   }
 
   const [abilities, setAbilities] = useState<{ popup: boolean; sound: boolean } | null>(null);
@@ -173,6 +192,9 @@ export default function NotificationSettingsScreen() {
           {pushStatus?.detail && pushStatus.state !== "registered" ? <Text style={styles.phoneHint}>{pushStatus.detail}</Text> : null}
           <Pressable onPress={reRegister} disabled={registering} hitSlop={6}>
             <Text style={styles.phoneAction}>{registering ? "Registering..." : "Re-register this phone"}</Text>
+          </Pressable>
+          <Pressable onPress={sendTest} hitSlop={6}>
+            <Text style={styles.phoneAction}>Send a test notification to this phone</Text>
           </Pressable>
           {Platform.OS === "android" ? (
             <>
