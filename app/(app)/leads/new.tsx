@@ -30,18 +30,18 @@ const SOURCES = [
 ];
 
 const COUNTRIES = [
-  { code: "IN", name: "India", flag: "🇮🇳", dial: "+91" },
-  { code: "US", name: "United States", flag: "🇺🇸", dial: "+1" },
-  { code: "GB", name: "United Kingdom", flag: "🇬🇧", dial: "+44" },
-  { code: "AE", name: "United Arab Emirates", flag: "🇦🇪", dial: "+971" },
-  { code: "SA", name: "Saudi Arabia", flag: "🇸🇦", dial: "+966" },
-  { code: "SG", name: "Singapore", flag: "🇸🇬", dial: "+65" },
-  { code: "AU", name: "Australia", flag: "🇦🇺", dial: "+61" },
-  { code: "CA", name: "Canada", flag: "🇨🇦", dial: "+1" },
-  { code: "MY", name: "Malaysia", flag: "🇲🇾", dial: "+60" },
-  { code: "QA", name: "Qatar", flag: "🇶🇦", dial: "+974" },
-  { code: "KW", name: "Kuwait", flag: "🇰🇼", dial: "+965" },
-  { code: "NZ", name: "New Zealand", flag: "🇳🇿", dial: "+64" },
+  { code: "IN", name: "India", flag: "🇮🇳", dial: "+91", local: 10 },
+  { code: "US", name: "United States", flag: "🇺🇸", dial: "+1", local: 10 },
+  { code: "GB", name: "United Kingdom", flag: "🇬🇧", dial: "+44", local: 10 },
+  { code: "AE", name: "United Arab Emirates", flag: "🇦🇪", dial: "+971", local: 9 },
+  { code: "SA", name: "Saudi Arabia", flag: "🇸🇦", dial: "+966", local: 9 },
+  { code: "SG", name: "Singapore", flag: "🇸🇬", dial: "+65", local: 8 },
+  { code: "AU", name: "Australia", flag: "🇦🇺", dial: "+61", local: 9 },
+  { code: "CA", name: "Canada", flag: "🇨🇦", dial: "+1", local: 10 },
+  { code: "MY", name: "Malaysia", flag: "🇲🇾", dial: "+60", local: 9 },
+  { code: "QA", name: "Qatar", flag: "🇶🇦", dial: "+974", local: 8 },
+  { code: "KW", name: "Kuwait", flag: "🇰🇼", dial: "+965", local: 8 },
+  { code: "NZ", name: "New Zealand", flag: "🇳🇿", dial: "+64", local: 8 },
 ] as const;
 
 interface FormState {
@@ -177,12 +177,13 @@ export default function NewLeadScreen() {
 
   // The number typed, without a leading 0 and without the country code if it was pasted along with it
   // (e.g. 919876543210 for India), so the code isn't added twice. A real national number that merely
-  // starts with the same digits (e.g. 9123456789) is kept: the code is only dropped when 10+ digits remain.
+  // starts with the same digits (e.g. 9123456789) is kept: the code is only dropped when a whole national number
+  // (10 digits in India, 9 in the UAE, 8 in Singapore...) remains after it.
   function localNumber() {
     const { form, country } = latest.current;
     const digits = form.phone.replace(/\D/g, "").replace(/^0+/, "");
     const dial = country.dial.replace(/\D/g, "");
-    return digits.startsWith(dial) && digits.length - dial.length >= 10 ? digits.slice(dial.length) : digits;
+    return digits.startsWith(dial) && digits.length - dial.length >= country.local ? digits.slice(dial.length) : digits;
   }
 
   function errorFor(field: "name" | "phone" | "email"): string | undefined {
