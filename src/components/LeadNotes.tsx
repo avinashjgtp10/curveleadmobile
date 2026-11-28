@@ -63,6 +63,8 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
 
   // Each load gets a number; an answer that is no longer the newest is dropped. Without this, a slow request started before a
   // save could arrive afterwards and wipe the note that was just added from the screen.
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
   const loadSeq = useRef(0);
   const load = useCallback(async (fresh = false) => {
     const mine = ++loadSeq.current;
@@ -117,7 +119,16 @@ export const LeadNotes = React.memo(function LeadNotes({ leadId, onAdded, onForm
     setSaving(true);
     try {
       if (wasEditing) await updateLeadNote(leadId, wasEditing, content);
-      else { await createLeadNote(leadId, { note: content, note_type: type }); onAdded?.(); }
+      else {
+        const created = await createLeadNote(leadId, { note: content, note_type: type });
+        // The server's copy replaces the temporary one; asking for the whole list again was a second wait for nothing.
+        if (created?.id) {
+          showNotes(notesRef.current.map((item) => item.id === tempId ? { ...created, created_by_name: created.created_by_name || "You" } : item));
+        } else load(true);
+        // Refreshing the lead's activity list is not urgent: it waits a moment so it doesn't compete with the note being saved.
+        setTimeout(() => onAdded?.(), 1500);
+        return;
+      }
       load(true);
     } catch (error) {
       // Put things back so nothing the person typed is lost.
