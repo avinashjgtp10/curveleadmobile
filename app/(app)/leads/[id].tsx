@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { emitLeadChanged } from "@/lib/leadCreation";
+import { emitLeadChanged, markFollowupsChanged } from "@/lib/leadCreation";
 import { cancelFollowupReminder, scheduleFollowupReminder } from "@/notifications/followupReminders";
 import { notifyFollowupScheduled } from "@/api/notifications";
 import {
@@ -580,6 +580,17 @@ export default function LeadDetailScreen() {
   const [activitySheet, setActivitySheet] = useState<ActivitySheetType | null>(null);
   const [notesSignal, setNotesSignal] = useState(0);
 
+  // Edits on their way to the server. A copy of the lead fetched before an edit finished still holds the old values, so it must not
+  // replace what the person just changed (a lead opened from Tasks is shown before its details arrive, so edits can land in that gap).
+  const pendingEdits = useRef(0);
+  const editsVersion = useRef(0);
+  const loadRef = useRef<(refresh?: boolean) => Promise<void>>(async () => {});
+  async function trackEdit<T>(save: () => Promise<T>): Promise<T> {
+    editsVersion.current++; pendingEdits.current++;
+    try { return await save(); }
+    finally { pendingEdits.current--; editsVersion.current++; }
+  }
+
   const notesPrefetchedFor = useRef<string | null>(null);
   const load = useCallback(async (refresh = false) => {
     if (!id) { setError("This lead link is invalid."); setLoading(false); return; }
@@ -589,8 +600,15 @@ export default function LeadDetailScreen() {
     // Only the first time: the notes section reloads itself after a change, so every later reload of the lead (after a stage,
     // status or note change) asking for the notes again just added more waiting requests.
     if (!refresh && notesPrefetchedFor.current !== id) { notesPrefetchedFor.current = id; prefetchLeadNotes(id); }
+    const startVersion = editsVersion.current;
     try {
       const result = await fetchLeadDetails(id);
+      if (pendingEdits.current > 0 || editsVersion.current !== startVersion) {
+        // Older than an edit made meanwhile: keep the lead as edited, take the rest, and read it again once the saves are done.
+        setActivities(result.activities); setFollowups(result.followups);
+        setTimeout(() => loadRef.current(), 800);
+        return;
+      }
       detailCache.set(id, result);
       if (detailCache.size > 30) detailCache.delete(detailCache.keys().next().value as string);
       if (storageKey) AsyncStorage.setItem(storageKey, JSON.stringify({ ...result, activities: result.activities.slice(0, 100) })).catch(() => {});
@@ -617,6 +635,7 @@ export default function LeadDetailScreen() {
     return () => { cancelled = true; };
   }, [id, storageKey]);
 
+  loadRef.current = load;
   useEffect(() => { load(); }, [load]);
   // Tell the leads list about every change to this lead right away, so going back shows it without waiting for the list to reload.
   // The first value this page shows is not a change (it may be an older saved copy), so only later ones are sent.
@@ -671,7 +690,7 @@ export default function LeadDetailScreen() {
     if (!/^\S+@\S+\.\S+$/.test(email)) { setEmailError("Enter a valid email address."); return; }
     setSavingEmail(true); setEmailError("");
     try {
-      const updated = await updateLeadDetails(lead.id, { email });
+      const updated = await trackEdit(() => updateLeadDetails(lead.id, { email }));
       setLead((current) => current ? { ...current, ...updated } : updated);
       setEmailSheetOpen(false);
       await contactLead("email", `mailto:${email}`, "Email could not be opened.");
@@ -693,7 +712,7 @@ export default function LeadDetailScreen() {
     const previous = lead;
     setLead((current) => current ? { ...current, ...payload } as LeadDetails : current);
     try {
-      const updated = await updateLeadDetails(lead.id, payload);
+      const updated = await trackEdit(() => updateLeadDetails(lead.id, payload));
       // The page already shows what was typed; redraw it again only if the server changed any of it.
       const same = (Object.keys(payload) as (keyof UpdateLeadInput)[]).every((key) => (updated as unknown as Record<string, unknown>)[key] === (payload as Record<string, unknown>)[key]);
       if (!same) setLead((current) => current ? { ...current, ...updated } : updated);
@@ -733,7 +752,7 @@ export default function LeadDetailScreen() {
     setAssignSheetOpen(false);
     setAssigning(true);
     try {
-      await updateLeadDetails(lead.id, { assigned_to: member ? member.id : null });
+      await trackEdit(() => updateLeadDetails(lead.id, { assigned_to: member ? member.id : null }));
       load();
     } catch (assignError) {
       setLead(previous);
@@ -760,7 +779,7 @@ export default function LeadDetailScreen() {
     setStageSheetOpen(false); setLostReasonStep(false);
     setUpdatingStage(true);
     try {
-      const updated = await updateLeadStage(lead.id, newStage, reason);
+      const updated = await trackEdit(() => updateLeadStage(lead.id, newStage, reason));
       setLead((current) => current ? { ...current, ...updated, lead_status: "" } : updated);
       load();
     } catch (stageError) {
@@ -795,7 +814,7 @@ export default function LeadDetailScreen() {
     setStatusSheetOpen(false);
     setUpdatingStatus(true);
     try {
-      const updated = await updateLeadStatus(lead.id, status);
+      const updated = await trackEdit(() => updateLeadStatus(lead.id, status));
       setLead((current) => current ? { ...current, ...updated } : updated);
       load();
     } catch (statusError) {
@@ -827,6 +846,7 @@ export default function LeadDetailScreen() {
         meeting_url: values.type === "demo" ? values.meetingUrl.trim() || undefined : undefined,
       });
       setFollowups((current) => current.map((item) => item.id === tempId ? created : item));
+      markFollowupsChanged();
       // Ring a reminder at the follow-up's time (even with the app closed), drop the ones this replaces, and confirm with a notification.
       previous.filter((item) => !item.is_completed).forEach((item) => { cancelFollowupReminder(item.id); });
       scheduleFollowupReminder({ followupId: created.id, leadId: lead.id, leadName: lead.name, leadPhone: lead.phone, leadStage: lead.stage, at: values.at, type: values.type });

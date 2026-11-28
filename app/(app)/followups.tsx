@@ -13,7 +13,7 @@ import { colors, tabBarStyleFor } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { cancelFollowupReminder, scheduleFollowupReminder } from "@/notifications/followupReminders";
 import { notifyFollowupScheduled } from "@/api/notifications";
-import { onLeadChanged } from "@/lib/leadCreation";
+import { consumeFollowupsChanged, onLeadChanged } from "@/lib/leadCreation";
 import { useStages } from "@/hooks/useStages";
 import { phoneSearchTerm, telUrl } from "@/api/phone";
 import {
@@ -506,7 +506,8 @@ export default function FollowupsScreen() {
   const focusedOnce = useRef(false);
   useFocusEffect(useCallback(() => {
     if (!focusedOnce.current) { focusedOnce.current = true; return; } // the first load is handled above
-    load(false, true, false);
+    // Older overdue history is re-read too when a follow-up was scheduled elsewhere (that completes the lead's older ones).
+    load(false, true, consumeFollowupsChanged());
   }, [load]));
 
   const days = useMemo(() => {
@@ -580,10 +581,12 @@ export default function FollowupsScreen() {
     // The form is already closed and the follow-up shows in the list at once; the server saves it in the background.
     const tempId = `temp-${Date.now()}`;
     setSaving(true);
+    // The server completes the lead's other pending follow-ups when a new one is scheduled, so they leave the list now too.
+    const replaced = followupsRef.current.filter((item) => item.lead_id === lead.id);
     setFollowups((current) => [{
       id: tempId, lead_id: lead.id, lead_name: lead.name, lead_phone: lead.phone, lead_stage: lead.stage,
       followup_type: type, next_followup_at: bookedAt.toISOString(), notes: notes.trim() || undefined,
-    }, ...current]);
+    }, ...current.filter((item) => item.lead_id !== lead.id)]);
     const when = bookedAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
     // Show the day it was booked for. Days outside the date strip can't be highlighted, so stay on the current day for those.
     const bookedDay = startOfDay(bookedAt);
@@ -593,10 +596,11 @@ export default function FollowupsScreen() {
       scheduleFollowupReminder({ followupId: created.id, leadId: lead.id, leadName: lead.name, leadPhone: lead.phone, leadStage: lead.stage, at: bookedAt, type });
       notifyFollowupScheduled({ id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage }, when).catch(() => {});
       setTimeout(() => Alert.alert("Follow-up scheduled", `${lead.name} - ${when}`), 100);
-      load(false, true, false);
+      replaced.forEach((item) => cancelFollowupReminder(item.id));
+      load(false, true, true); // older overdue ones of this lead were completed by the server, so the history is re-read too
     } catch (saveError) {
-      // Take the placeholder out and give the form back with what was typed, so nothing is lost.
-      setFollowups((current) => current.filter((item) => item.id !== tempId));
+      // Take the placeholder out, bring the lead's other follow-ups back, and give the form back with what was typed.
+      setFollowups((current) => [...replaced, ...current.filter((item) => item.id !== tempId)]);
       addSheet.current?.open(form, errorMessage(saveError, "Could not schedule this follow-up."));
     } finally { setSaving(false); }
   }

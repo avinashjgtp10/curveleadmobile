@@ -12,6 +12,12 @@ export function emitLeadCreated() {
   listeners.forEach((listener) => listener());
 }
 
+// Scheduling a follow-up completes the lead's older pending ones on the server. The Tasks screen normally refreshes only the days
+// around today when it is shown again, so it is told here to also re-read the older overdue history once.
+let followupsChanged = false;
+export function markFollowupsChanged() { followupsChanged = true; }
+export function consumeFollowupsChanged() { const changed = followupsChanged; followupsChanged = false; return changed; }
+
 // The lead's page tells the list about an edit the moment it happens, so the list shows it at once instead of after its own refresh.
 export type LeadPatch = { id: string } & Record<string, unknown>;
 const changeListeners = new Set<(patch: LeadPatch) => void>();
