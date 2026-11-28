@@ -10,7 +10,7 @@ import {
 } from "react-native-paper";
 import { rateLimitRemainingMs } from "@/api/client";
 import axios from "axios";
-import { router, useFocusEffect, useNavigation } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,15 +19,62 @@ import { usePermission } from "@/hooks/usePermission";
 import { useStages } from "@/hooks/useStages";
 import { useT } from "@/i18n/LanguageContext";
 import { telUrl } from "@/api/phone";
-import { openLeadWhatsapp } from "@/api/openWhatsapp";
+import { openPhoneWhatsapp } from "@/api/openWhatsapp";
 import {
-  bulkDeleteLeads, bulkUpdateLeads, fetchLeads, LeadListItem, trackContactActivity,
+  bulkDeleteLeads, bulkUpdateLeads, fetchLeadDetails, fetchLeads, LeadListItem, trackContactActivity,
 } from "@/api/leads";
+import { onLeadChanged, onLeadCreated } from "@/lib/leadCreation";
+import { prefetchLeadNotes } from "@/components/LeadNotes";
+import { useAuth } from "@/contexts/AuthContext";
 import { fetchStaff, StaffMember } from "@/api/staff";
 import { fetchPreferences, updatePreferences } from "@/api/preferences";
 import { notifyLeadsDeleted } from "@/api/notifications";
+import { FilterDateField, formatYmd, toYmd } from "@/components/FilterDateField";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 20;
+// The unfiltered first page from the last visit, so the list opens with leads on screen instead of a spinner.
+// Hidden stages remembered for this session, so reopening the list doesn't wait on the preferences request first.
+let hiddenStagesCache: { userId: string; stages: string[] } | null = null;
+// `hidden` is the hidden-stages setting the list was fetched with, so a list is only reused when it matches the current setting.
+let leadsCache: { userId: string; hidden: string; leads: LeadListItem[]; total: number; pages: number } | null = null;
+// Leads read for the phone-side search, kept for a few minutes: every pause while typing would otherwise download them all again
+// (up to 20 requests each), which also eats into the server's request limit.
+let scanCache: { key: string; at: number; leads: LeadListItem[]; firstPageIds: string[] } | null = null;
+const SCAN_CACHE_MS = 5 * 60_000;
+
+/**
+ * What the phone-side search reads leads with: no search text, and no stage or date filter either. The phone applies those two
+ * itself (matchesLocalFilters, tolerant of "Follow Up" vs "follow_up"), so a stage name the server matches differently
+ * can't hide a lead that is in the filtered list.
+ */
+function phoneSearchParams(extraParams: Record<string, unknown>) {
+  const { search: _search, stage: _stage, date_field: _field, date_from: _from, date_to: _to, ...rest } = extraParams;
+  return rest;
+}
+
+/** Reads every lead (old and new, 500 at a time, up to MAX_SEARCH_BATCHES batches) so the phone can search them. null = a newer request took over. */
+async function scanAllLeads(withoutSearch: Record<string, unknown>, userId: string, isCurrent: () => boolean) {
+  const key = `${userId}|${JSON.stringify(withoutSearch)}`;
+  if (scanCache && scanCache.key === key && Date.now() - scanCache.at < SCAN_CACHE_MS) return scanCache;
+  let batch = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
+  if (!isCurrent()) return null;
+  const leads = [...batch.leads];
+  const firstPageIds = batch.leads.map((lead) => lead.id);
+  const lastBatch = Math.min(batch.pagination.pages, MAX_SEARCH_BATCHES);
+  for (let number = 2; number <= lastBatch; number++) {
+    batch = await fetchLeads({ page: number, limit: LOCAL_FILTER_LIMIT, ...withoutSearch });
+    if (!isCurrent()) return null;
+    leads.push(...batch.leads);
+  }
+  scanCache = { key, at: Date.now(), leads, firstPageIds };
+  return scanCache;
+}
+
+// With a status, follow-up or reply-window filter on, this many leads are fetched at once and filtered on the phone.
+const LOCAL_FILTER_LIMIT = 500;
+const MAX_LOCAL_FILTER_BATCHES = 6; // batches of LOCAL_FILTER_LIMIT read when the phone has to apply stage/date filters itself
+const MAX_SEARCH_BATCHES = 20; // when the server's search finds nothing, up to 20 x 500 = 10,000 leads are read and searched on the phone
+const MAX_SILENT_PAGES = 3; // a background refresh re-fetches at most this many pages in one request
 const FILTERS = [
   { value: "", label: "All leads" },
   { value: "hot", label: "Hot" },
@@ -72,54 +119,72 @@ function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
 
-function FilterDropdown({ value, options, open, onToggle, onSelect }: {
-  value: string; options: { value: string; label: string }[]; open: boolean; onToggle: () => void; onSelect: (value: string) => void;
-}) {
-  const selected = options.find((item) => item.value === value) || options[0];
-  // The list is capped in height, so it draws its own scroll bar: the built-in one is hidden or fades out on many phones.
-  const [viewHeight, setViewHeight] = useState(0);
-  const [contentHeight, setContentHeight] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const scrollable = viewHeight > 0 && contentHeight > viewHeight + 1;
-  const trackHeight = Math.max(0, viewHeight - 8);
-  const thumbHeight = scrollable ? Math.max(28, trackHeight * (viewHeight / contentHeight)) : 0;
-  const maxOffset = Math.max(1, contentHeight - viewHeight);
-  const thumbTop = 4 + Math.min(1, Math.max(0, offset / maxOffset)) * Math.max(0, trackHeight - thumbHeight);
+type PickerKey = "stage" | "status" | "score" | "health" | "sla" | "source" | "assigned" | "dateField";
+
+const HEALTH_OPTIONS = [
+  { value: "", label: "All" },
+  { value: "overdue", label: "Overdue" },
+  { value: "today", label: "Due today" },
+  { value: "upcoming", label: "Upcoming" },
+  { value: "none", label: "No follow-up" },
+];
+const SLA_OPTIONS = [
+  { value: "", label: "All" },
+  { value: "open", label: "Reply window open" },
+  { value: "closed", label: "Reply window closed" },
+  { value: "none", label: "No customer message" },
+];
+
+// These three filters are worked out on the phone from each lead's own fields.
+function followupHealthOf(lead: LeadListItem) {
+  if (!lead.next_followup_at) return "none";
+  const due = new Date(lead.next_followup_at);
+  if (Number.isNaN(due.getTime())) return "none";
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(startOfToday); endOfToday.setDate(endOfToday.getDate() + 1);
+  if (due < startOfToday) return "overdue";
+  if (due < endOfToday) return "today";
+  return "upcoming";
+}
+function replyWindowOf(lead: LeadListItem) {
+  if (!lead.last_incoming_message) return "none";
+  return lead.is_24h_window_active ? "open" : "closed";
+}
+// "Follow Up", "follow_up" and "follow up" are the same stage.
+const stageKey = (value?: string) => (value || "").toLowerCase().replace(/[_\s]+/g, " ").trim();
+function localYmd(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+function shiftYmd(value: string, days: number) {
+  if (!value) return "";
+  const [y, m, d] = value.split("-").map(Number);
+  const date = new Date(y, (m || 1) - 1, (d || 1) + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+type LocalFilters = { status: string; health: string; sla: string; stage: string; from: string; to: string; stageName: (stage?: string) => string };
+function matchesLocalFilters(lead: LeadListItem, filters: LocalFilters) {
+  // Stage and date are normally applied by the server; these checks catch a reply that didn't apply them.
+  if (filters.stage && stageKey(lead.stage) !== stageKey(filters.stage) && stageKey(filters.stageName(lead.stage)) !== stageKey(filters.stage)) return false;
+  if (filters.from || filters.to) {
+    const day = localYmd(lead.created_at);
+    if (!day || (filters.from && day < filters.from) || (filters.to && day > filters.to)) return false;
+  }
+  // Same tolerance as the stage: "Not Reachable", "not_reachable" and "not reachable" are one status.
+  if (filters.status && stageKey(lead.lead_status) !== stageKey(filters.status)) return false;
+  if (filters.health && followupHealthOf(lead) !== filters.health) return false;
+  if (filters.sla && replyWindowOf(lead) !== filters.sla) return false;
+  return true;
+}
+
+// One dropdown-looking field; tapping it opens the option list.
+function FilterField({ label, value, onPress, disabled }: { label: string; value: string; onPress: () => void; disabled?: boolean }) {
   return (
-    <>
-      <Pressable style={[styles.filterDropdownField, open && styles.filterDropdownFieldActive]} onPress={onToggle}>
-        <Text style={styles.filterDropdownFieldText}>{selected?.label}</Text>
-        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
-      </Pressable>
-      {open ? (
-        <View style={styles.filterDropdownPanel}>
-          <ScrollView
-            style={styles.filterDropdownScroll} contentContainerStyle={styles.filterDropdownContent} nestedScrollEnabled
-            showsVerticalScrollIndicator={false} scrollEventThrottle={16}
-            onLayout={(event) => setViewHeight(event.nativeEvent.layout.height)}
-            onContentSizeChange={(_width, height) => setContentHeight(height)}
-            onScroll={(event) => setOffset(event.nativeEvent.contentOffset.y)}
-          >
-            {options.map((item) => {
-              const isSelected = item.value === value;
-              return (
-                <Pressable
-                  key={item.value || "all"} style={[styles.filterDropdownItem, isSelected && styles.filterDropdownItemSelected]}
-                  onPress={() => onSelect(item.value)}
-                >
-                  <Text style={[styles.filterDropdownItemText, isSelected && styles.filterDropdownItemTextSelected]}>{item.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-          {scrollable ? (
-            <View pointerEvents="none" style={styles.filterDropdownTrack}>
-              <View style={[styles.filterDropdownThumb, { height: thumbHeight, top: thumbTop }]} />
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-    </>
+    <Pressable style={[styles.filterField, disabled && { opacity: 0.6 }]} onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={`${label}: ${value}`}>
+      <Text style={styles.filterFieldText} numberOfLines={1}>{value}</Text>
+      <Ionicons name="chevron-down" size={15} color="#64748b" />
+    </Pressable>
   );
 }
 
@@ -142,6 +207,24 @@ function relativeDate(value: string, t: (text: string, vars?: Record<string, str
   return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
+// The exact date and time the lead came in, like the web list ("27 Nov 2026" over "7:00 am").
+function createdParts(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { day: "", time: "" };
+  return {
+    day: date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
+    time: date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }).toLowerCase(),
+  };
+}
+
+// The web's "Follow-up health": red when a follow-up is overdue, amber when one is due today, otherwise good.
+function healthBadge(lead: LeadListItem) {
+  const health = followupHealthOf(lead);
+  if (health === "overdue") return { label: "Overdue", color: "#b91c1c", bg: "#fde1e1" };
+  if (health === "today") return { label: "Due today", color: "#c2710c", bg: "#fde9c9" };
+  return { label: "Good", color: "#0f7b5f", bg: "#d9f5e8" };
+}
+
 function dateBucket(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Earlier";
@@ -152,14 +235,52 @@ function dateBucket(value: string) {
   return "Earlier";
 }
 
-function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDelete, colorFor, findStage }: {
-  lead: LeadListItem; selectMode: boolean; selected: boolean; onToggleSelect: () => void; onLongPress: () => void;
-  /** Omitted for users who can't delete, which hides the Delete item. */
-  onDelete?: () => void;
+// A refresh returns brand-new objects for every lead. Keeping the old object for a lead that didn't change lets its
+// memoized row be skipped, so coming back to the list doesn't redraw every row.
+function reuseUnchanged(previous: LeadListItem[], fresh: LeadListItem[]) {
+  if (!previous.length) return fresh;
+  const old = new Map(previous.map((lead) => [lead.id, lead]));
+  return fresh.map((lead) => {
+    const before = old.get(lead.id);
+    return before && JSON.stringify(before) === JSON.stringify(lead) ? before : lead;
+  });
+}
+
+// The handlers live in a ref the screen keeps current, so the row's props stay the same between renders and React.memo
+// can skip it — typing in search or opening a sheet no longer re-renders every row.
+interface RowActions {
+  toggleSelect: (id: string) => void;
+  enterSelectMode: (id: string) => void;
+  confirmDelete: (lead: LeadListItem) => void;
   colorFor: (stage?: string) => { bg: string; text: string };
   findStage: (name?: string) => { name: string } | undefined;
+}
+
+function PhoneText({ phone, term }: { phone: string; term: string }) {
+  const at = term ? (phone || "").indexOf(term) : -1;
+  if (at < 0) return <Text style={styles.subtitle} numberOfLines={1}>{phone}</Text>;
+  return (
+    <Text style={styles.subtitle} numberOfLines={1}>
+      {phone.slice(0, at)}<Text style={styles.phoneMatch}>{phone.slice(at, at + term.length)}</Text>{phone.slice(at + term.length)}
+    </Text>
+  );
+}
+
+const LeadRow = React.memo(function LeadRow({ lead, selectMode, selected, canDelete, actions, highlight }: {
+  lead: LeadListItem; selectMode: boolean; selected: boolean;
+  /** Digits being searched, highlighted inside the phone number. */
+  highlight: string;
+  /** False for users who can't delete, which hides the Delete item. */
+  canDelete: boolean;
+  /** Also stands in for the stage list: a new array means stage names/colors changed, so the row redraws. */
+  stages: unknown;
+  actions: React.MutableRefObject<RowActions>;
 }) {
   const { t } = useT();
+  const onToggleSelect = () => actions.current.toggleSelect(lead.id);
+  const onLongPress = () => actions.current.enterSelectMode(lead.id);
+  const onDelete = canDelete ? () => actions.current.confirmDelete(lead) : undefined;
+  const { colorFor, findStage } = actions.current;
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ y: 0, right: 16 });
   const anchorRef = useRef<View>(null);
@@ -177,25 +298,29 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
   }
   const stageColors = colorFor(lead.stage);
   const stageLabel = findStage(lead.stage)?.name || pretty(lead.stage);
+  const health = healthBadge(lead);
   const openLead = () => router.push({
     pathname: "/(app)/leads/[id]",
     params: { id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage || "new", source: lead.source || "" },
   });
-  const avatarColor = ["#0ea5e9", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444"][(lead.name?.charCodeAt(0) || 0) % 5];
-  const score = lead.lead_score === "hot" ? { label: "Hot", icon: "flame" as const, color: "#ea580c", bg: "#ffedd5" }
-    : lead.lead_score === "warm" ? { label: "Warm", icon: "sunny" as const, color: "#ca8a04", bg: "#fef9c3" }
-    : lead.lead_score === "cold" ? { label: "Cold", icon: "snow" as const, color: "#0369a1", bg: "#e0f2fe" }
+  const avatarColor = ["#c8294a", "#d98a0b", "#0f7b5f", "#2457e6", "#7c3aed"][(lead.name?.charCodeAt(0) || 0) % 5];
+  const score = lead.lead_score === "hot" ? { label: "Hot", color: "#b91c1c", bg: "#fde1e1" }
+    : lead.lead_score === "warm" ? { label: "Warm", color: "#c2710c", bg: "#fde9c9" }
+    : lead.lead_score === "cold" ? { label: "Cold", color: "#2457e6", bg: "#dbe8fb" }
     : null;
+  const sourceLabel = lead.source ? (SOURCES.find((item) => item.value === lead.source)?.label || pretty(lead.source)) : "";
   function callNow() {
     trackContactActivity(lead.id, "call").catch(() => {});
     Linking.openURL(telUrl(lead.phone)).catch(() => Alert.alert("Unable to call", "Calling is not supported on this device."));
   }
   function openWhatsapp() {
-    openLeadWhatsapp(lead);
+    openPhoneWhatsapp(lead);
   }
   return (
     <Pressable
       style={({ pressed }) => [styles.leadCard, selected && styles.leadCardSelected, pressed && styles.pressed]}
+      // Start loading the lead and its notes as soon as the finger lands; the details screen then reuses this request instead of starting it after the screen opens.
+      onPressIn={() => { if (!selectMode) { fetchLeadDetails(lead.id).catch(() => {}); prefetchLeadNotes(lead.id); } }}
       onPress={() => selectMode ? onToggleSelect() : openLead()}
       onLongPress={() => { if (!selectMode) onLongPress(); }}
     >
@@ -212,42 +337,62 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
             <LeadName name={lead.name || ""} />
             {score ? (
               <View style={[styles.scoreBadge, { backgroundColor: score.bg }]}>
-                <Ionicons name={score.icon} size={11} color={score.color} />
                 <Text style={[styles.scoreText, { color: score.color }]}>{t(score.label)}</Text>
               </View>
             ) : null}
           </View>
-          <Text style={styles.subtitle} numberOfLines={1}>{lead.phone}</Text>
+          {/* The number is always shown (like the web list), with the digits that matched the search highlighted. */}
+          <View style={styles.sourceLine}>
+            <Ionicons name="call-outline" size={12} color="#64748b" />
+            <PhoneText phone={lead.phone} term={highlight} />
+          </View>
+          {sourceLabel ? (
+            <View style={styles.sourceLine}>
+              <Ionicons name="chatbubble-outline" size={12} color="#64748b" />
+              <Text style={styles.subtitle} numberOfLines={1}>
+                {`${t("Source")}: `}<Text style={styles.sourceStrong}>{sourceLabel}</Text>
+              </Text>
+            </View>
+          ) : null}
         </View>
-        <Text style={styles.timeText}>{relativeDate(lead.created_at, t)}</Text>
+        <View style={styles.timeCol}>
+          <Text style={styles.timeText}>{createdParts(lead.created_at).day}</Text>
+          <Text style={styles.timeText}>{createdParts(lead.created_at).time}</Text>
+          {!selectMode ? (
+            <View ref={anchorRef} collapsable={false}>
+              <Pressable onPress={openMenu} hitSlop={10} accessibilityRole="button" accessibilityLabel="Lead actions" style={styles.moreButton}>
+                <Ionicons name="ellipsis-horizontal" size={16} color="#94a3b8" />
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
       </View>
 
       <View style={styles.metaRow}>
         <View style={[styles.stageTag, { backgroundColor: stageColors.bg }]}>
-          <View style={[styles.stageTagDot, { backgroundColor: stageColors.text }]} />
           <Text style={[styles.stageTagText, { color: stageColors.text }]} numberOfLines={1}>{stageLabel}</Text>
         </View>
-        {lead.source ? <View style={styles.sourceTag}><Text style={styles.sourceTagText} numberOfLines={1}>{pretty(lead.source)}</Text></View> : null}
-        <Text style={styles.assignedText} numberOfLines={1}>{lead.assigned_to_name || t("Unassigned")}</Text>
+        <View style={[styles.healthTag, { backgroundColor: health.bg }]}>
+          <Text style={[styles.healthTagText, { color: health.color }]} numberOfLines={1}>{t(health.label)}</Text>
+        </View>
+        <Text style={styles.assignedText} numberOfLines={1}>
+          {lead.assigned_to_name ? `${t("Assigned to staff")}: ` : ""}<Text style={styles.sourceStrong}>{lead.assigned_to_name || t("Unassigned")}</Text>
+        </Text>
       </View>
 
       {!selectMode ? (
         <View style={styles.leadActions}>
-          <Pressable style={[styles.quickAction, { backgroundColor: "#e0f2fe" }]} onPress={callNow} hitSlop={4}>
-            <Ionicons name="call" size={16} color="#0284c7" />
-            <Text style={[styles.quickActionText, { color: "#0284c7" }]}>{t("Call")}</Text>
+          <Pressable style={[styles.quickAction, { backgroundColor: "#dbe8fb" }]} onPress={callNow} hitSlop={4}>
+            <Ionicons name="call-outline" size={16} color="#2457e6" />
+            <Text style={[styles.quickActionText, { color: "#2457e6" }]}>{t("Call")}</Text>
           </Pressable>
-          <Pressable style={[styles.quickAction, { backgroundColor: "#dcfce7" }]} onPress={openWhatsapp} hitSlop={4}>
-            <Ionicons name="logo-whatsapp" size={16} color="#16a34a" />
-            <Text style={[styles.quickActionText, { color: "#16a34a" }]}>{t("WhatsApp")}</Text>
+          <Pressable style={[styles.quickAction, { backgroundColor: "#0f7b5f" }]} onPress={openWhatsapp} hitSlop={4}>
+            <Ionicons name="logo-whatsapp" size={16} color="#ffffff" />
+            <Text style={[styles.quickActionText, { color: "#ffffff" }]}>{t("WhatsApp")}</Text>
           </Pressable>
-          <View style={{ flex: 1 }} />
-          <View ref={anchorRef} collapsable={false}>
-            <IconButton icon="dots-vertical" size={20} onPress={openMenu} style={styles.rowMenuButton} accessibilityLabel="Lead actions" />
-          </View>
           {/* A plain Modal popover: Paper's Menu swallowed taps here. Actions run after it closes,
               because Android drops navigation/Alerts fired while a Modal is still dismissing. */}
-          <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={closeMenu}>
+          {menuOpen ? <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={closeMenu}>
             <Pressable style={StyleSheet.absoluteFill} onPress={closeMenu}>
               <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
                 <Pressable style={styles.popoverItem} onPress={() => runAfterClose(openLead)}>
@@ -262,31 +407,83 @@ function LeadRow({ lead, selectMode, selected, onToggleSelect, onLongPress, onDe
                 ) : null}
               </View>
             </Pressable>
-          </Modal>
+          </Modal> : null}
         </View>
       ) : null}
     </Pressable>
   );
+});
+
+// Phones are stored as "+<code><digits>" with no spaces, so a number typed as "98765 43210", "98765-43210" or "098765 43210"
+// would never match. Anything that looks like a phone number is searched as plain digits (no spaces, dashes or leading 0).
+function searchTerm(query: string) {
+  const q = query.trim();
+  if (!/^[\d\s()+-]+$/.test(q)) return q;
+  const digits = q.replace(/\D/g, "");
+  if (!digits) return q;
+  // A phone number loses its leading 0; a short digits-only search (up to 6 digits, like a lead ID "0012") keeps it.
+  return q.startsWith("+") || digits.length <= 6 ? digits : digits.replace(/^0+(?=\d)/, "");
 }
 
+// Used when the server's search finds nothing: the same words, checked on the phone against name, number, email and lead number.
+function matchesSearchText(lead: LeadListItem, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const digits = searchTerm(query).replace(/\D/g, "");
+  const leadDigits = (lead.phone || "").replace(/\D/g, "");
+  if (digits.length >= 3 && /^[\d\s()+-]+$/.test(q) && leadDigits.includes(digits)) return true;
+  return [lead.name, lead.phone, lead.email, lead.lead_number].some((value) => String(value || "").toLowerCase().includes(q));
+}
+
+// Keeps the typed text itself, so a keystroke redraws only this box and not the whole Leads screen.
+const LeadSearchBox = React.memo(function LeadSearchBox({ initial, resetSignal, onChange, onSubmit, placeholder }: {
+  initial: string; resetSignal: number; onChange: (value: string) => void; onSubmit: (value: string) => void; placeholder: string;
+}) {
+  const [text, setText] = useState(initial);
+  const firstReset = useRef(true);
+  useEffect(() => {
+    if (firstReset.current) { firstReset.current = false; return; }
+    setText("");
+  }, [resetSignal]);
+  const change = (value: string) => { setText(value); onChange(value); };
+  return (
+    <Searchbar
+      icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 13, minHeight: 44 }} style={styles.searchBox} value={text} onChangeText={change}
+      placeholder={placeholder} placeholderTextColor={colors.textMuted} onClearIconPress={() => change("")}
+      returnKeyType="search" onSubmitEditing={() => onSubmit(text)}
+    />
+  );
+});
+
 export default function LeadsScreen() {
+  const { user } = useAuth();
+  const cached = leadsCache && leadsCache.userId === user?.id && leadsCache.hidden === (hiddenStagesCache?.userId === user?.id ? hiddenStagesCache.stages : []).join(",") ? leadsCache : null;
+  const firstLoad = useRef(true);
+  const prefsChanged = useRef(false);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { isAdmin } = usePermission();
   const { t } = useT();
   const { stages, colorFor, findStage } = useStages();
+  const findStageRef = useRef(findStage);
+  findStageRef.current = findStage;
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // When the phone has to filter by status itself, every load downloads up to 500 leads. Remember when that last happened.
+  const lastLoad = useRef({ at: 0, onPhone: false });
   const requestId = useRef(0);
-  const [leads, setLeads] = useState<LeadListItem[]>([]);
-  const [total, setTotal] = useState(0);
+  const [leads, setLeads] = useState<LeadListItem[]>(cached?.leads ?? []);
+  const [total, setTotal] = useState(cached?.total ?? 0);
   const [page, setPage] = useState(1);
   const pageRef = useRef(1);
-  const [prefsReady, setPrefsReady] = useState(false);
-  const [pages, setPages] = useState(1);
-  const [search, setSearch] = useState("");
+  // The list loads straight away; if the hidden-stages preference arrives different, `load` changes and it reloads once.
+  const [prefsReady, setPrefsReady] = useState(true);
+  const [pages, setPages] = useState(cached?.pages ?? 1);
+  // The search box keeps what is typed in its own state; the screen only sees the text (in this ref) and the settled query.
+  const searchText = useRef("");
+  const [searchReset, setSearchReset] = useState(0);
   const [query, setQuery] = useState("");
   const [score, setScore] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -310,10 +507,18 @@ export default function LeadsScreen() {
   const [filterStage, setFilterStage] = useState("");
   const [filterSource, setFilterSource] = useState("");
   const [filterAssignedTo, setFilterAssignedTo] = useState("");
-  const [openFilterDropdown, setOpenFilterDropdown] = useState<"score" | "stage" | "source" | "assigned" | null>(null);
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  // Changes inside the sheet are held as a draft until "Apply filters".
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterHealth, setFilterHealth] = useState("");
+  const [filterSla, setFilterSla] = useState("");
+  const [draft, setDraft] = useState({ score: "", stage: "", status: "", health: "", sla: "", source: "", assigned: "", from: "", to: "" });
+  const [picker, setPicker] = useState<PickerKey | null>(null);
 
   const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
-  const [hiddenStages, setHiddenStages] = useState<string[]>([]);
+  const knownHidden = hiddenStagesCache && hiddenStagesCache.userId === user?.id ? hiddenStagesCache.stages : null;
+  const [hiddenStages, setHiddenStages] = useState<string[]>(knownHidden ?? []);
 
   useEffect(() => {
     const parent = navigation.getParent();
@@ -323,33 +528,117 @@ export default function LeadsScreen() {
     return () => { parent?.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
   }, [filtersSheetOpen, settingsSheetOpen, selectMode, navigation, insets.bottom]);
 
-  const activeFilterCount = [score, filterStage, filterSource, filterAssignedTo].filter(Boolean).length;
+  // Opened from a dashboard tile (New leads, Hot leads): start from that filter alone.
+  const { preset, presetAt } = useLocalSearchParams<{ preset?: string; presetAt?: string }>();
+  useEffect(() => {
+    if (!preset) return;
+    clearFilters();
+    if (searchTimer.current) clearTimeout(searchTimer.current); // a search typed just before must not apply after the tile's filter
+    searchText.current = ""; setSearchReset((n) => n + 1); setQuery("");
+    if (preset === "new_today") { const today = toYmd(new Date()); setFilterDateFrom(today); setFilterDateTo(today); }
+    else if (preset === "hot") setScore("hot");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset, presetAt]);
+
+  const activeFilterCount = [score, filterStage, filterStatus, filterHealth, filterSla, filterSource, filterAssignedTo, filterDateFrom || filterDateTo].filter(Boolean).length;
 
   // `silent` re-fetches everything already on screen in one request without a spinner or losing the scroll depth.
-  const load = useCallback(async (nextPage = 1, append = false, silent = false) => {
+  const load = useCallback(async (nextPage = 1, append = false, silent = false, keepList = false) => {
     const id = ++requestId.current;
     if (append) setLoadingMore(true);
-    else if (!silent) setLoading(true);
+    else if (!silent && !keepList) setLoading(true); // keepList: pull-to-refresh shows its own spinner over the current list
     setError("");
     try {
+      const localFilters: LocalFilters = { status: filterStatus, health: filterHealth, sla: filterSla, stage: filterStage, from: filterDateFrom, to: filterDateTo, stageName: (stage) => findStageRef.current(stage)?.name ?? "" };
+      const localActive = !!(filterStatus || filterHealth || filterSla);
       const loadedPages = silent ? Math.max(1, pageRef.current) : 1;
-      const result = await fetchLeads({
-        page: nextPage, limit: PAGE_SIZE * loadedPages,
-        ...(query && { search: query }),
+      // Deep scrolls would otherwise make this one request huge; only the first pages are refreshed, the rest stay as they were.
+      const fetchPages = Math.min(loadedPages, MAX_SILENT_PAGES);
+      const partial = loadedPages > fetchPages;
+      const extraParams = {
+        ...(query && { search: searchTerm(query) }),
         ...(score && { score }),
         ...(filterStage && { stage: filterStage }),
         ...(filterSource && { source: filterSource }),
         ...(filterAssignedTo && { assigned_to: filterAssignedTo }),
+        ...((filterDateFrom || filterDateTo) && { date_field: "created_at" }),
+        ...(filterDateFrom && { date_from: filterDateFrom }),
+        ...(filterDateTo && { date_to: filterDateTo }),
         ...(hiddenStages.length && { hide_stages: hiddenStages.join(",") }),
-      });
+      };
+      // Pull to refresh (keepList) must ask the server again, not reuse an answer from the last few seconds.
+      let result = await fetchLeads({ page: localActive ? 1 : nextPage, limit: localActive ? LOCAL_FILTER_LIMIT : PAGE_SIZE * fetchPages, ...extraParams }, { fresh: keepList });
+      let filterOnPhone = localActive;
+      // The server should apply the stage and date filters. If it sent back leads that don't match them, it didn't:
+      // fetch a larger batch once and filter it here, so the list always matches the chips.
+      // A day of slack on each side, so a lead created near midnight (counted as another day by the server's time zone) doesn't trigger this.
+      const withSlack: LocalFilters = { ...localFilters, from: shiftYmd(filterDateFrom, -1), to: shiftYmd(filterDateTo, 1) };
+      if (!localActive && (filterStage || filterDateFrom || filterDateTo) && !append && result.leads.some((lead) => !matchesLocalFilters(lead, withSlack))) {
+        if (id !== requestId.current) return;
+        result = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...extraParams });
+        // The newest 500 may not reach back to the dates asked for, so keep reading further batches (up to 3000 leads in all).
+        const pagesToRead = Math.min(result.pagination.pages, MAX_LOCAL_FILTER_BATCHES);
+        for (let batch = 2; batch <= pagesToRead; batch++) {
+          const more = await fetchLeads({ page: batch, limit: LOCAL_FILTER_LIMIT, ...extraParams });
+          if (id !== requestId.current) return;
+          result = { ...result, leads: [...result.leads, ...more.leads] };
+        }
+        filterOnPhone = true;
+      }
+      // The server found nothing for the typed words, or sent back its ordinary list without applying them. Its search may only cover
+      // part of a name or number, so read through ALL leads (old and new, in batches) on the phone before saying there is no match.
+      // A short answer (fewer than a full page) means the server did filter, e.g. by a business name the phone can't see,
+      // so the full scan is skipped; an empty answer or a full page (the ordinary list) still gets checked.
+      const serverFiltered = result.leads.length > 0 && result.leads.length < PAGE_SIZE;
+      if (query && !append && !serverFiltered && !result.leads.some((lead) => matchesSearchText(lead, query))) {
+        const withoutSearch = phoneSearchParams(extraParams);
+        const serverLeads = result.leads;
+        const scan = await scanAllLeads(withoutSearch, user?.id ?? "", () => id === requestId.current);
+        if (!scan) return;
+        const everything = scan.leads;
+        const firstPageIds = scan.firstPageIds;
+        const found = everything.filter((lead) => matchesSearchText(lead, query));
+        // The server ignored the search only if what it sent is exactly the start of the ordinary list (it may legitimately match on a field the phone doesn't show, like a business name).
+        const serverIgnoredSearch = serverLeads.length >= PAGE_SIZE && serverLeads.every((lead, index) => lead.id === firstPageIds[index]);
+        if (found.length) { result = { leads: found, pagination: { total: found.length, page: 1, limit: found.length, pages: 1 } }; filterOnPhone = true; }
+        else if (serverIgnoredSearch) { result = { ...result, leads: [], pagination: { ...result.pagination, total: 0, pages: 1 } }; }
+      }
       if (id !== requestId.current) return;
-      setLeads((current) => append ? [...current, ...result.leads.filter((lead) => !current.some((item) => item.id === lead.id))] : result.leads);
+      if (filterOnPhone) {
+        const matching = result.leads.filter((lead) => matchesLocalFilters(lead, localFilters));
+        setLeads(matching);
+        pageRef.current = 1; setPage(1); setPages(1); setTotal(matching.length);
+        return;
+      }
+      // The server answered, but its search may leave out older leads. Show its answer now, then add any older leads the phone
+      // finds by reading all of them (kept for a few minutes, so only the first search pays for it).
+      if (query && !append && !silent) {
+        const withoutSearch = phoneSearchParams(extraParams);
+        scanAllLeads(withoutSearch, user?.id ?? "", () => id === requestId.current).then((scan) => {
+          if (!scan || id !== requestId.current) return;
+          const extra = scan.leads.filter((lead) => matchesSearchText(lead, query) && matchesLocalFilters(lead, localFilters));
+          if (!extra.length) return;
+          setLeads((current) => {
+            const have = new Set(current.map((lead) => lead.id));
+            const added = extra.filter((lead) => !have.has(lead.id));
+            if (!added.length) return current;
+            setTotal((count) => count + added.length);
+            return [...current, ...added].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+          });
+        }).catch(() => {});
+      }
+      setLeads((current) => append ? [...current, ...result.leads.filter((lead) => !current.some((item) => item.id === lead.id))]
+        : partial ? [...reuseUnchanged(current, result.leads), ...current.slice(result.leads.length).filter((lead) => !result.leads.some((fresh) => fresh.id === lead.id))]
+        : reuseUnchanged(current, result.leads));
       // A silent refresh asks for several pages at once, so page numbers are worked out in PAGE_SIZE units.
-      const shownPages = silent ? Math.max(1, Math.ceil(result.leads.length / PAGE_SIZE)) : result.pagination.page;
+      const shownPages = silent ? (partial ? loadedPages : Math.max(1, Math.ceil(result.leads.length / PAGE_SIZE))) : result.pagination.page;
       pageRef.current = shownPages;
       setPage(shownPages);
       setPages(silent ? Math.max(1, Math.ceil(result.pagination.total / PAGE_SIZE)) : result.pagination.pages);
       setTotal(result.pagination.total);
+      lastLoad.current = { at: Date.now(), onPhone: filterOnPhone };
+      const unfiltered = !query && !score && !filterStage && !filterSource && !filterAssignedTo && !filterDateFrom && !filterDateTo;
+      if (unfiltered && !append && user?.id) leadsCache = { userId: user.id, hidden: hiddenStages.join(","), leads: result.leads, total: result.pagination.total, pages: Math.max(1, Math.ceil(result.pagination.total / PAGE_SIZE)) };
     } catch (loadError) {
       if (id !== requestId.current) return;
       setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string" ? loadError.response.data.error : "Could not load leads.");
@@ -357,10 +646,19 @@ export default function LeadsScreen() {
     } finally {
       if (id === requestId.current) { setLoading(false); setLoadingMore(false); setRefreshing(false); }
     }
-  }, [query, score, filterStage, filterSource, filterAssignedTo, hiddenStages]);
+  }, [query, score, filterStage, filterStatus, filterHealth, filterSla, filterSource, filterAssignedTo, filterDateFrom, filterDateTo, hiddenStages]);
 
   // First load and any filter/search change. It waits for the hidden-stages preference so those stages never flash.
-  useEffect(() => { if (prefsReady) load(); }, [load, prefsReady]);
+  // With a saved list on screen, the first refresh runs quietly instead of replacing it with a spinner.
+  useEffect(() => {
+    if (!prefsReady) return;
+    // Also quiet when only the hidden-stages setting arrived different: the list stays on screen instead of a second spinner.
+    const quiet = (firstLoad.current && !!cached) || prefsChanged.current;
+    prefsChanged.current = false;
+    firstLoad.current = false;
+    load(1, false, quiet);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load, prefsReady]);
 
   // If the list couldn't load because the server is rate limiting, try again by itself once the wait is over.
   useEffect(() => {
@@ -377,13 +675,38 @@ export default function LeadsScreen() {
   const focusedOnce = useRef(false);
   useFocusEffect(useCallback(() => {
     if (!focusedOnce.current) { focusedOnce.current = true; return; } // the effect above handles the first load
+    // Edits made on a lead's page are already applied to this list, so don't re-download up to 500 leads just because the
+    // person came back; pull to refresh still does it, and so does the next visit after a minute.
+    if (lastLoad.current.onPhone && Date.now() - lastLoad.current.at < 60_000) return;
     loadRef.current(1, false, true);
   }, []));
   useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); }, []);
+  // A lead added from the Add lead form saves in the background; show it as soon as the server has it.
+  useEffect(() => onLeadCreated(() => loadRef.current(1, false, true)), []);
+  // An edit made on a lead's page (name, source, stage...) shows here immediately; the refresh on return then confirms it.
+  useEffect(() => onLeadChanged((patch) => {
+    // A lead changed so that it no longer matches the stage, status or source being filtered on leaves the list at once.
+    const differs = (wanted: string, value: unknown) => !!wanted && typeof value === "string" && value.toLowerCase() !== wanted.toLowerCase();
+    const leftFilter = differs(filterStage, patch.stage) || differs(filterStatus, patch.lead_status) || differs(filterSource, patch.source);
+    setLeads((current) => leftFilter
+      ? current.filter((lead) => lead.id !== patch.id)
+      : current.some((lead) => lead.id === patch.id)
+        ? current.map((lead) => lead.id === patch.id ? { ...lead, ...patch } : lead)
+        : current);
+  }), [filterStage, filterStatus, filterSource]);
 
   useEffect(() => {
     fetchPreferences()
-      .then((prefs) => setHiddenStages(prefs.hidden_lead_stages || []))
+      .then((prefs) => {
+        const stagesNow = prefs.hidden_lead_stages || [];
+        if (user?.id) hiddenStagesCache = { userId: user.id, stages: stagesNow };
+        // Same list as before: keep the old array so the leads aren't fetched a second time for nothing.
+        setHiddenStages((current) => {
+          if (current.length === stagesNow.length && current.every((s, i) => s === stagesNow[i])) return current;
+          prefsChanged.current = true;
+          return stagesNow;
+        });
+      })
       .catch(() => {})
       .finally(() => setPrefsReady(true));
   }, []);
@@ -392,19 +715,55 @@ export default function LeadsScreen() {
     const key = stageName.toLowerCase();
     const next = hiddenStages.includes(key) ? hiddenStages.filter((s) => s !== key) : [...hiddenStages, key];
     setHiddenStages(next);
+    if (user?.id) hiddenStagesCache = { userId: user.id, stages: next };
     updatePreferences({ hidden_lead_stages: next }).catch(() => setHiddenStages(hiddenStages));
   }
 
   function openFiltersSheet() {
+    setDraft({ score, stage: filterStage, status: filterStatus, health: filterHealth, sla: filterSla, source: filterSource, assigned: filterAssignedTo, from: filterDateFrom, to: filterDateTo });
+    setPicker(null);
     setFiltersSheetOpen(true);
-    setOpenFilterDropdown(null);
     if (staff.length || staffLoading) return;
     setStaffLoading(true); setStaffError("");
     fetchStaff().then(setStaff).catch((staffErr) => setStaffError(errorMessage(staffErr, "Could not load your team."))).finally(() => setStaffLoading(false));
   }
 
   function clearFilters() {
-    setScore(""); setFilterStage(""); setFilterSource(""); setFilterAssignedTo("");
+    setScore(""); setFilterStage(""); setFilterStatus(""); setFilterHealth(""); setFilterSla(""); setFilterSource(""); setFilterAssignedTo(""); setFilterDateFrom(""); setFilterDateTo("");
+  }
+
+  function applyFilters() {
+    setScore(draft.score); setFilterStage(draft.stage); setFilterStatus(draft.status); setFilterHealth(draft.health); setFilterSla(draft.sla); setFilterSource(draft.source); setFilterAssignedTo(draft.assigned);
+    // A range typed back to front is put the right way round instead of silently returning nothing.
+    const [from, to] = draft.from && draft.to && draft.from > draft.to ? [draft.to, draft.from] : [draft.from, draft.to];
+    setFilterDateFrom(from); setFilterDateTo(to);
+    setFiltersSheetOpen(false);
+  }
+
+  const pickerOptions: Record<PickerKey, { value: string; label: string }[]> = {
+    stage: [{ value: "", label: "All stages" }, ...stages.map((item) => ({ value: item.name, label: item.name }))],
+    status: [{ value: "", label: "All statuses" }, ...Array.from(new Set(stages.flatMap((stage) => (stage.statuses || []).map((status) => status.name)))).map((name) => ({ value: name, label: name }))],
+    score: FILTERS.map((item) => ({ value: item.value, label: item.value ? item.label : "All scores" })),
+    health: HEALTH_OPTIONS,
+    sla: SLA_OPTIONS,
+    source: [{ value: "", label: "All sources" }, ...SOURCES],
+    assigned: [{ value: "", label: "All staff" }, { value: "unassigned", label: "Unassigned" }, ...staff.map((member) => ({ value: member.id, label: member.name }))],
+    dateField: [{ value: "created_at", label: "Lead date" }],
+  };
+  const pickerTitle: Record<PickerKey, string> = { stage: "Stage", status: "Status", score: "Score", health: "Follow-up health", sla: "Response SLA", source: "Source", assigned: "Assigned to", dateField: "Date" };
+  const pickerValue: Record<PickerKey, string> = { stage: draft.stage, status: draft.status, score: draft.score, health: draft.health, sla: draft.sla, source: draft.source, assigned: draft.assigned, dateField: "created_at" };
+  function labelOf(key: PickerKey) {
+    return pickerOptions[key].find((item) => item.value === pickerValue[key])?.label || pickerOptions[key][0].label;
+  }
+  function choose(key: PickerKey, value: string) {
+    if (key === "stage") setDraft((d) => ({ ...d, stage: value }));
+    else if (key === "status") setDraft((d) => ({ ...d, status: value }));
+    else if (key === "score") setDraft((d) => ({ ...d, score: value }));
+    else if (key === "health") setDraft((d) => ({ ...d, health: value }));
+    else if (key === "sla") setDraft((d) => ({ ...d, sla: value }));
+    else if (key === "source") setDraft((d) => ({ ...d, source: value }));
+    else if (key === "assigned") setDraft((d) => ({ ...d, assigned: value }));
+    setPicker(null);
   }
 
   const sections = useMemo(() => {
@@ -418,15 +777,33 @@ export default function LeadsScreen() {
     return order.map((title) => ({ title, data: map.get(title)! }));
   }, [leads]);
 
-  function updateSearch(value: string) {
-    setSearch(value);
+  // Clearing the search shows the full list again at once: the list saved from the last unfiltered load is put back while the
+  // fresh one loads, instead of leaving the one or two search results on screen until the server answers.
+  const restoreFullList = useRef<() => void>(() => {});
+  restoreFullList.current = () => {
+    const noOtherFilter = !score && !filterStage && !filterStatus && !filterHealth && !filterSla && !filterSource && !filterAssignedTo && !filterDateFrom && !filterDateTo;
+    if (!noOtherFilter || !leadsCache || leadsCache.userId !== user?.id || leadsCache.hidden !== hiddenStages.join(",")) return;
+    setLeads(leadsCache.leads); pageRef.current = 1; setPage(1); setPages(leadsCache.pages); setTotal(leadsCache.total);
+  };
+
+  const updateSearch = useCallback((value: string) => {
+    searchText.current = value;
     if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!value.trim()) { restoreFullList.current(); setQuery(""); return; } // cleared: no typing pause
     searchTimer.current = setTimeout(() => setQuery(value.trim()), 350);
-  }
+  }, []);
+
+  // The keyboard's search key searches right away instead of waiting out the typing pause.
+  const submitSearch = useCallback((value: string) => {
+    searchText.current = value;
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!value.trim()) restoreFullList.current();
+    setQuery(value.trim());
+  }, []);
 
   function refresh() {
     setRefreshing(true);
-    load(1, false);
+    load(1, false, false, true);
   }
 
   function goToNewLead() {
@@ -452,6 +829,9 @@ export default function LeadsScreen() {
     });
   }
 
+  const rowActions = useRef<RowActions>({ toggleSelect, enterSelectMode, confirmDelete: confirmDeleteOne, colorFor, findStage });
+  rowActions.current = { toggleSelect, enterSelectMode, confirmDelete: confirmDeleteOne, colorFor, findStage };
+
   const selectedLeads = leads.filter((lead) => selectedIds.has(lead.id));
 
   async function openReassign() {
@@ -476,13 +856,19 @@ export default function LeadsScreen() {
   }
 
   async function changeStageTo(stage: string) {
+    // Show the new stage at once and close the sheet; the server saves in the background and the old stages come back if it refuses.
+    const ids = Array.from(selectedIds);
+    const chosen = new Set(ids);
+    const previous = leads;
+    setLeads((current) => current.map((lead) => chosen.has(lead.id) ? { ...lead, stage, lead_status: "" } : lead));
+    setStageSheetOpen(false);
+    exitSelectMode();
     setBulkBusy(true);
     try {
-      await bulkUpdateLeads({ ids: Array.from(selectedIds), stage });
-      setStageSheetOpen(false);
-      exitSelectMode();
-      load();
+      await bulkUpdateLeads({ ids, stage });
+      load(1, false, true); // quiet re-sync: no spinner over the list
     } catch (stageError) {
+      setLeads(previous);
       Alert.alert("Couldn't update stage", errorMessage(stageError, "You may not have permission to do this."));
     } finally { setBulkBusy(false); }
   }
@@ -549,41 +935,37 @@ export default function LeadsScreen() {
             {router.canGoBack() ? <IconButton icon="arrow-left" size={22} onPress={() => router.back()} style={styles.backButton} /> : null}
             <View>
               <Text style={styles.title}>{t("Leads")}</Text>
-              <Text style={styles.count}>{total.toLocaleString("en-IN")} {t("total contacts")}</Text>
+              {/* A failed load leaves total at 0, which would read as "you have no leads". */}
+              <Text style={styles.count}>{error && !leads.length ? "—" : total.toLocaleString("en-IN")} {t("total contacts")}</Text>
             </View>
           </View>
-          <IconButton icon="cog-outline" size={20} onPress={() => setSettingsSheetOpen(true)} style={styles.settingsButton} />
+          <Pressable style={styles.settingsSquare} onPress={() => setSettingsSheetOpen(true)} accessibilityRole="button" accessibilityLabel="Lead settings">
+            <Ionicons name="settings-outline" size={18} color="#334155" />
+          </Pressable>
         </View>
       )}
       <View style={styles.searchRow}>
-        <Searchbar
-          icon={() => <IconSearch />} inputStyle={{ fontFamily: "Inter_400Regular", fontSize: 14, minHeight: 48 }} style={styles.searchBox} value={search} onChangeText={updateSearch}
-          placeholder={t("Search by name or phone…")} placeholderTextColor={colors.textMuted} onClearIconPress={() => updateSearch("")}
-        />
+        <LeadSearchBox initial={searchText.current} resetSignal={searchReset} onChange={updateSearch} onSubmit={submitSearch} placeholder={t("Name, phone or lead ID")} />
         <Pressable
           style={[styles.filterButton, activeFilterCount > 0 && styles.filterButtonActive]} onPress={openFiltersSheet}
           accessibilityLabel={activeFilterCount ? `Filters (${activeFilterCount} active)` : "Filters"}
         >
-          <Ionicons name="options-outline" size={20} color={activeFilterCount ? "#fff" : colors.textSecondary} />
+          <Ionicons name="options-outline" size={20} color={activeFilterCount ? "#fff" : "#334155"} />
         </Pressable>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickScroll} contentContainerStyle={styles.quickRow} keyboardShouldPersistTaps="handled">
-        {FILTERS.map((item) => {
-          const active = score === item.value;
-          const icon = item.value === "hot" ? "flame" : item.value === "warm" ? "sunny" : item.value === "cold" ? "snow" : "people";
-          return (
-            <Pressable key={item.value || "all"} onPress={() => setScore(item.value)} style={[styles.quickChip, active && styles.quickChipActive]}>
-              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={13} color={active ? "#fff" : colors.textSecondary} />
-              <Text style={[styles.quickChipText, active && styles.quickChipTextActive]}>{t(item.label)}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
       {activeFilterCount > 0 ? (
         <View style={styles.activeChipsRow}>
           {score ? <Chip compact onClose={() => setScore("")} style={styles.activeChip}>Score: {FILTERS.find((f) => f.value === score)?.label || score}</Chip> : null}
           {filterStage ? <Chip compact onClose={() => setFilterStage("")} style={styles.activeChip}>Stage: {filterStage}</Chip> : null}
+          {filterStatus ? <Chip compact onClose={() => setFilterStatus("")} style={styles.activeChip}>Status: {filterStatus}</Chip> : null}
+          {filterHealth ? <Chip compact onClose={() => setFilterHealth("")} style={styles.activeChip}>Follow-up: {HEALTH_OPTIONS.find((o) => o.value === filterHealth)?.label || filterHealth}</Chip> : null}
+          {filterSla ? <Chip compact onClose={() => setFilterSla("")} style={styles.activeChip}>Reply: {SLA_OPTIONS.find((o) => o.value === filterSla)?.label || filterSla}</Chip> : null}
           {filterSource ? <Chip compact onClose={() => setFilterSource("")} style={styles.activeChip}>Source: {SOURCES.find((s) => s.value === filterSource)?.label || filterSource}</Chip> : null}
+          {filterDateFrom || filterDateTo ? (
+            <Chip compact onClose={() => { setFilterDateFrom(""); setFilterDateTo(""); }} style={styles.activeChip}>
+              Date: {filterDateFrom ? formatYmd(filterDateFrom) : "…"} – {filterDateTo ? formatYmd(filterDateTo) : "…"}
+            </Chip>
+          ) : null}
           {filterAssignedTo ? (
             <Chip compact onClose={() => setFilterAssignedTo("")} style={styles.activeChip}>
               {filterAssignedTo === "unassigned" ? "Unassigned" : `Assigned: ${staff.find((s) => s.id === filterAssignedTo)?.name || filterAssignedTo}`}
@@ -597,7 +979,8 @@ export default function LeadsScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      {loading && !leads.length ? (
+      {/* While searching, the list (with the search box in its header) stays mounted: swapping it for a loading screen rebuilt the box and dropped the keyboard after a search with no results. */}
+      {loading && !leads.length && !query ? (
         <View style={styles.loadingWrap}>{header}<View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.loadingText}>{t("Loading leads…")}</Text></View></View>
       ) : error && !leads.length ? (
         <View style={styles.loadingWrap}>{header}<View style={styles.center}><Text style={styles.errorTitle}>{t("Couldn't load leads")}</Text><Text style={styles.errorMessage}>{error}</Text><Pressable style={styles.retry} onPress={() => load()}><Text style={styles.retryText}>{t("Try again")}</Text></Pressable></View></View>
@@ -605,7 +988,7 @@ export default function LeadsScreen() {
         <SectionList
           sections={sections} keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <LeadRow lead={item} selectMode={selectMode} selected={selectedIds.has(item.id)} onToggleSelect={() => toggleSelect(item.id)} onLongPress={() => enterSelectMode(item.id)} onDelete={isAdmin ? () => confirmDeleteOne(item) : undefined} colorFor={colorFor} findStage={findStage} />
+            <LeadRow lead={item} selectMode={selectMode} selected={selectedIds.has(item.id)} canDelete={isAdmin} stages={stages} actions={rowActions} highlight={/\d/.test(query) ? searchTerm(query) : ""} />
           )}
           renderSectionHeader={({ section }) => <Text style={styles.sectionHeader}>{t(section.title)}</Text>}
           ListHeaderComponent={header}
@@ -613,16 +996,24 @@ export default function LeadsScreen() {
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} colors={[colors.primary]} />}
-          onEndReached={() => { if (!loadingMore && page < pages) load(page + 1, true); }} onEndReachedThreshold={0.4}
-          ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={styles.footerLoader} /> : leads.length ? <Text style={styles.endText}>{page >= pages ? t("All {n} leads loaded", { n: total }) : ""}</Text> : null}
-          ListEmptyComponent={
+          onEndReached={() => { if (!loadingMore && page < pages) load(page + 1, true); }} onEndReachedThreshold={0.2}
+          // Rows are heavy (avatar, badges, two buttons), so draw a screenful first and a few at a time after that.
+          initialNumToRender={10} maxToRenderPerBatch={8} updateCellsBatchingPeriod={40} windowSize={9} removeClippedSubviews
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={styles.footerLoader} /> : leads.length ? (
+            page < pages
+              ? <Pressable style={styles.loadMoreButton} onPress={() => load(page + 1, true)}><Text style={styles.loadMoreText}>{t("Load more")} ({leads.length}/{total})</Text></Pressable>
+              : <Text style={styles.endText}>{t("All {n} leads loaded", { n: total })}</Text>
+          ) : null}
+          ListEmptyComponent={loading ? (
+            <View style={styles.empty}><ActivityIndicator color={colors.primary} /></View>
+          ) : (
             <View style={styles.empty}>
               <View style={styles.emptyIcon}><Ionicons name="people-outline" size={26} color={colors.primary} /></View>
               <Text style={styles.emptyTitle}>{query || activeFilterCount ? t("No matching leads") : t("No leads yet")}</Text>
               <Text style={styles.emptyText}>{query || activeFilterCount ? t("Try changing your search or filter.") : t("Add your first lead to start building your pipeline.")}</Text>
               {!query && !activeFilterCount ? <Pressable style={styles.emptyButton} onPress={goToNewLead}><Text style={styles.emptyButtonText}>{t("＋ Add first lead")}</Text></Pressable> : null}
             </View>
-          }
+          )}
         />
       )}
 
@@ -730,63 +1121,93 @@ export default function LeadsScreen() {
 
       <Modal visible={filtersSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setFiltersSheetOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setFiltersSheetOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
+          <Pressable style={[styles.filterSheet, { paddingBottom: Math.max(insets.bottom, 18) }]} onPress={() => {}}>
+            <View style={styles.filterHandle} />
             <View style={styles.filterSheetHeader}>
-              <Text style={[styles.sheetTitle, { marginBottom: 0 }]}>Filters</Text>
-              <Pressable style={styles.filterCloseButton} onPress={() => setFiltersSheetOpen(false)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close filters">
-                <Ionicons name="close" size={16} color={colors.textSecondary} />
+              <Text style={styles.filterTitle}>Filters</Text>
+              <Pressable onPress={() => setDraft({ score: "", stage: "", status: "", health: "", sla: "", source: "", assigned: "", from: "", to: "" })} hitSlop={10} accessibilityRole="button">
+                <Text style={styles.clearAll}>Clear all</Text>
               </Pressable>
             </View>
-            <ScrollView style={styles.filterScroll} showsVerticalScrollIndicator persistentScrollbar nestedScrollEnabled>
-              <Text style={styles.filterSectionLabel}>Score</Text>
-              <FilterDropdown
-                value={score} options={FILTERS}
-                open={openFilterDropdown === "score"}
-                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "score" ? null : "score")}
-                onSelect={(value) => { setScore(value); setOpenFilterDropdown(null); }}
-              />
-
-              <Text style={styles.filterSectionLabel}>Stage</Text>
-              <FilterDropdown
-                value={filterStage} options={[{ value: "", label: "All stages" }, ...stages.map((item) => ({ value: item.name, label: item.name }))]}
-                open={openFilterDropdown === "stage"}
-                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "stage" ? null : "stage")}
-                onSelect={(value) => { setFilterStage(value); setOpenFilterDropdown(null); }}
-              />
-
-              <Text style={styles.filterSectionLabel}>Source</Text>
-              <FilterDropdown
-                value={filterSource} options={[{ value: "", label: "All sources" }, ...SOURCES]}
-                open={openFilterDropdown === "source"}
-                onToggle={() => setOpenFilterDropdown(openFilterDropdown === "source" ? null : "source")}
-                onSelect={(value) => { setFilterSource(value); setOpenFilterDropdown(null); }}
-              />
-
-              <Text style={styles.filterSectionLabel}>Assigned To</Text>
-              {staffLoading ? (
-                <ActivityIndicator size="small" style={styles.filterStaffLoader} />
-              ) : staffError ? (
-                <Text style={styles.sheetErrorText}>{staffError}</Text>
-              ) : (
-                <FilterDropdown
-                  value={filterAssignedTo}
-                  options={[
-                    { value: "", label: "All staff" }, { value: "unassigned", label: "Unassigned" },
-                    ...staff.map((member) => ({ value: member.id, label: member.name })),
-                  ]}
-                  open={openFilterDropdown === "assigned"}
-                  onToggle={() => setOpenFilterDropdown(openFilterDropdown === "assigned" ? null : "assigned")}
-                  onSelect={(value) => { setFilterAssignedTo(value); setOpenFilterDropdown(null); }}
-                />
-              )}
+            <ScrollView style={styles.filterScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <View style={styles.filterGrid}>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>STAGE</Text>
+                  <FilterField label="Stage" value={labelOf("stage")} onPress={() => setPicker("stage")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>STATUS</Text>
+                  <FilterField label="Status" value={labelOf("status")} onPress={() => setPicker("status")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>SCORE</Text>
+                  <FilterField label="Score" value={labelOf("score")} onPress={() => setPicker("score")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>FOLLOW-UP HEALTH</Text>
+                  <FilterField label="Follow-up health" value={labelOf("health")} onPress={() => setPicker("health")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>RESPONSE SLA</Text>
+                  <FilterField label="Response SLA" value={labelOf("sla")} onPress={() => setPicker("sla")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>SOURCE</Text>
+                  <FilterField label="Source" value={labelOf("source")} onPress={() => setPicker("source")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>ASSIGNED TO</Text>
+                  <FilterField label="Assigned to" value={staffLoading ? "Loading…" : labelOf("assigned")} onPress={() => setPicker("assigned")} disabled={staffLoading} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabel}>DATE</Text>
+                  <FilterField label="Date" value={labelOf("dateField")} onPress={() => setPicker("dateField")} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabelPlain}>From</Text>
+                  <FilterDateField value={draft.from} onChange={(value) => setDraft((d) => ({ ...d, from: value }))} />
+                </View>
+                <View style={styles.filterCell}>
+                  <Text style={styles.filterLabelPlain}>To</Text>
+                  <FilterDateField value={draft.to} onChange={(value) => setDraft((d) => ({ ...d, to: value }))} />
+                </View>
+              </View>
+              {staffError ? <Text style={styles.sheetErrorText}>{staffError}</Text> : null}
             </ScrollView>
             <View style={styles.filterSheetActions}>
-              <Button mode="outlined" onPress={clearFilters} style={styles.filterSheetButton}>Clear</Button>
-              <Button mode="contained" onPress={() => setFiltersSheetOpen(false)} style={styles.filterSheetButton}>Done</Button>
+              <Pressable style={styles.resetButton} onPress={() => { clearFilters(); setFiltersSheetOpen(false); }} accessibilityRole="button">
+                <Text style={styles.resetButtonText}>Reset</Text>
+              </Pressable>
+              <Pressable style={styles.applyButton} onPress={applyFilters} accessibilityRole="button">
+                <Text style={styles.applyButtonText}>Apply filters</Text>
+              </Pressable>
             </View>
           </Pressable>
         </Pressable>
+
+        {/* The option list for whichever field was tapped. */}
+        <Modal visible={picker !== null} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setPicker(null)}>
+          <Pressable style={styles.pickerBackdrop} onPress={() => setPicker(null)}>
+            <Pressable style={styles.pickerCard} onPress={() => {}}>
+              {picker ? (
+                <>
+                  <Text style={styles.pickerTitle}>{pickerTitle[picker]}</Text>
+                  <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+                    {pickerOptions[picker].map((item) => {
+                      const selected = item.value === pickerValue[picker];
+                      return (
+                        <Pressable key={item.value || "all"} style={[styles.pickerItem, selected && styles.pickerItemSelected]} onPress={() => choose(picker, item.value)}>
+                          <Text style={[styles.pickerItemText, selected && styles.pickerItemTextSelected]}>{item.label}</Text>
+                          {selected ? <Ionicons name="checkmark" size={16} color="#2457e6" /> : null}
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </>
+              ) : null}
+            </Pressable>
+          </Pressable>
+        </Modal>
       </Modal>
 
       <Modal visible={settingsSheetOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setSettingsSheetOpen(false)}>
@@ -822,41 +1243,49 @@ export default function LeadsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f4f9fc" },
+  screen: { flex: 1, backgroundColor: "#f1f4f2" },
   loadingWrap: { flex: 1, paddingHorizontal: 16 }, listContent: { paddingHorizontal: 16 },
-  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 12, marginBottom: 16 },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 12, marginBottom: 12 },
   titleRowMain: { flexDirection: "row", alignItems: "center" },
   backButton: { margin: 0, marginRight: 4 },
-  title: { color: colors.text, fontSize: 28, lineHeight: 34, fontFamily: "DMSans_700Bold", letterSpacing: -0.5 }, count: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
+  title: { color: "#0f172a", fontSize: 24, lineHeight: 30, fontFamily: "DMSans_700Bold", letterSpacing: -0.5 }, count: { color: "#64748b", fontSize: 11, marginTop: 1 },
   selectHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginBottom: 16, minHeight: 52 },
   selectCount: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
-  searchBox: { flex: 1, backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: "#d7e6f1", elevation: 0, shadowOpacity: 0 },
-  filterButton: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#d7e6f1", alignItems: "center", justifyContent: "center" },
-  filterButtonActive: { backgroundColor: colors.primary },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  loadMoreButton: { alignSelf: "center", marginVertical: 14, paddingHorizontal: 22, height: 40, borderRadius: 999, backgroundColor: "#dbe8fb", alignItems: "center", justifyContent: "center" },
+  loadMoreText: { color: "#2457e6", fontSize: 13, fontWeight: "800" },
+  searchBox: { flex: 1, height: 44, backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1, borderColor: "#e4e9e6", elevation: 0, shadowOpacity: 0 },
+  filterButton: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e4e9e6", alignItems: "center", justifyContent: "center" },
+  filterButtonActive: { backgroundColor: "#2457e6", borderColor: "#2457e6" },
   settingsButton: { margin: 0 },
+  settingsSquare: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#e4e9e6", alignItems: "center", justifyContent: "center" },
   activeChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
   activeChip: {},
   filterScroll: { maxHeight: "70%" },
+  filterSheet: { paddingHorizontal: 18, paddingTop: 10, backgroundColor: "#ffffff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "88%" },
+  filterHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: "#d5dbe5", marginBottom: 14 },
+  filterTitle: { color: "#0f172a", fontSize: 18, fontFamily: "DMSans_700Bold" },
+  clearAll: { color: "#2457e6", fontSize: 12, fontFamily: "Inter_700Bold" },
+  filterGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  filterCell: { width: "47.8%" },
+  filterLabel: { color: "#475569", fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.6, marginBottom: 5 },
+  filterLabelPlain: { color: "#64748b", fontSize: 11, fontFamily: "Inter_500Medium", marginBottom: 5 },
+  filterField: { height: 40, borderRadius: 10, borderWidth: 1, borderColor: "#dbe3f1", backgroundColor: "#ffffff", paddingHorizontal: 11, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 },
+  filterFieldText: { flex: 1, color: "#0f172a", fontSize: 13, fontFamily: "Inter_500Medium" },
+  resetButton: { flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: "#dbe3f1", backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  resetButtonText: { color: "#0f172a", fontSize: 14, fontFamily: "Inter_700Bold" },
+  applyButton: { flex: 2, height: 44, borderRadius: 10, backgroundColor: "#2457e6", alignItems: "center", justifyContent: "center" },
+  applyButtonText: { color: "#ffffff", fontSize: 14, fontFamily: "Inter_700Bold" },
+  pickerBackdrop: { flex: 1, justifyContent: "center", paddingHorizontal: 28, backgroundColor: "rgba(15,23,42,0.45)" },
+  pickerCard: { backgroundColor: "#ffffff", borderRadius: 16, paddingVertical: 10, maxHeight: "65%" },
+  pickerTitle: { color: "#475569", fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.6, textTransform: "uppercase", paddingHorizontal: 16, paddingVertical: 8 },
+  pickerScroll: { flexGrow: 0 },
+  pickerItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
+  pickerItemSelected: { backgroundColor: "#eef2fd" },
+  pickerItemText: { color: "#0f172a", fontSize: 14, fontFamily: "Inter_500Medium" },
+  pickerItemTextSelected: { color: "#2457e6", fontFamily: "Inter_700Bold" },
   sheetScroll: { maxHeight: "55%" },
-  filterSectionLabel: { color: colors.text, fontSize: 12, fontWeight: "700", marginTop: 14, marginBottom: 8 },
-  filterStaffLoader: { marginVertical: 12 },
-  filterDropdownField: { height: 48, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  filterDropdownFieldActive: { borderColor: colors.primary, borderWidth: 2 },
-  filterDropdownFieldText: { color: colors.text, fontSize: 14, fontWeight: "600" },
-  filterDropdownPanel: {
-    marginTop: 6, backgroundColor: colors.surface, borderRadius: 10, borderWidth: 1, borderColor: colors.borderSoft, overflow: "hidden",
-  },
-  filterDropdownScroll: { maxHeight: 220 },
-  filterDropdownContent: { paddingVertical: 4 },
-  filterDropdownTrack: { position: "absolute", top: 0, bottom: 0, right: 3, width: 5 },
-  filterDropdownThumb: { position: "absolute", right: 0, width: 5, borderRadius: 3, backgroundColor: "#94a3b8" },
-  filterDropdownItem: { paddingHorizontal: 16, paddingVertical: 12 },
-  filterDropdownItemSelected: { backgroundColor: colors.primarySoft },
-  filterDropdownItemText: { color: colors.primary, fontSize: 14, fontWeight: "500" },
-  filterDropdownItemTextSelected: { color: colors.text, fontWeight: "700" },
-  filterSheetActions: { flexDirection: "row", gap: 10, marginTop: 14 },
-  filterSheetButton: { flex: 1 },
+  filterSheetActions: { flexDirection: "row", gap: 10, marginTop: 16 },
   // A horizontal ScrollView inside a list header otherwise grows to fill the screen height.
   quickScroll: { flexGrow: 0, flexShrink: 0 },
   quickRow: { gap: 8, paddingVertical: 10, alignItems: "center" },
@@ -864,25 +1293,32 @@ const styles = StyleSheet.create({
   quickChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   quickChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
   quickChipTextActive: { color: "#ffffff" },
-  sectionHeader: { color: colors.textMuted, fontSize: 12, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 1.2, paddingVertical: 8, paddingHorizontal: 4, marginTop: 8, marginBottom: 4 },
-  leadCard: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1.5, borderColor: "#e2eef7", padding: 14, marginBottom: 10, gap: 10 },
-  leadCardSelected: { borderColor: colors.primary, backgroundColor: "#f0f9ff" },
+  sectionHeader: { color: "#5f7a6f", fontSize: 11, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 1, paddingVertical: 6, paddingHorizontal: 2, marginTop: 8, marginBottom: 2 },
+  leadCard: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: "#e4e9e6", padding: 12, marginBottom: 10, gap: 10 },
+  leadCardSelected: { borderColor: "#2457e6", backgroundColor: "#f3f6ff" },
   pressed: { opacity: 0.85 },
-  leadTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  avatarCircle: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
-  avatarLetter: { color: "#ffffff", fontSize: 19, fontWeight: "900" },
-  timeText: { flexShrink: 0, color: colors.textMuted, fontSize: 11, fontWeight: "600" },
-  scoreBadge: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2 },
-  scoreText: { fontSize: 10, fontWeight: "800" },
-  stageTag: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, maxWidth: "48%" },
+  leadTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  avatarCircle: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  avatarLetter: { color: "#ffffff", fontSize: 16, fontFamily: "Inter_700Bold" },
+  timeCol: { alignItems: "flex-end", gap: 4 },
+  moreButton: { padding: 2 },
+  sourceLine: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 },
+  phoneMatch: { backgroundColor: "#fff3a3", color: "#0f172a", fontFamily: "Inter_700Bold" },
+  sourceStrong: { color: "#0f172a", fontFamily: "Inter_700Bold" },
+  timeText: { flexShrink: 0, color: "#64748b", fontSize: 11, fontFamily: "Inter_500Medium" },
+  scoreBadge: { flexShrink: 0, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  scoreText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  stageTag: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, maxWidth: "48%" },
   stageTagDot: { width: 6, height: 6, borderRadius: 3 },
-  stageTagText: { fontSize: 11, fontWeight: "800", flexShrink: 1 },
+  stageTagText: { fontSize: 10, fontFamily: "Inter_700Bold", flexShrink: 1 },
   sourceTag: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, backgroundColor: "#eef2f6", maxWidth: 110 },
   sourceTagText: { color: colors.textSecondary, fontSize: 11, fontWeight: "700" },
-  assignedText: { flex: 1, color: colors.textMuted, fontSize: 11, textAlign: "right" },
-  leadActions: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: "#eef4f9", paddingTop: 10, marginTop: 2 },
-  quickAction: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
-  quickActionText: { fontSize: 12, fontWeight: "800" },
+  healthTag: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
+  healthTagText: { fontSize: 10.5, fontFamily: "Inter_700Bold" },
+  assignedText: { flex: 1, color: "#64748b", fontSize: 10.5, textAlign: "right" },
+  leadActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  quickAction: { flex: 1, height: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10 },
+  quickActionText: { fontSize: 12, fontFamily: "Inter_700Bold" },
   leadRowContent: { flexDirection: "row", alignItems: "center", minHeight: 66 },
   avatar: { backgroundColor: colors.primary, marginRight: 11 }, avatarText: { fontSize: 16, fontWeight: "800" },
   rowMenuButton: { margin: 0 },
@@ -892,10 +1328,10 @@ const styles = StyleSheet.create({
   },
   popoverItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   popoverText: { color: colors.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  leadContent: { flex: 1, minWidth: 0 }, nameRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }, leadName: { flexShrink: 1, minWidth: 0, color: colors.text, fontSize: 15, lineHeight: 22, paddingRight: 2, fontFamily: "Inter_700Bold" },
+  leadContent: { flex: 1, minWidth: 0 }, nameRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }, leadName: { flexShrink: 1, minWidth: 0, color: "#0f172a", fontSize: 14, lineHeight: 22, paddingRight: 2, fontFamily: "Inter_700Bold" },
   leadNameRow: { flexShrink: 1, minWidth: 0, flexDirection: "row", alignItems: "center", overflow: "hidden" },
   leadNameEmoji: { flexShrink: 0, width: 26, fontSize: 16, lineHeight: 22, textAlign: "left" },
-  subtitle: { color: colors.textSecondary, fontSize: 13, marginTop: 2 },
+  subtitle: { flexShrink: 1, color: "#64748b", fontSize: 11 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   sourcePill: { maxWidth: 130, backgroundColor: colors.text, height: 24, borderRadius: 6 }, sourcePillText: { color: colors.surface, fontSize: 10, fontWeight: "700", lineHeight: 12 },
   stagePill: { height: 24, borderRadius: 6 }, stagePillText: { fontSize: 10, fontWeight: "800", lineHeight: 12 },
@@ -917,7 +1353,6 @@ const styles = StyleSheet.create({
   sheetHandle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
   sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800", marginBottom: 14 },
   filterSheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
-  filterCloseButton: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft },
   sheetErrorText: { color: colors.danger, fontSize: 12, fontWeight: "600", textAlign: "center", marginVertical: 20 },
   sheetHintText: { color: colors.textSecondary, fontSize: 12, textAlign: "center", paddingVertical: 20 },
   sheetCancel: { marginTop: 10 },

@@ -1,4 +1,4 @@
-import { apiClient } from "./client";
+import { apiClient, isNetworkError } from "./client";
 
 // NOTE: adjust these paths to exactly match curveleadbackend's Express routes
 // (this mirrors the shape used by the web app's LeadsPage.jsx)
@@ -70,10 +70,23 @@ export async function fetchLeads(params?: {
   source?: string;
   assigned_to?: string;
   hide_stages?: string;
+  /** Which date the range below applies to; the list already accepts these (the dashboard fallback uses them too). */
+  date_field?: string;
+  date_from?: string;
+  date_to?: string;
   page?: number;
   limit?: number;
-}) {
-  const { data } = await apiClient.get<LeadsPage>("/leads", { params });
+}, options: { fresh?: boolean } = {}) {
+  // A long list on a weak connection can take more than the default 15 seconds; failing then shows as a network error.
+  // One quick retry covers a dropped connection (e.g. switching between wifi and mobile data).
+  const request = () => apiClient.get<LeadsPage>("/leads", { params, timeout: 30000, ...(options.fresh ? { fresh: true } : {}) });
+  let data: LeadsPage;
+  try { ({ data } = await request()); }
+  catch (error) {
+    if (!isNetworkError(error)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    ({ data } = await request());
+  }
   return data;
 }
 
@@ -135,9 +148,28 @@ export interface TodayFollowup {
   notes?: string;
 }
 
-export async function fetchTodayFollowups(range?: { date_from?: string; date_to?: string }) {
-  const { data } = await apiClient.get<{ followups: TodayFollowup[] }>("/leads/followups/today", { params: range });
+export async function fetchTodayFollowups(range?: { date_from?: string; date_to?: string }, options: { fresh?: boolean } = {}) {
+  const { data } = await apiClient.get<{ followups: TodayFollowup[] }>("/leads/followups/today", { params: range, ...(options.fresh ? { fresh: true } : {}) });
   return data.followups || [];
+}
+
+/** The days the Follow-ups screen asks for first: a week back to 90 days ahead, as local dates (yyyy-mm-dd). */
+export function nearFollowupsRange() {
+  const day = (offset: number) => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + offset);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  };
+  return { date_from: day(-7), date_to: day(90) };
+}
+
+/** Warm the shared request cache with the Leads list's first page (same request the Leads tab makes when it opens). */
+export function prefetchFirstLeadsPage() {
+  fetchLeads({ page: 1, limit: 20 }).catch(() => {});
+}
+
+/** Warm the shared request cache so the Follow-ups tab opens with its list already loaded. */
+export function prefetchNearFollowups() {
+  fetchTodayFollowups(nearFollowupsRange()).catch(() => {});
 }
 
 export async function completeLeadFollowup(followupId: string, outcome?: string) {

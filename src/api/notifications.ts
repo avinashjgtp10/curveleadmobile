@@ -1,9 +1,11 @@
 import { apiClient } from "./client";
-import { fetchTodayFollowups, TodayFollowup } from "./leads";
+import { fetchLeads, fetchTodayFollowups, TodayFollowup } from "./leads";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { presentLocalNotification } from "@/notifications/push";
+import { isAlertEnabled, presentLocalNotification } from "@/notifications/push";
+import { clearFollowupReminders } from "@/notifications/followupReminders";
 
 const LOCAL_NOTIFICATIONS_KEY = "curvelead_local_notifications";
+const BULK_ADDED_AT_KEY = "curvelead_bulk_leads_added_at";
 
 export interface NotificationGroup {
   key: string;
@@ -156,6 +158,12 @@ async function rememberRead(ids: string[]) {
   await AsyncStorage.setItem(READ_IDS_KEY, JSON.stringify(Array.from(current).slice(-MAX_READ_IDS)));
 }
 
+/** The notifications saved on this phone (own alerts + mirrored pushes), instantly - no server call. */
+export async function fetchSavedNotifications() {
+  const [localNotifications, readIds] = await Promise.all([getLocalNotifications(), getReadIds()]);
+  return newestFirst(localNotifications.map((item) => item.read_at || !readIds.has(item.id) ? item : { ...item, read_at: new Date().toISOString() }));
+}
+
 export async function fetchNotifications() {
   const [localNotifications, readIds] = await Promise.all([getLocalNotifications(), getReadIds()]);
   const withReadState = (list: AppNotification[]) => list.map((item) => (
@@ -166,16 +174,23 @@ export async function fetchNotifications() {
     const items = Array.isArray(data) ? data : data.notifications || [];
     const serverItems = items.map((item) => normalizeNotification(item as Partial<AppNotification> & Record<string, unknown>));
     // A push received in the foreground is mirrored locally and also returned by the server — keep one copy.
-    const key = (item: AppNotification) => `${item.title}|${item.message ?? ""}`;
-    const localByKey = new Map(localNotifications.map((item) => [key(item), item]));
-    const serverKeys = new Set(serverItems.map(key));
+    // Same text alone isn't enough: a repeated alert ("Source: Facebook" twice) is two notifications. A mirrored push and
+    // its server copy arrive within moments of each other, so they must also be close in time.
+    const SAME_EVENT_MS = 2 * 60_000;
+    const sameText = (a: AppNotification, b: AppNotification) => a.title === b.title && (a.message ?? "") === (b.message ?? "");
+    const closeInTime = (a: AppNotification, b: AppNotification) => {
+      const x = new Date(a.created_at || "").getTime();
+      const y = new Date(b.created_at || "").getTime();
+      return Number.isNaN(x) || Number.isNaN(y) || Math.abs(x - y) <= SAME_EVENT_MS;
+    };
+    const twinOf = (item: AppNotification, others: AppNotification[]) => others.find((other) => sameText(item, other) && closeInTime(item, other));
     // For a duplicate keep the server copy (it owns read state) but borrow the lead details
     // from the local one, so tapping it can still open the lead.
     const merged = serverItems.map((item) => {
-      const local = localByKey.get(key(item));
+      const local = twinOf(item, localNotifications);
       return local ? { ...item, lead_id: item.lead_id || local.lead_id, lead_name: item.lead_name || local.lead_name, lead_phone: item.lead_phone || local.lead_phone, lead_stage: item.lead_stage || local.lead_stage } : item;
     });
-    return withReadState(newestFirst([...localNotifications.filter((item) => !serverKeys.has(key(item))), ...merged]));
+    return withReadState(newestFirst([...localNotifications.filter((item) => !twinOf(item, serverItems)), ...merged]));
   } catch {
     // Never let a failing follow-ups call hide the locally saved notifications (e.g. "New lead created").
     const followups = await fetchTodayFollowups().catch(() => []);
@@ -203,7 +218,9 @@ export async function markNotificationRead(id: string) {
       await AsyncStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(localNotifications.map((item) => item.id === id ? { ...item, read_at: item.read_at || readAt } : item)));
     }
   });
-  await apiClient.put(`/notifications/${id}/read`).catch(() => {});
+  // Notifications made on this phone (and follow-up reminders) don't exist on the server; asking would only fail.
+  if (/^(local|followup)-/.test(id)) return;
+  await apiClient.put(`/notifications/${encodeURIComponent(id)}/read`).catch(() => {});
 }
 
 /** Mirrors an incoming push notification into the same local store the in-app list reads from. */
@@ -230,6 +247,8 @@ export async function notifyLeadCreated(lead: { id: string; name: string; phone?
 /** For leads that arrive in bulk (spreadsheet import, Facebook sync) rather than one at a time. */
 export async function notifyLeadsAdded(count: number, source: string) {
   if (count <= 0) return;
+  // Remember when, so the new-lead check doesn't announce these same leads a second time.
+  await AsyncStorage.setItem(BULK_ADDED_AT_KEY, String(Date.now())).catch(() => {});
   const input: LocalNotificationInput = {
     title: `${count} new ${count === 1 ? "lead" : "leads"} added`,
     message: `Source: ${source}`,
@@ -241,7 +260,7 @@ export async function notifyLeadsAdded(count: number, source: string) {
 
 /** A WhatsApp message was sent from this app. Replies and automation messages come from the server, not here. */
 export async function notifyMessageSent(lead: { id: string; name: string; phone?: string; stage?: string }) {
-  await saveLocalNotification({
+  const input: LocalNotificationInput = {
     title: `WhatsApp message sent - ${lead.name}`,
     message: "Your message was sent.",
     type: "message_sent",
@@ -249,6 +268,45 @@ export async function notifyMessageSent(lead: { id: string; name: string; phone?
     lead_name: lead.name,
     lead_phone: lead.phone,
     lead_stage: lead.stage,
+  };
+  await saveLocalNotification(input);
+  // Same pop-up + sound as every other notification.
+  await presentLocalNotification(input.title, input.message, {
+    type: input.type, lead_id: input.lead_id, lead_name: input.lead_name, lead_phone: input.lead_phone, lead_stage: input.lead_stage,
+  });
+}
+
+/** A WhatsApp message could not be sent or was rejected: saved in the list and shown as a pop-up with sound. */
+export async function notifyMessageFailed(lead: { id: string; name: string; phone?: string; stage?: string }, reason?: string) {
+  const input: LocalNotificationInput = {
+    title: `Failed to send - ${lead.name}`,
+    message: reason || "Your message could not be sent.",
+    type: "message_failed",
+    lead_id: lead.id,
+    lead_name: lead.name,
+    lead_phone: lead.phone,
+    lead_stage: lead.stage,
+  };
+  await saveLocalNotification(input);
+  await presentLocalNotification(input.title, input.message, {
+    type: input.type, lead_id: input.lead_id, lead_name: input.lead_name, lead_phone: input.lead_phone, lead_stage: input.lead_stage,
+  });
+}
+
+/** A follow-up was scheduled or rescheduled from this phone: saved in the list and shown as a pop-up with sound. */
+export async function notifyFollowupScheduled(lead: { id: string; name: string; phone?: string; stage?: string }, when: string, rescheduled = false) {
+  const input: LocalNotificationInput = {
+    title: `${rescheduled ? "Follow-up rescheduled" : "Follow-up scheduled"} - ${lead.name}`,
+    message: when,
+    type: "followup_scheduled",
+    lead_id: lead.id,
+    lead_name: lead.name,
+    lead_phone: lead.phone,
+    lead_stage: lead.stage,
+  };
+  await saveLocalNotification(input);
+  await presentLocalNotification(input.title, input.message, {
+    type: input.type, lead_id: input.lead_id, lead_name: input.lead_name, lead_phone: input.lead_phone, lead_stage: input.lead_stage,
   });
 }
 
@@ -263,4 +321,192 @@ export async function notifyLeadsDeleted(leads: { id: string; name: string }[]) 
     leads.length === 1 ? "This lead was deleted." : "The selected leads were deleted.",
     { type: "lead_deleted" },
   );
+}
+
+const ALERTED_IDS_KEY = "curvelead_alerted_notification_ids";
+const MAX_ALERTED_IDS = 300;
+const MAX_INDIVIDUAL_ALERTS = 3;
+
+/**
+ * Notifications created by the server (leads from WhatsApp/Google/Facebook, follow-up and SLA reminders...) only ring if the
+ * backend also sends a push. While the app is open this checks the list and shows the pop-up + sound for each new unread
+ * one. The first check only remembers what is already there, so an existing backlog doesn't all ring at once.
+ */
+export async function alertNewServerNotifications() {
+  const { data } = await apiClient.get<{ notifications?: AppNotification[] } | AppNotification[]>("/notifications");
+  const items = (Array.isArray(data) ? data : data.notifications || [])
+    .map((item) => normalizeNotification(item as Partial<AppNotification> & Record<string, unknown>))
+    .filter((item) => !item.read_at);
+
+  const raw = await AsyncStorage.getItem(ALERTED_IDS_KEY);
+  const firstRun = raw === null;
+  let seen: string[] = [];
+  try { seen = raw ? (JSON.parse(raw) as string[]) : []; } catch { seen = []; }
+  const seenSet = new Set(seen);
+  const leadsSeen = await getSeenLeadIds();
+  // A "new lead" notification for a lead the lead check below already announced would ring a second time.
+  const coveredByLeadAlert = (item: AppNotification) => !!item.lead_id && NEW_LEAD_TYPE.test(item.type || "") && leadsSeen.has(item.lead_id);
+  const fresh = items.filter((item) => !seenSet.has(item.id));
+  if (!fresh.length) {
+    if (firstRun) await AsyncStorage.setItem(ALERTED_IDS_KEY, "[]");
+    return;
+  }
+  // Remembered only after the alerts were shown, so if the phone stops the app part-way they are shown at the next check, not lost.
+  const remember = () => AsyncStorage.setItem(ALERTED_IDS_KEY, JSON.stringify([...seen, ...fresh.map((item) => item.id)].slice(-MAX_ALERTED_IDS)));
+  if (firstRun) { await remember(); return; }
+
+  // A push that arrived while the app was open was already shown (and mirrored locally) - don't ring for it twice.
+  const local = await getLocalNotifications();
+  const SAME_EVENT_MS = 2 * 60_000;
+  const alreadyShown = (item: AppNotification) => local.some((other) => {
+    if (other.title !== item.title || (other.message ?? "") !== (item.message ?? "")) return false;
+    const x = new Date(item.created_at || "").getTime();
+    const y = new Date(other.created_at || "").getTime();
+    return Number.isNaN(x) || Number.isNaN(y) || Math.abs(x - y) <= SAME_EVENT_MS;
+  });
+  const candidates = fresh.filter((item) => !alreadyShown(item) && !coveredByLeadAlert(item));
+  // Types the person switched off in Notification Settings must not be counted: they would otherwise tip a quiet batch into
+  // the "N new notifications" summary, which has its own type and so rings no matter what was switched off.
+  const enabled = await Promise.all(candidates.map((item) => isAlertEnabled(item.type)));
+  const toShow = newestFirst(candidates.filter((_, index) => enabled[index]));
+  if (!toShow.length) { await remember(); return; }
+  if (toShow.length > MAX_INDIVIDUAL_ALERTS) {
+    await presentLocalNotification(`${toShow.length} new notifications`, toShow[0].title, { type: "summary" }, { skipIfShown: true });
+    await remember();
+    return;
+  }
+  for (const item of toShow) {
+    await presentLocalNotification(item.title, item.message, {
+      type: item.type, lead_id: item.lead_id, lead_name: item.lead_name, lead_phone: item.lead_phone, lead_stage: item.lead_stage,
+    }, { skipIfShown: true });
+  }
+  await remember();
+}
+
+const SEEN_LEADS_KEY = "curvelead_alerted_lead_ids";
+const MAX_SEEN_LEADS = 300;
+const NEW_LEAD_TYPE = /new.?lead|lead.?(created|added)/i;
+// Android runs the app-closed check only every 15+ minutes, and often much later (battery saver, Doze). A shorter limit made
+// that check drop every lead that arrived more than 15 minutes before it ran: it marked them as seen and never rang.
+const NEW_LEAD_MAX_AGE_MS = 6 * 60 * 60_000;
+
+async function getSeenLeadIds() {
+  try {
+    const raw = await AsyncStorage.getItem(SEEN_LEADS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set<string>(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+/**
+ * Leads that arrive from WhatsApp, Google, Facebook, forms and the like are created by the server, so nothing on the phone
+ * rings for them unless the backend pushes. While the app is open this looks at the newest leads and shows the pop-up + sound
+ * for each one it hasn't announced yet. The first check only remembers the current leads.
+ */
+export async function alertNewLeads() {
+  // 20, not 10: with the app closed for a while, more than 10 leads can arrive between two checks.
+  const page = await fetchLeads({ page: 1, limit: 20 });
+  const newest = [...page.leads].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const raw = await AsyncStorage.getItem(SEEN_LEADS_KEY);
+  const firstRun = raw === null;
+  const seen = await getSeenLeadIds();
+  const fresh = newest.filter((lead) => !seen.has(lead.id));
+  if (!fresh.length) {
+    if (firstRun) await AsyncStorage.setItem(SEEN_LEADS_KEY, "[]");
+    return;
+  }
+  // Remembered only after the alerts were shown, so if the phone stops the app part-way they are shown at the next check, not lost.
+  const remember = () => AsyncStorage.setItem(SEEN_LEADS_KEY, JSON.stringify([...seen, ...fresh.map((lead) => lead.id)].slice(-MAX_SEEN_LEADS)));
+  if (firstRun) { await remember(); return; }
+
+  // Leads added from this phone already rang through notifyLeadCreated / notifyLeadsAdded.
+  const local = await getLocalNotifications();
+  const madeHere = new Set(local.map((item) => item.lead_id).filter(Boolean));
+  const bulkAt = Number(await AsyncStorage.getItem(BULK_ADDED_AT_KEY).catch(() => null)) || 0;
+  const recent = fresh.filter((lead) => {
+    const createdAt = new Date(lead.created_at).getTime();
+    const age = Date.now() - createdAt;
+    // Imported / synced here: created before notifyLeadsAdded ran (small margin for clock differences).
+    if (createdAt <= bulkAt + 5000) return false;
+    return !madeHere.has(lead.id) && (Number.isNaN(age) || age <= NEW_LEAD_MAX_AGE_MS);
+  });
+  if (!recent.length) { await remember(); return; }
+  if (recent.length > MAX_INDIVIDUAL_ALERTS) {
+    await presentLocalNotification(`${recent.length} new leads`, "Open Leads to see them.", { type: "lead_created" }, { skipIfShown: true });
+    await remember();
+    return;
+  }
+  for (const lead of recent) {
+    await presentLocalNotification(`New lead - ${lead.name}`, lead.source ? `Source: ${lead.source}` : "A new lead was added.", {
+      type: "lead_created", lead_id: lead.id, lead_name: lead.name, lead_phone: lead.phone, lead_stage: lead.stage,
+    }, { skipIfShown: true });
+  }
+  await remember();
+}
+
+const OVERDUE_ALERTED_KEY = "curvelead_alerted_overdue_ids";
+const MAX_OVERDUE_ALERTED = 300;
+const OVERDUE_MAX_AGE_MS = 24 * 60 * 60_000;
+// The reminder set for the follow-up's time already rang at that moment; "overdue" is announced only once it is clearly late.
+const OVERDUE_MIN_AGE_MS = 10 * 60_000;
+
+/**
+ * Follow-ups that have just gone overdue ring once, even if the server sent no push and the reminder set for their time was
+ * missed (e.g. the follow-up was made on the web). The first check only remembers what is already overdue.
+ */
+export async function alertOverdueFollowups() {
+  const day = (offset: number) => { const d = new Date(); d.setDate(d.getDate() + offset); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+  const list = await fetchTodayFollowups({ date_from: day(-1), date_to: day(0) });
+  const now = Date.now();
+  const overdue = list.filter((item) => {
+    const at = new Date(item.next_followup_at).getTime();
+    return !Number.isNaN(at) && now - at >= OVERDUE_MIN_AGE_MS && now - at <= OVERDUE_MAX_AGE_MS;
+  });
+  const raw = await AsyncStorage.getItem(OVERDUE_ALERTED_KEY);
+  const firstRun = raw === null;
+  let seen: string[] = [];
+  try { seen = raw ? (JSON.parse(raw) as string[]) : []; } catch { seen = []; }
+  const seenSet = new Set(seen);
+  const fresh = overdue.filter((item) => !seenSet.has(item.id));
+  if (!fresh.length) {
+    if (firstRun) await AsyncStorage.setItem(OVERDUE_ALERTED_KEY, "[]");
+    return;
+  }
+  // Remembered only after the alerts were shown, so if the phone stops the app part-way they are shown at the next check, not lost.
+  const remember = () => AsyncStorage.setItem(OVERDUE_ALERTED_KEY, JSON.stringify([...seen, ...fresh.map((item) => item.id)].slice(-MAX_OVERDUE_ALERTED)));
+  if (firstRun) { await remember(); return; }
+  if (fresh.length > MAX_INDIVIDUAL_ALERTS) {
+    await presentLocalNotification(`${fresh.length} follow-ups overdue`, "Open Tasks to see them.", { type: "followup" }, { skipIfShown: true });
+    await remember();
+    return;
+  }
+  for (const item of fresh) {
+    await presentLocalNotification(`Follow-up overdue - ${item.lead_name}`, item.followup_type ? `${item.followup_type} follow-up` : undefined, {
+      type: "followup", lead_id: item.lead_id, lead_name: item.lead_name, lead_phone: item.lead_phone, lead_stage: item.lead_stage,
+    }, { skipIfShown: true });
+  }
+  await remember();
+}
+
+/** Signing out: the next person to sign in on this phone starts with a fresh "already announced" baseline. */
+export async function resetAlertBaseline() {
+  await Promise.all([ALERTED_IDS_KEY, SEEN_LEADS_KEY, BULK_ADDED_AT_KEY, OVERDUE_ALERTED_KEY].map((key) => AsyncStorage.removeItem(key).catch(() => {})));
+  await clearUserCaches();
+  await clearFollowupReminders();
+}
+
+// The list the Notifications screen showed last, kept so reopening it paints at once.
+let shownList: AppNotification[] | null = null;
+export const getShownNotifications = () => shownList;
+export const setShownNotifications = (list: AppNotification[]) => { shownList = list; };
+
+/**
+ * Signing out: everything saved on this phone for the previous person goes, so the next one to sign in never sees
+ * their notifications or WhatsApp chats - not even for a moment while the server answers.
+ */
+export async function clearUserCaches() {
+  shownList = null;
+  await Promise.all([LOCAL_NOTIFICATIONS_KEY, READ_IDS_KEY, "whatsapp_inbox_cache_v1", "curvelead_stages_cache"].map((key) => AsyncStorage.removeItem(key).catch(() => {})));
 }

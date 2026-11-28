@@ -35,21 +35,35 @@ function dateText(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
-export function LeadDocuments({ leadId, onChanged, pickSignal = 0 }: { leadId: string; onChanged?: () => void; pickSignal?: number }) {
-  const [files, setFiles] = useState<LeadAttachment[]>([]);
-  const [loading, setLoading] = useState(true);
+// Documents already loaded this session, so reopening a lead shows them at once while a fresh copy loads.
+const filesCache = new Map<string, LeadAttachment[]>();
+
+export const LeadDocuments = React.memo(function LeadDocuments({ leadId, onChanged, pickSignal = 0 }: { leadId: string; onChanged?: () => void; pickSignal?: number }) {
+  const [files, setFiles] = useState<LeadAttachment[]>(() => filesCache.get(leadId) ?? []);
+  const [loading, setLoading] = useState(() => !filesCache.has(leadId));
   const [loadError, setLoadError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState("");
 
   const load = useCallback(async () => {
     setLoadError("");
-    try { setFiles(await fetchLeadAttachments(leadId)); }
+    try {
+      const fresh = await fetchLeadAttachments(leadId);
+      filesCache.set(leadId, fresh);
+      if (filesCache.size > 30) filesCache.delete(filesCache.keys().next().value as string);
+      setFiles(fresh);
+    }
     catch (error) { setLoadError(errorMessage(error, "Could not load documents.")); }
     finally { setLoading(false); }
   }, [leadId]);
 
-  useEffect(() => { load(); }, [load]);
+  // Documents sit below the notes and details, so they wait a moment: the lead, its notes and the pipeline lists get the
+  // connection first. A lead whose documents were already seen refreshes them at once.
+  useEffect(() => {
+    if (filesCache.has(leadId)) { load(); return; }
+    const timer = setTimeout(load, 1200);
+    return () => clearTimeout(timer);
+  }, [load, leadId]);
 
   // The parent bumps pickSignal (e.g. from the floating "Attachment" action) to open the file picker.
   const handledSignal = useRef(pickSignal);
@@ -136,7 +150,7 @@ export function LeadDocuments({ leadId, onChanged, pickSignal = 0 }: { leadId: s
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   wrap: { marginTop: 20 },

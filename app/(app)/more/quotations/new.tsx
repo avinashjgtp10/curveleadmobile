@@ -2,9 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, View,
 } from "react-native";
-import { ActivityIndicator, Appbar, Text, TextInput } from "react-native-paper";
+import { ActivityIndicator, Text, TextInput } from "react-native-paper";
 import axios from "axios";
-import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,6 +12,9 @@ import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import { createQuotation, CreateQuotationInput, Quotation, QuotationItem, sendQuotation } from "@/api/quotations";
 import { fetchLeads, LeadListItem } from "@/api/leads";
 
+
+// The add forms' palette: pale blue page, white cards with soft blue borders, deep teal-blue actions.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", red: "#d6334f", redSoft: "#fdecef", amber: "#c2710c", amberSoft: "#fde9c9", green: "#0f7b5f", greenSoft: "#d8f0e5", track: "#e4ecf3" };
 const VALID_UNTIL_OPTIONS = [
   { key: "none", label: "No expiry", days: null as number | null },
   { key: "3d", label: "3 days", days: 3 },
@@ -175,15 +177,17 @@ export default function NewQuotationScreen() {
 
   return (
     <KeyboardAvoidingView style={[styles.screen, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="New Quotation" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle} numberOfLines={1}>New Quotation</Text>
+      </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         {error ? (
           <View style={styles.errorBanner}>
-            <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
+            <Ionicons name="alert-circle-outline" size={16} color={UI.red} />
             <Text style={styles.errorBannerText}>{error}</Text>
           </View>
         ) : null}
@@ -203,7 +207,7 @@ export default function NewQuotationScreen() {
         ) : (
           <View>
             <View style={styles.searchBox}>
-              <Ionicons name="search" size={18} color={colors.textMuted} />
+              <Ionicons name="search" size={18} color={UI.muted} />
               <TextInput
                 mode="flat"
                 value={leadQuery}
@@ -214,7 +218,7 @@ export default function NewQuotationScreen() {
                 style={styles.searchField}
                 dense
               />
-              {searching ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+              {searching ? <ActivityIndicator size="small" color={UI.teal} /> : null}
             </View>
             {leadResults.length ? (
               <View style={styles.suggestions}>
@@ -229,7 +233,7 @@ export default function NewQuotationScreen() {
                       <Text style={styles.suggestionName} numberOfLines={1}>{lead.name}</Text>
                       <Text style={styles.suggestionPhone} numberOfLines={1}>{lead.phone}</Text>
                     </View>
-                    <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+                    <Ionicons name="add-circle-outline" size={20} color={UI.teal} />
                   </Pressable>
                 ))}
               </View>
@@ -246,18 +250,18 @@ export default function NewQuotationScreen() {
                 <TextInput mode="outlined" dense value={item.name} onChangeText={(value) => updateItem(index, { name: value })} placeholder="Item or service name" style={styles.itemName} outlineStyle={styles.fieldOutline} />
                 {items.length > 1 ? (
                   <Pressable onPress={() => removeItem(index)} hitSlop={8} style={styles.removeButton}>
-                    <Ionicons name="close" size={18} color={colors.danger} />
+                    <Ionicons name="close" size={18} color={UI.red} />
                   </Pressable>
                 ) : null}
               </View>
               <View style={styles.itemBottom}>
                 <View style={styles.stepper}>
                   <Pressable style={styles.stepperButton} onPress={() => updateItem(index, { quantity: Math.max(1, (Number(item.quantity) || 1) - 1) })}>
-                    <Ionicons name="remove" size={18} color={colors.text} />
+                    <Ionicons name="remove" size={18} color={UI.ink} />
                   </Pressable>
                   <Text style={styles.stepperValue}>{item.quantity}</Text>
                   <Pressable style={styles.stepperButton} onPress={() => updateItem(index, { quantity: (Number(item.quantity) || 0) + 1 })}>
-                    <Ionicons name="add" size={18} color={colors.text} />
+                    <Ionicons name="add" size={18} color={UI.ink} />
                   </Pressable>
                 </View>
                 <TextInput
@@ -281,7 +285,7 @@ export default function NewQuotationScreen() {
           );
         })}
         <Pressable style={styles.addItemButton} onPress={() => setItems((current) => [...current, emptyItem()])}>
-          <Ionicons name="add" size={18} color={colors.primary} />
+          <Ionicons name="add" size={18} color={UI.teal} />
           <Text style={styles.addItemText}>Add another item</Text>
         </Pressable>
 
@@ -290,7 +294,7 @@ export default function NewQuotationScreen() {
             <Text style={styles.moreTitle}>More options</Text>
             <Text style={styles.moreSummary} numberOfLines={1}>{optionsSummary}</Text>
           </View>
-          <Ionicons name={moreOpen ? "chevron-up" : "chevron-down"} size={20} color={colors.textSecondary} />
+          <Ionicons name={moreOpen ? "chevron-up" : "chevron-down"} size={20} color={UI.sub} />
         </Pressable>
         {moreOpen ? (
           <View style={styles.moreBody}>
@@ -329,14 +333,14 @@ export default function NewQuotationScreen() {
         </View>
         <View style={styles.bottomBarRow}>
           <Pressable style={[styles.draftButton, saving && styles.disabled]} onPress={saveDraft} disabled={saving}>
-            {savingDraft ? <ActivityIndicator size="small" color={colors.primary} /> : <Ionicons name="save-outline" size={18} color={colors.primary} />}
+            {savingDraft ? <ActivityIndicator size="small" color={UI.teal} /> : <Ionicons name="save-outline" size={18} color={UI.teal} />}
             <Text style={styles.draftText}>Save draft</Text>
           </Pressable>
           <Pressable style={[styles.sendWrap, saving && styles.disabled]} onPress={saveAndSend} disabled={saving}>
-            <LinearGradient colors={["#22c55e", "#0ea5e9"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.sendButton}>
+            <View style={[styles.sendButton, { backgroundColor: UI.teal }]}>
               {sending ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="logo-whatsapp" size={18} color="#fff" />}
               <Text style={styles.sendText}>Send on WhatsApp</Text>
-            </LinearGradient>
+            </View>
           </Pressable>
         </View>
       </View>
@@ -345,69 +349,70 @@ export default function NewQuotationScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#ffffff" },
-  header: { backgroundColor: "#ffffff" },
-  headerTitle: { fontSize: 17, fontWeight: "800", color: colors.text },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   scroll: { flex: 1 },
   content: { padding: 16, paddingBottom: 24 },
-  errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12, marginBottom: 8 },
-  errorBannerText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600" },
+  errorBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: UI.redSoft, borderRadius: 12, padding: 12, marginBottom: 8 },
+  errorBannerText: { flex: 1, color: UI.red, fontSize: 12, fontWeight: "600" },
 
-  sectionLabel: { color: colors.text, fontSize: 15, fontWeight: "800", marginTop: 14, marginBottom: 8 },
-  fieldOutline: { borderRadius: 12, borderColor: "#d7e6f1" },
+  sectionLabel: { color: UI.ink, fontSize: 15, fontWeight: "800", marginTop: 14, marginBottom: 8 },
+  fieldOutline: { borderRadius: 12, borderColor: UI.line },
   plainField: { backgroundColor: "#ffffff", fontSize: 14 },
   multiline: { minHeight: 70 },
-  miniLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", marginTop: 12, marginBottom: 6 },
+  miniLabel: { color: UI.sub, fontSize: 12, fontWeight: "700", marginTop: 12, marginBottom: 6 },
 
-  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f4f9fc", borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", paddingLeft: 12, paddingRight: 10, minHeight: 50 },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#ffffff", borderRadius: 14, borderWidth: 1, borderColor: UI.line, paddingLeft: 12, paddingRight: 10, minHeight: 50 },
   searchField: { flex: 1, backgroundColor: "transparent", fontSize: 14 },
-  suggestions: { marginTop: 8, borderRadius: 14, borderWidth: 1, borderColor: "#e2eef7", overflow: "hidden" },
+  suggestions: { marginTop: 8, borderRadius: 14, borderWidth: 1, borderColor: UI.line, overflow: "hidden" },
   suggestionRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 10, backgroundColor: "#fff" },
   suggestionDivider: { borderBottomWidth: 1, borderBottomColor: "#eef4f9" },
-  suggestionName: { color: colors.text, fontSize: 14, fontWeight: "700" },
-  suggestionPhone: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
-  leadAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.successSoft, alignItems: "center", justifyContent: "center" },
-  leadAvatarText: { color: colors.text, fontSize: 15, fontWeight: "800" },
-  selectedLead: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.primarySoft, borderRadius: 14, padding: 10 },
-  selectedLeadName: { color: colors.text, fontSize: 15, fontWeight: "800" },
-  selectedLeadPhone: { color: colors.textSecondary, fontSize: 12, marginTop: 1 },
+  suggestionName: { color: UI.ink, fontSize: 14, fontWeight: "700" },
+  suggestionPhone: { color: UI.muted, fontSize: 12, marginTop: 1 },
+  leadAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: UI.greenSoft, alignItems: "center", justifyContent: "center" },
+  leadAvatarText: { color: UI.ink, fontSize: 15, fontWeight: "800" },
+  selectedLead: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: UI.tealSoft, borderRadius: 14, padding: 10 },
+  selectedLeadName: { color: UI.ink, fontSize: 15, fontWeight: "800" },
+  selectedLeadPhone: { color: UI.sub, fontSize: 12, marginTop: 1 },
   changeButton: { backgroundColor: "#ffffff", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
-  changeText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
+  changeText: { color: UI.teal, fontSize: 12, fontWeight: "800" },
 
-  itemCard: { backgroundColor: "#f8fbfd", borderRadius: 16, borderWidth: 1, borderColor: "#e2eef7", padding: 12, marginBottom: 10 },
+  itemCard: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, borderColor: UI.line, padding: 12, marginBottom: 10 },
   itemTop: { flexDirection: "row", alignItems: "center", gap: 8 },
   itemName: { flex: 1, backgroundColor: "#ffffff", fontSize: 14 },
-  removeButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.dangerSoft, alignItems: "center", justifyContent: "center" },
+  removeButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: UI.redSoft, alignItems: "center", justifyContent: "center" },
   itemBottom: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
   priceField: { flex: 1, backgroundColor: "#ffffff", fontSize: 14 },
-  stepper: { flexDirection: "row", alignItems: "center", backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1, borderColor: "#d7e6f1" },
+  stepper: { flexDirection: "row", alignItems: "center", backgroundColor: "#ffffff", borderRadius: 12, borderWidth: 1, borderColor: UI.line },
   stepperButton: { width: 32, height: 40, alignItems: "center", justifyContent: "center" },
-  stepperValue: { minWidth: 24, textAlign: "center", color: colors.text, fontSize: 14, fontWeight: "800" },
-  lineTotal: { minWidth: 72, textAlign: "right", color: colors.text, fontSize: 13, fontWeight: "800" },
-  addItemButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 13, borderRadius: 14, borderWidth: 1.5, borderStyle: "dashed", borderColor: "#bae6fd", backgroundColor: "#f0f9ff" },
-  addItemText: { color: colors.primary, fontSize: 13, fontWeight: "800" },
+  stepperValue: { minWidth: 24, textAlign: "center", color: UI.ink, fontSize: 14, fontWeight: "800" },
+  lineTotal: { minWidth: 72, textAlign: "right", color: UI.ink, fontSize: 13, fontWeight: "800" },
+  addItemButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 13, borderRadius: 14, borderWidth: 1.5, borderStyle: "dashed", borderColor: UI.line, backgroundColor: "#ffffff" },
+  addItemText: { color: UI.teal, fontSize: 13, fontWeight: "800" },
 
-  moreHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 18, padding: 14, borderRadius: 16, backgroundColor: "#f4f9fc", borderWidth: 1, borderColor: "#e2eef7" },
-  moreTitle: { color: colors.text, fontSize: 14, fontWeight: "800" },
-  moreSummary: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  moreHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 18, padding: 14, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
+  moreTitle: { color: UI.ink, fontSize: 14, fontWeight: "800" },
+  moreSummary: { color: UI.muted, fontSize: 12, marginTop: 2 },
   moreBody: { paddingHorizontal: 2, paddingBottom: 8 },
 
   presetRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  presetChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#f4f9fc", borderWidth: 1, borderColor: "#d7e6f1" },
-  presetChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  presetText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
+  presetChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
+  presetChipActive: { backgroundColor: UI.teal, borderColor: UI.teal },
+  presetText: { color: UI.sub, fontSize: 13, fontWeight: "700" },
   presetTextActive: { color: "#ffffff" },
 
-  bottomBar: { paddingHorizontal: 16, paddingTop: 12, gap: 10, backgroundColor: "#ffffff", borderTopWidth: 1, borderTopColor: "#e2eef7" },
+  bottomBar: { paddingHorizontal: 16, paddingTop: 12, gap: 10, backgroundColor: "#ffffff", borderTopWidth: 1, borderTopColor: UI.line },
   totalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  totalLabel: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
-  totalBreakdown: { color: colors.textMuted, fontSize: 11, marginTop: 1 },
-  totalValue: { color: colors.text, fontSize: 26, fontWeight: "900", letterSpacing: -0.5 },
+  totalLabel: { color: UI.sub, fontSize: 13, fontWeight: "700" },
+  totalBreakdown: { color: UI.muted, fontSize: 11, marginTop: 1 },
+  totalValue: { color: UI.ink, fontSize: 26, fontWeight: "900", letterSpacing: -0.5 },
   bottomBarRow: { flexDirection: "row", gap: 10 },
-  draftButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 50, paddingHorizontal: 18, borderRadius: 16, borderWidth: 1.5, borderColor: colors.primary, backgroundColor: "#ffffff" },
-  draftText: { color: colors.primary, fontSize: 14, fontWeight: "800" },
+  draftButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 50, paddingHorizontal: 18, borderRadius: 999, borderWidth: 1.5, borderColor: UI.teal, backgroundColor: "#ffffff" },
+  draftText: { color: UI.teal, fontSize: 14, fontWeight: "800" },
   sendWrap: { flex: 1 },
-  sendButton: { height: 50, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  sendButton: { height: 50, borderRadius: 999, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   sendText: { color: "#ffffff", fontSize: 15, fontWeight: "800" },
   disabled: { opacity: 0.6 },
 });

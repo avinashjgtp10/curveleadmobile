@@ -1,12 +1,30 @@
 import React, { useState } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Button, Card, Switch, Text, TextInput } from "react-native-paper";
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import axios from "axios";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "@/theme";
 import { changePassword } from "@/api/passwordReset";
+
+// Pale lavender page, white cards with soft borders, indigo actions.
+const UI = { bg: "#f4f5fb", line: "#dfe2f0", ink: "#14172e", sub: "#5b6280", muted: "#8b91ab", accent: "#4b45e0", accentSoft: "#e8e9fb", red: "#b3173a", redSoft: "#fde3e8" };
+
+function PasswordField({ label, value, onChange, show, onToggle }: { label: string; value: string; onChange: (value: string) => void; show: boolean; onToggle: () => void }) {
+  return (
+    <View>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <View style={styles.inputBox}>
+        <TextInput
+          value={value} onChangeText={onChange} placeholder={label} placeholderTextColor={UI.muted}
+          secureTextEntry={!show} autoCapitalize="none" autoCorrect={false} style={styles.input}
+        />
+        <Pressable onPress={onToggle} hitSlop={10} accessibilityRole="button" accessibilityLabel={show ? "Hide password" : "Show password"}>
+          <Ionicons name={show ? "eye-off-outline" : "eye-outline"} size={20} color={UI.sub} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
 
 export default function SecurityScreen() {
   const insets = useSafeAreaInsets();
@@ -47,119 +65,104 @@ export default function SecurityScreen() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Security" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back"><Ionicons name="chevron-back" size={20} color={UI.ink} /></Pressable>
+        <Text style={styles.headerTitle}>Security</Text>
+      </View>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
-        <Card mode="outlined" style={styles.card}>
-          <Card.Content>
-            <View style={styles.cardHeaderRow}>
-              <View style={[styles.iconWrap, { backgroundColor: colors.primarySoft }]}>
-                <Ionicons name="key-outline" size={20} color={colors.primary} />
-              </View>
-              <View style={styles.cardHeaderBody}>
-                <Text style={styles.cardTitle}>Change Password</Text>
-                <Text style={styles.cardDescription}>Use a strong password you don't use anywhere else.</Text>
-              </View>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <View style={[styles.iconWrap, { backgroundColor: "#dff0fb" }]}>
+              <Ionicons name="key-outline" size={20} color="#0b6b97" />
             </View>
-
-            {error ? (
-              <View style={styles.errorBox}>
-                <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            ) : null}
-
-            <TextInput
-              mode="outlined" label="Current Password" value={currentPassword} onChangeText={setCurrentPassword}
-              secureTextEntry={!showCurrent} autoCapitalize="none" style={styles.field}
-              right={<TextInput.Icon icon={showCurrent ? "eye-off-outline" : "eye-outline"} onPress={() => setShowCurrent((v) => !v)} />}
-            />
-            <TextInput
-              mode="outlined" label="New Password" value={newPassword} onChangeText={setNewPassword}
-              secureTextEntry={!showNew} autoCapitalize="none" style={styles.field}
-              right={<TextInput.Icon icon={showNew ? "eye-off-outline" : "eye-outline"} onPress={() => setShowNew((v) => !v)} />}
-            />
-            <TextInput
-              mode="outlined" label="Confirm New Password" value={confirmPassword} onChangeText={setConfirmPassword}
-              secureTextEntry={!showConfirm} autoCapitalize="none" style={styles.field}
-              right={<TextInput.Icon icon={showConfirm ? "eye-off-outline" : "eye-outline"} onPress={() => setShowConfirm((v) => !v)} />}
-            />
-
-            <Button mode="contained" onPress={handleChangePassword} loading={saving} disabled={saving} style={styles.saveButton} contentStyle={styles.saveButtonContent}>
-              Update Password
-            </Button>
-          </Card.Content>
-        </Card>
-
-        <Card mode="outlined" style={styles.card}>
-          <Card.Content style={styles.toggleRow}>
-            <View style={[styles.iconWrap, { backgroundColor: "#ede9fe" }]}>
-              <Ionicons name="shield-checkmark-outline" size={20} color="#7c3aed" />
+            <View style={styles.cardHeaderBody}>
+              <Text style={styles.cardTitle}>Change Password</Text>
+              <Text style={styles.cardDescription}>Use a strong password you don't use anywhere else.</Text>
             </View>
-            <View style={styles.toggleBody}>
-              <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>Two-Factor Authentication</Text>
-                <View style={styles.badge}>
-                  <View style={styles.badgeDot} />
-                  <Text style={styles.badgeText}>Coming soon</Text>
-                </View>
-              </View>
+          </View>
+
+          {error ? (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle-outline" size={16} color={UI.red} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+
+          <PasswordField label="Current password" value={currentPassword} onChange={setCurrentPassword} show={showCurrent} onToggle={() => setShowCurrent((v) => !v)} />
+          <PasswordField label="New password" value={newPassword} onChange={setNewPassword} show={showNew} onToggle={() => setShowNew((v) => !v)} />
+          <PasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} show={showConfirm} onToggle={() => setShowConfirm((v) => !v)} />
+
+          <Pressable onPress={handleChangePassword} disabled={saving} style={[styles.saveButton, saving && { opacity: 0.7 }]} accessibilityRole="button">
+            {saving ? <ActivityIndicator size="small" color="#ffffff" /> : null}
+            <Text style={styles.saveText}>Update Password</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <View style={[styles.iconWrap, { backgroundColor: UI.accentSoft }]}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={UI.accent} />
+            </View>
+            <View style={styles.cardHeaderBody}>
+              <Text style={styles.cardTitle}>Two-Factor Authentication</Text>
               <Text style={styles.cardDescription}>Add an extra layer of security with a one-time code at sign-in.</Text>
             </View>
-            <Switch value={twoFactorEnabled} onValueChange={setTwoFactorEnabled} color={colors.primary} disabled />
-          </Card.Content>
-        </Card>
+          </View>
+          <View style={styles.cardDivider} />
+          <View style={styles.statusRow}>
+            <View style={styles.badge}><View style={styles.badgeDot} /><Text style={styles.badgeText}>Coming soon</Text></View>
+            <Switch value={twoFactorEnabled} onValueChange={setTwoFactorEnabled} trackColor={{ true: UI.accent, false: "#dcdeea" }} disabled />
+          </View>
+        </View>
 
-        <Card mode="outlined" style={styles.card}>
-          <Card.Content style={styles.toggleRow}>
-            <View style={[styles.iconWrap, { backgroundColor: colors.warningSoft }]}>
-              <Ionicons name="phone-portrait-outline" size={20} color={colors.warning} />
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <View style={[styles.iconWrap, { backgroundColor: "#fdeccd" }]}>
+              <Ionicons name="phone-portrait-outline" size={20} color="#8a5a12" />
             </View>
-            <View style={styles.toggleBody}>
-              <View style={styles.cardTitleRow}>
-                <Text style={styles.cardTitle}>Active Sessions</Text>
-                <View style={styles.badge}>
-                  <View style={styles.badgeDot} />
-                  <Text style={styles.badgeText}>Coming soon</Text>
-                </View>
-              </View>
+            <View style={styles.cardHeaderBody}>
+              <Text style={styles.cardTitle}>Active Sessions</Text>
               <Text style={styles.cardDescription}>See and sign out of devices logged into your account.</Text>
             </View>
-          </Card.Content>
-        </Card>
+          </View>
+          <View style={styles.cardDivider} />
+          <View style={styles.statusRow}>
+            <View style={styles.badge}><View style={styles.badgeDot} /><Text style={styles.badgeText}>Coming soon</Text></View>
+          </View>
+        </View>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
-  content: { padding: 18, gap: 14 },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingBottom: 8, backgroundColor: UI.bg },
+  headerButton: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 24, fontWeight: "800" },
+  content: { paddingHorizontal: 14, paddingTop: 4, gap: 10 },
 
-  card: {},
-  cardHeaderRow: { flexDirection: "row", gap: 12, marginBottom: 4 },
+  card: { backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: UI.line, padding: 14, gap: 10 },
+  cardHeaderRow: { flexDirection: "row", gap: 12 },
   cardHeaderBody: { flex: 1 },
-  iconWrap: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  cardTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
-  cardTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  cardDescription: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 4 },
-  field: { marginTop: 12 },
+  iconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  cardTitle: { color: UI.ink, fontSize: 15, fontWeight: "800" },
+  cardDescription: { color: UI.sub, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  cardDivider: { height: 1, backgroundColor: UI.line },
+  statusRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
 
-  errorBox: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, marginTop: 12, borderRadius: 8, backgroundColor: colors.dangerSoft },
-  errorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "700" },
+  fieldLabel: { color: UI.sub, fontSize: 12, fontWeight: "800", marginBottom: 5 },
+  inputBox: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14 },
+  input: { flex: 1, color: UI.ink, fontSize: 14, paddingVertical: 0 },
 
-  saveButton: { marginTop: 14, borderRadius: 10 },
-  saveButtonContent: { height: 48 },
+  errorBox: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 10, backgroundColor: UI.redSoft },
+  errorText: { flex: 1, color: UI.red, fontSize: 12, fontWeight: "700" },
 
-  toggleRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  toggleBody: { flex: 1 },
+  saveButton: { height: 46, borderRadius: 14, backgroundColor: UI.accent, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 2 },
+  saveText: { color: "#ffffff", fontSize: 15, fontWeight: "800" },
 
-  badge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, backgroundColor: colors.primarySoft },
-  badgeDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.primary },
-  badgeText: { color: colors.primary, fontSize: 10, fontWeight: "800" },
+  badge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: "#dff0fb" },
+  badgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#0b6b97" },
+  badgeText: { color: "#0b5a82", fontSize: 12, fontWeight: "800" },
 });

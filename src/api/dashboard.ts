@@ -1,13 +1,21 @@
 import axios from "axios";
 import { apiClient, isNetworkError } from "@/api/client";
 
-export type DashboardPeriod = "today" | "last_7_days" | "last_30_days";
+export type DashboardPeriod = "today" | "this_week" | "last_7_days" | "this_month" | "last_30_days";
 
-function localDate(daysAgo = 0) {
-  const date = new Date();
-  date.setDate(date.getDate() - daysAgo);
+function localYmd(date: Date) {
   const offset = date.getTimezoneOffset();
   return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 10);
+}
+
+// The calendar range of each choice, worked out from the phone's real date. Weeks start on Monday.
+function rangeFor(period: DashboardPeriod) {
+  const from = new Date();
+  if (period === "this_week") from.setDate(from.getDate() - ((from.getDay() + 6) % 7));
+  else if (period === "last_7_days") from.setDate(from.getDate() - 6);
+  else if (period === "this_month") from.setDate(1);
+  else if (period === "last_30_days") from.setDate(from.getDate() - 29);
+  return { date_from: localYmd(from), date_to: localYmd(new Date()) };
 }
 
 export interface DashboardStage {
@@ -58,17 +66,27 @@ export interface DashboardSummary {
   recentLeads: DashboardLead[];
 }
 
-export async function fetchDashboard(period: DashboardPeriod) {
-  const daysAgo = period === "today" ? 0 : period === "last_7_days" ? 6 : 29;
-  const params = {
-    period: "custom",
-    date_from: localDate(daysAgo),
-    date_to: localDate(),
-  };
+// The web dashboard asks the server for these by name, so the server decides the dates (its own calendar and time zone). Asking the
+// same way gives the same numbers on both. The other choices have no name on the server, so they go by dates worked out on the phone.
+const NAMED_PERIODS: DashboardPeriod[] = ["today", "this_week", "this_month"];
+
+export async function fetchDashboard(period: DashboardPeriod, options: { fresh?: boolean } = {}) {
+  const fresh = options.fresh ? { fresh: true } : {};
+  const custom = { period: "custom", ...rangeFor(period) };
   try {
-    const { data } = await apiClient.get<DashboardSummary>("/reports/summary", {
-      params,
-    });
+    let data: DashboardSummary;
+    if (NAMED_PERIODS.includes(period)) {
+      try {
+        ({ data } = await apiClient.get<DashboardSummary>("/reports/summary", { params: { period }, ...fresh }));
+      } catch (namedError) {
+        // An older server may not know the name: use the dates instead. Anything else (login, limit, network) is reported as it is.
+        const code = axios.isAxiosError(namedError) ? namedError.response?.status : undefined;
+        if (code !== 400 && code !== 422) throw namedError;
+        ({ data } = await apiClient.get<DashboardSummary>("/reports/summary", { params: custom, ...fresh }));
+      }
+    } else {
+      ({ data } = await apiClient.get<DashboardSummary>("/reports/summary", { params: custom, ...fresh }));
+    }
     return data;
   } catch (error) {
     // Authentication and subscription errors need to reach the screen unchanged.
@@ -94,7 +112,7 @@ export async function fetchDashboard(period: DashboardPeriod) {
           lead_score?: "hot" | "warm" | "cold"; created_at: string;
         }>;
         pagination: { total: number };
-      }>("/leads", { params: { limit: 6, page: 1, date_field: "created_at", date_from: params.date_from, date_to: params.date_to } }),
+      }>("/leads", { params: { limit: 6, page: 1, date_field: "created_at", date_from: custom.date_from, date_to: custom.date_to } }),
     ]);
 
     const stats = statsResponse.data;

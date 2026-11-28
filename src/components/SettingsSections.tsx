@@ -15,6 +15,9 @@ import {
   LEAD_SOURCES, LogEntry, reorderAssignmentRules, saveFeatureConfig, Team, updateAssignmentRule, Webhook,
 } from "@/api/workspaceSettings";
 
+// Same palette as the Add lead form.
+const UI = { line: "#cfe3f1", ink: "#0f172a", teal: "#0b6b97", tealSoft: "#e1eef7" };
+
 function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
@@ -77,7 +80,7 @@ function Chips({ options, value, onToggle, labelOf }: { options: string[]; value
 function PrimaryButton({ label, icon, onPress, busy }: { label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void; busy?: boolean }) {
   return (
     <Pressable onPress={onPress} disabled={busy} style={[{ marginTop: 16 }, busy && { opacity: 0.6 }]}>
-      <LinearGradient colors={["#0ea5e9", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primary}>
+      <LinearGradient colors={[UI.teal, UI.teal]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primary}>
         {busy ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name={icon} size={18} color="#fff" />}
         <Text style={styles.primaryText}>{label}</Text>
       </LinearGradient>
@@ -86,7 +89,7 @@ function PrimaryButton({ label, icon, onPress, busy }: { label: string; icon: ke
 }
 
 function Loading({ error, onRetry }: { error: string; onRetry: () => void }) {
-  if (!error) return <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>;
+  if (!error) return <View style={styles.center}><ActivityIndicator color={UI.teal} /></View>;
   return (
     <View style={styles.center}>
       <Ionicons name="cloud-offline-outline" size={28} color={colors.textMuted} />
@@ -266,7 +269,7 @@ export function AssignmentSection() {
     return (
       <View style={styles.stack}>
         <Pressable style={styles.backRow} onPress={() => setMode("list")} hitSlop={8}>
-          <Ionicons name="arrow-back" size={18} color={colors.primary} />
+          <Ionicons name="arrow-back" size={18} color={UI.teal} />
           <Text style={styles.backText}>Back to rules</Text>
         </Pressable>
         <Box>
@@ -320,7 +323,7 @@ export function AssignmentSection() {
         </View>
         {isAdmin ? (
           <Pressable style={styles.addButton} onPress={() => openForm()}>
-            <Ionicons name="add" size={18} color={colors.primary} />
+            <Ionicons name="add" size={18} color={UI.teal} />
             <Text style={styles.addText}>New rule</Text>
           </Pressable>
         ) : <Text style={styles.noteBox}>Only admins can change assignment rules.</Text>}
@@ -331,14 +334,14 @@ export function AssignmentSection() {
                 <Text style={styles.ruleName}>{rule.name}</Text>
                 <Text style={styles.hint}>{describe(rule)}</Text>
               </View>
-              <Switch value={rule.is_active} onValueChange={() => toggleRule(rule)} disabled={!isAdmin} color={colors.primary} />
+              <Switch value={rule.is_active} onValueChange={() => toggleRule(rule)} disabled={!isAdmin} color={UI.teal} />
             </View>
             {isAdmin ? (
               <View style={styles.ruleActions}>
                 <Pressable style={styles.iconBtn} onPress={() => move(index, -1)} disabled={index === 0}><Ionicons name="arrow-up" size={16} color={index === 0 ? colors.border : colors.textSecondary} /></Pressable>
                 <Pressable style={styles.iconBtn} onPress={() => move(index, 1)} disabled={index === rules.length - 1}><Ionicons name="arrow-down" size={16} color={index === rules.length - 1 ? colors.border : colors.textSecondary} /></Pressable>
                 <View style={{ flex: 1 }} />
-                <Pressable style={styles.iconBtn} onPress={() => openForm(rule)}><Ionicons name="create-outline" size={17} color={colors.primary} /></Pressable>
+                <Pressable style={styles.iconBtn} onPress={() => openForm(rule)}><Ionicons name="create-outline" size={17} color={UI.teal} /></Pressable>
                 <Pressable style={[styles.iconBtn, { backgroundColor: colors.dangerSoft }]} onPress={() => confirmDelete(rule)}><Ionicons name="trash-outline" size={17} color={colors.danger} /></Pressable>
               </View>
             ) : null}
@@ -419,7 +422,7 @@ export function MessagingSection() {
             <Text style={styles.ruleName}>Send qualified / won conversions to Meta</Text>
             <Text style={styles.hint}>Helps Meta find better leads. Set the dataset and token in Integrations.</Text>
           </View>
-          <Switch value={!!config.meta_capi_enabled} onValueChange={(v) => change("meta_capi_enabled", v)} color={colors.primary} />
+          <Switch value={!!config.meta_capi_enabled} onValueChange={(v) => change("meta_capi_enabled", v)} color={UI.teal} />
         </View>
         <Label>Qualified event</Label>
         <Input value={config.meta_qualified_event || ""} onChangeText={(v) => change("meta_qualified_event", v)} />
@@ -444,7 +447,7 @@ export function MessagingSection() {
           </View>
         ))}
         <Pressable style={styles.addButton} onPress={() => change("inbound_reply_rules", [...config.inbound_reply_rules, { trigger: "keyword", keyword: "", type: "text", value: "", language: "en_US" }])}>
-          <Ionicons name="add" size={18} color={colors.primary} /><Text style={styles.addText}>Add rule</Text>
+          <Ionicons name="add" size={18} color={UI.teal} /><Text style={styles.addText}>Add rule</Text>
         </Pressable>
       </Box>
 
@@ -461,7 +464,7 @@ export function MessagingSection() {
           </View>
         ))}
         <Pressable style={styles.addButton} onPress={() => change("canned_replies", [...config.canned_replies, { name: "", text: "" }])}>
-          <Ionicons name="add" size={18} color={colors.primary} /><Text style={styles.addText}>Add reply</Text>
+          <Ionicons name="add" size={18} color={UI.teal} /><Text style={styles.addText}>Add reply</Text>
         </Pressable>
       </Box>
 
@@ -543,8 +546,8 @@ export function DeveloperSection() {
         <Text style={styles.hint}>A key appears once. Save it somewhere safe before leaving this screen.</Text>
         {apiKey ? <Text selectable style={styles.code}>{apiKey}</Text> : null}
         <View style={styles.ruleActions}>
-          {isAdmin ? <Pressable style={styles.addButton} onPress={makeKey} disabled={busy === "key"}>{busy === "key" ? <ActivityIndicator size="small" color={colors.primary} /> : <Ionicons name="key-outline" size={16} color={colors.primary} />}<Text style={styles.addText}>Generate / regenerate</Text></Pressable> : null}
-          {apiKey ? <Pressable style={styles.addButton} onPress={() => share(apiKey)}><Ionicons name="share-outline" size={16} color={colors.primary} /><Text style={styles.addText}>Share</Text></Pressable> : null}
+          {isAdmin ? <Pressable style={styles.addButton} onPress={makeKey} disabled={busy === "key"}>{busy === "key" ? <ActivityIndicator size="small" color={UI.teal} /> : <Ionicons name="key-outline" size={16} color={UI.teal} />}<Text style={styles.addText}>Generate / regenerate</Text></Pressable> : null}
+          {apiKey ? <Pressable style={styles.addButton} onPress={() => share(apiKey)}><Ionicons name="share-outline" size={16} color={UI.teal} /><Text style={styles.addText}>Share</Text></Pressable> : null}
         </View>
       </Box>
 
@@ -562,7 +565,7 @@ export function DeveloperSection() {
           <View style={{ marginTop: 12 }}>
             <Text style={styles.label}>Signing secret (shown once)</Text>
             <Text selectable style={styles.code}>{secret}</Text>
-            <Pressable style={styles.addButton} onPress={() => share(secret)}><Ionicons name="share-outline" size={16} color={colors.primary} /><Text style={styles.addText}>Share secret</Text></Pressable>
+            <Pressable style={styles.addButton} onPress={() => share(secret)}><Ionicons name="share-outline" size={16} color={UI.teal} /><Text style={styles.addText}>Share secret</Text></Pressable>
           </View>
         ) : null}
         {hooks.length ? hooks.map((hook) => (
@@ -586,55 +589,55 @@ const styles = StyleSheet.create({
   stack: { gap: 14 },
   center: { minHeight: 180, alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 20 },
   errorText: { color: colors.textSecondary, fontSize: 13, textAlign: "center" },
-  retry: { backgroundColor: colors.primary, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 9 },
+  retry: { backgroundColor: UI.teal, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 9 },
   retryText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   errorBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 10, marginTop: 8 },
   errorBoxText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "600" },
   noteBox: { color: colors.textSecondary, fontSize: 12, backgroundColor: "#fff7ed", borderRadius: 12, padding: 10, marginTop: 8 },
   savedText: { color: "#15803d", fontSize: 13, fontWeight: "800", textAlign: "center" },
 
-  box: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: "#e2eef7", padding: 14 },
+  box: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: UI.line, padding: 14 },
   cardTitle: { color: colors.text, fontSize: 16, fontWeight: "900" },
-  label: { color: colors.text, fontSize: 13, fontWeight: "800" },
+  label: { color: UI.ink, fontSize: 12, fontWeight: "700" },
   hint: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
   headRow: { flexDirection: "row", alignItems: "center", gap: 10 },
 
-  input: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#f8fbfd", paddingHorizontal: 14, justifyContent: "center" },
+  input: { minHeight: 46, borderRadius: 10, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff", paddingHorizontal: 14, justifyContent: "center" },
   inputText: { color: colors.text, fontSize: 14, paddingVertical: 8 },
 
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, backgroundColor: "#f4f9fc", borderWidth: 1, borderColor: "#d7e6f1", maxWidth: "100%" },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chip: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, maxWidth: "100%" },
+  chipActive: { backgroundColor: UI.teal, borderColor: UI.teal },
   chipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700", textTransform: "capitalize" },
   chipTextActive: { color: "#fff" },
 
-  segment: { flexDirection: "row", backgroundColor: "#eaf1f7", borderRadius: 12, padding: 3 },
+  segment: { flexDirection: "row", backgroundColor: UI.tealSoft, borderRadius: 12, padding: 3 },
   segmentButton: { flex: 1, alignItems: "center", justifyContent: "center", height: 36, borderRadius: 10 },
   segmentActive: { backgroundColor: "#fff" },
   segmentText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
-  segmentTextActive: { color: colors.primary },
+  segmentTextActive: { color: UI.teal },
 
-  primary: { height: 50, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  primary: { height: 48, borderRadius: 999, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   primaryText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   backRow: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start" },
-  backText: { color: colors.primary, fontSize: 13, fontWeight: "800" },
+  backText: { color: UI.teal, fontSize: 13, fontWeight: "800" },
 
-  addButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, alignSelf: "flex-start", marginTop: 12, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.primarySoft },
-  addText: { color: colors.primary, fontSize: 13, fontWeight: "800" },
-  ruleCard: { marginTop: 12, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: "#e2eef7", backgroundColor: "#f8fbfd" },
+  addButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, alignSelf: "flex-start", marginTop: 12, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: UI.tealSoft },
+  addText: { color: UI.teal, fontSize: 13, fontWeight: "800" },
+  ruleCard: { marginTop: 12, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: UI.line, backgroundColor: "#ffffff" },
   ruleTop: { flexDirection: "row", alignItems: "center", gap: 10 },
   ruleName: { color: colors.text, fontSize: 14, fontWeight: "800" },
   ruleActions: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
-  iconBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#eef4f9", alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: UI.tealSoft, alignItems: "center", justifyContent: "center" },
   removeText: { color: colors.danger, fontSize: 13, fontWeight: "800", marginTop: 10 },
   noneText: { color: colors.textMuted, fontSize: 13, textAlign: "center", paddingVertical: 16 },
   switchRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 14 },
 
-  code: { color: colors.text, fontSize: 12, backgroundColor: "#f4f9fc", borderRadius: 10, padding: 10, marginTop: 8, overflow: "hidden" },
+  code: { color: colors.text, fontSize: 12, backgroundColor: "#ffffff", borderRadius: 10, padding: 10, marginTop: 8, overflow: "hidden" },
   statusPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   statusText: { fontSize: 11, fontWeight: "800" },
 
-  logRow: { flexDirection: "row", gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: "#eef4f9", marginTop: 4 },
+  logRow: { flexDirection: "row", gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: UI.tealSoft, marginTop: 4 },
   logDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5 },
   logTitle: { color: colors.text, fontSize: 13, fontWeight: "700" },
   logError: { color: colors.danger, fontSize: 12, marginTop: 2 },

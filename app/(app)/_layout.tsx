@@ -1,10 +1,10 @@
 import { IconHome, IconUsers, IconCheck, IconBook, IconGrid } from "@/components/ReferenceIcons";
 import React, { useEffect, useRef } from "react";
-import { Redirect, router, Tabs } from "expo-router";
+import { Redirect, router, Tabs, usePathname } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 // @ts-ignore - AuthContext is a TSX module and this app-level config does not enable JSX for the import check
 import { useAuth } from "@/contexts/AuthContext";
-import { Animated, Easing, Pressable, StyleSheet, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, tabBarStyleFor } from "@/theme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -35,11 +35,14 @@ const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void 
 
   // Slow breathing glow so the button invites a tap without being distracting.
   useEffect(() => {
+    // A few pulses, then it rests: an animation that never stops redraws the tab bar on every frame of every screen, which costs
+    // smoothness (and battery) on mid-range Android phones.
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
         Animated.timing(pulse, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
+      ]),
+      { iterations: 3 }
     );
     loop.start();
     return () => loop.stop();
@@ -50,7 +53,7 @@ const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void 
   return React.createElement(
     Pressable,
     {
-      ref, onPress, style: styles.aiButtonWrap, hitSlop: 12, accessibilityRole: "button", accessibilityLabel: "AI Tools",
+      ref, onPress, style: styles.aiButtonWrap, hitSlop: 12, accessibilityRole: "button", accessibilityLabel: "Add lead",
       onPressIn: () => springTo(0.88), onPressOut: () => springTo(1),
     },
     React.createElement(Animated.View, {
@@ -63,18 +66,45 @@ const AiTabButton = React.forwardRef<View, { onPress?: (...args: any[]) => void 
       Animated.View,
       { style: { transform: [{ scale: press }] } },
       React.createElement(
-        LinearGradient,
-        { colors: ["#06b6d4", "#6366f1", "#d946ef"], start: { x: 0, y: 0 }, end: { x: 1, y: 1 }, style: styles.aiButton },
-        React.createElement(Ionicons, { name: "sparkles", size: 24, color: "#fff" })
+        View,
+        { style: styles.aiButton },
+        React.createElement(Ionicons, { name: "person-add", size: 24, color: "#fff" })
       )
-    )
+    ),
+    React.createElement(Text, { style: styles.aiLabel }, "Add lead")
   );
 });
+
+// When Android frees the app's memory while it sits in the background, reopening is a fresh launch. Remember the last
+// screen so that launch returns to it instead of Home. Stale (older than the limit) or auth/root paths are ignored.
+const LAST_ROUTE_KEY = "curvelead_last_route";
+const LAST_ROUTE_MAX_AGE_MS = 30 * 60 * 1000;
 
 export default function AppLayout() {
   const { user, isLoading } = useAuth();
   const insets = useSafeAreaInsets();
   const { t } = useT();
+  const pathname = usePathname();
+  const restored = useRef(false);
+  const ready = !isLoading && !!user;
+  // Per account, so signing in as someone else never opens a screen from the previous account.
+  const routeKey = `${LAST_ROUTE_KEY}:${user?.id ?? ""}`;
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!restored.current) {
+      restored.current = true;
+      AsyncStorage.getItem(routeKey).then((raw) => {
+        if (!raw) return;
+        const saved = JSON.parse(raw) as { path: string; at: number };
+        if (Date.now() - saved.at > LAST_ROUTE_MAX_AGE_MS) return;
+        if (!saved.path || saved.path === "/" || saved.path === pathname || saved.path.includes("/new")) return;
+        router.push(saved.path as never);
+      }).catch(() => {});
+      return;
+    }
+    AsyncStorage.setItem(routeKey, JSON.stringify({ path: pathname, at: Date.now() })).catch(() => {});
+  }, [ready, pathname]);
 
   if (isLoading) return null;
   if (!user) return React.createElement(Redirect, { href: "/(auth)/login" });
@@ -86,7 +116,9 @@ export default function AppLayout() {
       backBehavior: "history",
       screenOptions: () => ({
         headerShown: false,
-        tabBarActiveTintColor: colors.primary,
+        // Tabs you aren't looking at stop redrawing (they catch up when shown), so Home, Leads and Tasks don't slow each other down.
+        freezeOnBlur: true,
+        tabBarActiveTintColor: "#0e8a9b",
         tabBarInactiveTintColor: colors.textMuted,
         tabBarHideOnKeyboard: true,
         tabBarLabelStyle: styles.label,
@@ -142,11 +174,11 @@ export default function AppLayout() {
           listeners: {
             tabPress: (event: any) => {
               event.preventDefault();
-              router.push("/(app)/more/ai-tools");
+              router.push("/(app)/leads/new");
             },
           },
           options: {
-            title: "AI",
+            title: "Add lead",
             // Explicitly override the shared tabBarItemStyle — its item wrapper otherwise
             // clips anything (like this button) that pokes above the tab bar's own bounds.
             tabBarItemStyle: styles.aiItem,
@@ -180,20 +212,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  iconActive: { backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.border },
+  iconActive: {},
   aiButtonWrap: { flex: 1, top: -14, alignItems: "center", justifyContent: "center", zIndex: 20, elevation: 20 },
-  aiButtonGlow: { position: "absolute", top: -6, width: 68, height: 68, borderRadius: 34, backgroundColor: "rgba(139,92,246,0.18)" },
+  aiButtonGlow: { position: "absolute", top: -9, width: 74, height: 74, borderRadius: 37, backgroundColor: "rgba(36,87,230,0.14)" },
+  aiLabel: { color: "#2457e6", fontSize: 10, fontFamily: "Inter_700Bold", marginTop: 3 },
   aiButton: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 3,
     borderColor: "#ffffff",
-    shadowColor: "#8b5cf6",
+    backgroundColor: "#2457e6",
+    shadowColor: "#2457e6",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.35,
     shadowRadius: 10,
     elevation: 20,
   },

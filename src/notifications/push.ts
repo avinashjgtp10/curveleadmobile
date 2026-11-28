@@ -60,12 +60,24 @@ export async function setAppBadge(count: number) {
   }
 }
 
+/** Removes the alerts already delivered to the phone's notification shade (the ones that arrived while the app was in the background). */
+export async function clearDeliveredNotifications() {
+  if (isExpoGo || Platform.OS === "web") return;
+  try {
+    await loadNotifications().dismissAllNotificationsAsync();
+  } catch {
+    // Nothing to clear, or the phone refused - the in-app list is the source of truth.
+  }
+}
+
 export async function ensureAndroidChannel() {
   if (isExpoGo || Platform.OS !== "android") return;
   const Notifications = loadNotifications();
   await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
     name: "Default",
     importance: Notifications.AndroidImportance.HIGH,
+    sound: "default",
+    enableVibrate: true,
     vibrationPattern: [0, 250, 250, 250],
     lightColor: "#0ea5e9",
   });
@@ -91,8 +103,9 @@ const TYPE_TO_GROUP: Record<string, string> = {
 };
 
 /** Honors the person's Notification Settings switches (cached on this phone by the settings screen). */
-async function isAlertEnabled(type?: string) {
-  const group = type ? TYPE_TO_GROUP[type] : undefined;
+export async function isAlertEnabled(type?: string) {
+  // Server notifications carry the settings key itself as their type (new_messages, hot_leads, ...), so it is honored too.
+  const group = type ? TYPE_TO_GROUP[type] ?? type : undefined;
   if (!group) return true;
   try {
     const raw = await AsyncStorage.getItem(NOTIFICATION_PREFS_CACHE_KEY);
@@ -109,7 +122,22 @@ async function isAlertEnabled(type?: string) {
  * hasn't granted notification permission. `data.local` marks it so the in-app list doesn't
  * mirror it a second time (it's already saved there by the caller).
  */
-export async function presentLocalNotification(title: string, body: string | undefined, data: Record<string, string | undefined> = {}) {
+/** True when a notification with the same text is already in the phone's notification shade (e.g. the server's own push). */
+async function alreadyInShade(title: string, body: string | undefined) {
+  try {
+    const shown = await loadNotifications().getPresentedNotificationsAsync();
+    return shown.some((item) => item.request.content.title === title && (item.request.content.body ?? "") === (body ?? ""));
+  } catch {
+    return false;
+  }
+}
+
+export async function presentLocalNotification(
+  title: string, body: string | undefined, data: Record<string, string | undefined> = {},
+  // For alerts made by the new-lead / new-notification check: if the server already pushed the same alert (and the phone
+  // showed it while the app was closed), ringing a second copy would just be a duplicate.
+  options: { skipIfShown?: boolean } = {},
+) {
   if (isExpoGo || Platform.OS === "web") {
     console.warn("[push] local alert skipped: not supported in Expo Go / web — use a development build");
     return;
@@ -124,6 +152,7 @@ export async function presentLocalNotification(title: string, body: string | und
       console.warn("[push] local alert skipped: notification permission is", status, "— enable it in Android Settings > Apps > CurveLead > Notifications");
       return;
     }
+    if (options.skipIfShown && (await alreadyInShade(title, body))) return;
     const cleanData = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined));
     await Notifications.scheduleNotificationAsync({
       content: { title, body, sound: "default", data: { ...cleanData, local: "1" } },
@@ -145,6 +174,22 @@ export async function getNotificationPermission(): Promise<NotificationPermissio
     return status;
   } catch {
     return "unsupported";
+  }
+}
+
+/** Whether this phone will show the pop-up banner and play the sound for alerts (iOS reports each one separately). */
+export async function getAlertAbilities(): Promise<{ popup: boolean; sound: boolean }> {
+  if (isExpoGo || Platform.OS === "web") return { popup: false, sound: false };
+  try {
+    const result = await loadNotifications().getPermissionsAsync();
+    if (result.status !== "granted") return { popup: false, sound: false };
+    const ios = (result as { ios?: { allowsAlert?: boolean | null; allowsSound?: boolean | null } }).ios;
+    // Android has one switch (granted); iOS can allow banners and sound independently.
+    return Platform.OS === "ios" && ios
+      ? { popup: ios.allowsAlert !== false, sound: ios.allowsSound !== false }
+      : { popup: true, sound: true };
+  } catch {
+    return { popup: false, sound: false };
   }
 }
 

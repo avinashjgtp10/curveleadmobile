@@ -1,18 +1,23 @@
-import { GlassBackground, glass, GradientIcon } from "@/components/Glass";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert, Dimensions, useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
+  Alert, AppState, Dimensions, FlatList, Linking, useWindowDimensions, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View,
 } from "react-native";
-import { ActivityIndicator, Appbar, Button, IconButton, List, Searchbar, Text, TextInput } from "react-native-paper";
+import { ActivityIndicator, Button, List, Searchbar, Text, TextInput } from "react-native-paper";
 import axios from "axios";
-import { router, useFocusEffect, useNavigation } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuth } from "@/contexts/AuthContext";
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, tabBarStyleFor } from "@/theme";
 import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
+import { cancelFollowupReminder, scheduleFollowupReminder } from "@/notifications/followupReminders";
+import { notifyFollowupScheduled } from "@/api/notifications";
+import { onLeadChanged } from "@/lib/leadCreation";
 import { useStages } from "@/hooks/useStages";
+import { phoneSearchTerm, telUrl } from "@/api/phone";
 import {
-  completeLeadFollowup, createLeadFollowup, fetchLeads, fetchTodayFollowups,
+  completeLeadFollowup, createLeadFollowup, fetchLeads, fetchTodayFollowups, trackContactActivity,
   FollowupType, LeadListItem, TodayFollowup,
 } from "@/api/leads";
 
@@ -26,20 +31,63 @@ const FOLLOWUP_TYPES: { key: FollowupType; label: string }[] = [
   { key: "demo", label: "Demo" },
 ];
 
+// Palette: soft grey-green page, white cards, deep green accent, red for overdue.
+const UI = { bg: "#f1f4f2", line: "#e4e9e6", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", green: "#0f7b5f", blue: "#2457e6", teal: "#0b6b97", formBg: "#f0f6fa", formLine: "#cfe3f1", red: "#d6334f", redSoft: "#fdecef", redLine: "#f6c8d0" };
+const AVATAR_COLORS = ["#c8294a", "#d98a0b", "#2457e6", "#0f7b5f", "#7c3aed", "#0f2a5c"];
+
 // Two menu items (~44 each) plus padding.
 const POPOVER_HEIGHT = 96;
-const DAY_ITEM_WIDTH = 46;
+let callWatcher: { remove: () => void } | null = null; // waits for the user to come back from the dialer
+const MIN_CALL_AWAY_MS = 4000;
+let followupsCache:{ userId: string; list: TodayFollowup[] } | null = null;
+// Saved on the phone for the next app start. Written once things settle (not on every refresh) and only the follow-ups
+// closest to now, so a long overdue history never makes the screen stall while it is converted to text.
+const SAVED_FOLLOWUPS_MAX = 200;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+function saveFollowupsOnPhone(userId: string, list: TodayFollowup[]) {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const now = Date.now();
+    const nearest = [...list]
+      .sort((a, b) => Math.abs(new Date(a.next_followup_at).getTime() - now) - Math.abs(new Date(b.next_followup_at).getTime() - now))
+      .slice(0, SAVED_FOLLOWUPS_MAX);
+    AsyncStorage.setItem(`curvelead_followups_${userId}`, JSON.stringify(nearest)).catch(() => {});
+  }, 800);
+}
+const SHOW_STEP = 10; // cards rendered per section before "Show more"
 const DAYS_BEFORE_TODAY = 60;
 const DAYS_AFTER_TODAY = 90;
+// One request covers everything the screen groups: overdue (earlier days), today and what's coming up.
+// Home and Appointments count every overdue follow-up however old, so the list asks from the beginning (a year's cut-off hid older ones).
+const OVERDUE_FROM = "1970-01-01";
+const NEAR_DAYS_BEFORE = 7; // the small request covers a week back; earlier days come from the history request
+
+type Filter = "all" | "overdue" | "day" | "upcoming";
 
 function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+function startOfDay(date: Date) {
+  const d = new Date(date); d.setHours(0, 0, 0, 0); return d;
+}
+
 function ymd(date: Date) {
-  const d = new Date(date); d.setHours(0, 0, 0, 0);
+  const d = startOfDay(date);
   const offset = d.getTimezoneOffset();
   return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+// A background refresh returns brand-new objects; keep the old ones when nothing changed so memoized cards don't redraw.
+function keepUnchanged(prev: TodayFollowup[], next: TodayFollowup[]) {
+  if (!prev.length) return next;
+  const old = new Map(prev.map((item) => [item.id, item]));
+  return next.map((item) => {
+    const before = old.get(item.id);
+    // Field by field: stringifying every row of a long history on each refresh was a visible cost.
+    return before && before.next_followup_at === item.next_followup_at && before.followup_type === item.followup_type && before.notes === item.notes
+      && before.lead_name === item.lead_name && before.lead_phone === item.lead_phone && before.lead_stage === item.lead_stage ? before : item;
+  });
 }
 
 function pretty(value?: string) {
@@ -51,11 +99,30 @@ function errorMessage(error: unknown, fallback: string) {
   return axios.isAxiosError(error) && typeof error.response?.data?.error === "string" ? error.response.data.error : fallback;
 }
 
-function FollowupRow({ item, completing, onComplete, onPress, colorFor, findStage }: {
-  item: TodayFollowup; completing: boolean; onComplete: () => void; onPress: () => void;
+// "15 min", "2 hours", "3 days": how long ago a follow-up was due.
+function overdueFor(value: string) {
+  const minutes = Math.max(1, Math.floor((Date.now() - new Date(value).getTime()) / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"}`;
+}
+
+// "30 Oct · 4:00 PM", from the follow-up's real date.
+function whenLabel(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · ${date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true }).toUpperCase()}`;
+}
+
+const FollowupCard = React.memo(function FollowupCard({ item, overdue, completing, onComplete: completeItem, onPress: openItem, colorFor, findStage }: {
+  item: TodayFollowup; overdue: boolean; completing: boolean; onComplete: (item: TodayFollowup) => void; onPress: (item: TodayFollowup) => void;
   colorFor: (stage?: string) => { bg: string; text: string };
   findStage: (name?: string) => { name: string } | undefined;
 }) {
+  const onComplete = () => completeItem(item);
+  const onPress = () => openItem(item);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ y: 0, right: 16 });
   const anchorRef = useRef<View>(null);
@@ -74,79 +141,115 @@ function FollowupRow({ item, completing, onComplete, onPress, colorFor, findStag
     setMenuOpen(false);
     setTimeout(action, 300);
   }
+  function callNow() {
+    trackContactActivity(item.lead_id, "call").catch(() => {});
+    Linking.openURL(telUrl(item.lead_phone)).then(askAfterCall).catch(() => Alert.alert("Unable to call", "Calling is not supported on this device."));
+  }
+  // The call happens in the phone app. When the user comes back, ask whether the follow-up is done,
+  // so it leaves Overdue/Today instead of staying there until it is completed by hand.
+  function askAfterCall() {
+    // Only one prompt can be waiting, so tapping Call twice doesn't stack two alerts.
+    callWatcher?.remove();
+    let leftAt = 0;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") { if (!leftAt) leftAt = Date.now(); return; }
+      if (!leftAt) return;
+      sub.remove();
+      if (callWatcher === sub) callWatcher = null;
+      // Back within a few seconds means the call never really happened (dialer cancelled), so don't ask.
+      if (Date.now() - leftAt < MIN_CALL_AWAY_MS) return;
+      Alert.alert("Call finished?", `Mark the follow-up with ${item.lead_name} as completed?`, [
+        { text: "Not yet", style: "cancel" },
+        { text: "Mark completed", onPress: onComplete },
+      ]);
+    });
+    callWatcher = sub;
+    // If the dialer never took focus, don't leave the listener hanging.
+    setTimeout(() => { if (!leftAt) { sub.remove(); if (callWatcher === sub) callWatcher = null; } }, 15000);
+  }
+  function openWhatsapp() {
+    Linking.openURL(`https://wa.me/${(item.lead_phone || "").replace(/\D/g, "")}`).catch(() => Alert.alert("Couldn't open WhatsApp", "Make sure WhatsApp is installed on this phone."));
+  }
   const stageColors = colorFor(item.lead_stage);
   const stageLabel = findStage(item.lead_stage)?.name || pretty(item.lead_stage);
-  const time = new Date(item.next_followup_at);
-  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
-  const overdue = !Number.isNaN(time.getTime()) && time < startOfToday;
-  const timeLabel = Number.isNaN(time.getTime()) ? "" : time.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  const avatarColor = AVATAR_COLORS[(item.lead_name?.charCodeAt(0) || 0) % AVATAR_COLORS.length];
   return (
-    <List.Item
-      style={styles.row}
-      title={() => (
-        <View style={styles.rowTitleLine}>
+    <Pressable style={[styles.card, overdue && styles.cardOverdue]} onPress={onPress} accessibilityRole="button">
+      <View style={styles.cardTop}>
+        <View style={[styles.avatar, { backgroundColor: avatarColor }]}><Text style={styles.avatarText}>{item.lead_name?.charAt(0)?.toUpperCase() || "?"}</Text></View>
+        <View style={styles.cardCopy}>
           <Text style={styles.rowName} numberOfLines={1}>{item.lead_name}</Text>
-          <View style={[styles.stagePill, { backgroundColor: stageColors.bg }]}><Text style={[styles.stagePillText, { color: stageColors.text }]}>{stageLabel}</Text></View>
+          <View style={[styles.stagePill, { backgroundColor: stageColors.bg }]}><Text style={[styles.stagePillText, { color: stageColors.text }]} numberOfLines={1}>{stageLabel}</Text></View>
         </View>
-      )}
-      description={() => (
-        <>
-          <Text style={[styles.rowTime, overdue && styles.rowOverdue]}>{overdue ? "Overdue" : "Follow-Up Time"} – {timeLabel}</Text>
-          {item.notes ? <Text style={styles.rowNotes} numberOfLines={2}>{item.notes}</Text> : null}
-        </>
-      )}
-      left={() => <List.Icon icon={() => <Text style={styles.avatarText}>{item.lead_name?.charAt(0)?.toUpperCase() || "?"}</Text>} style={styles.avatar} />}
-      right={() => completing ? (
-        <ActivityIndicator size="small" color={colors.primary} style={styles.doneButton} />
-      ) : (
-        <>
-          <View ref={anchorRef} collapsable={false}>
-            <IconButton icon="dots-vertical" iconColor={colors.textSecondary} size={22} style={styles.doneButton} onPress={openMenu} accessibilityLabel="Follow-up actions" />
+      </View>
+      {item.notes ? <Text style={styles.rowNotes} numberOfLines={2}>{item.notes}</Text> : null}
+      <View style={[styles.cardBottom, overdue && styles.cardBottomOverdue]}>
+        <View style={styles.whenWrap}>
+          <Ionicons name="time-outline" size={16} color={overdue ? UI.red : UI.sub} />
+          <View>
+            <Text style={[styles.whenLabel, overdue && { color: UI.red }]}>{overdue ? `Overdue by ${overdueFor(item.next_followup_at)}` : `${pretty(item.followup_type)} follow-up`}</Text>
+            <Text style={[styles.whenValue, overdue && { color: UI.red }]}>{whenLabel(item.next_followup_at)}</Text>
           </View>
-          <Modal visible={menuOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMenuOpen(false)}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
-              <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
-                <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onPress)}>
-                  <Ionicons name="eye-outline" size={16} color={colors.text} />
-                  <Text style={styles.popoverText}>View Details</Text>
-                </Pressable>
-                <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onComplete)}>
-                  <Ionicons name="checkmark-circle-outline" size={16} color={colors.success} />
-                  <Text style={[styles.popoverText, { color: colors.success }]}>Mark Completed</Text>
-                </Pressable>
-              </View>
+        </View>
+        {completing ? (
+          <ActivityIndicator size="small" color={UI.green} />
+        ) : (
+          <View style={styles.actions}>
+            <Pressable style={[styles.actionSquare, { backgroundColor: UI.blue }]} onPress={callNow} accessibilityRole="button" accessibilityLabel="Call">
+              <Ionicons name="call-outline" size={16} color="#fff" />
             </Pressable>
-          </Modal>
-        </>
-      )}
-      onPress={onPress}
-    />
+            <Pressable style={[styles.actionSquare, { backgroundColor: UI.green }]} onPress={openWhatsapp} accessibilityRole="button" accessibilityLabel="WhatsApp">
+              <Ionicons name="logo-whatsapp" size={16} color="#fff" />
+            </Pressable>
+            <View ref={anchorRef} collapsable={false}>
+              <Pressable style={[styles.actionSquare, styles.actionSquareLight]} onPress={openMenu} accessibilityRole="button" accessibilityLabel="Follow-up actions">
+                <Ionicons name="ellipsis-vertical" size={16} color={UI.sub} />
+              </Pressable>
+            </View>
+            {menuOpen ? <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMenuOpen(false)}>
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
+                <View style={[styles.popover, { top: menuPos.y, right: menuPos.right }]}>
+                  <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onPress)}>
+                    <Ionicons name="eye-outline" size={16} color={colors.text} />
+                    <Text style={styles.popoverText}>View Details</Text>
+                  </Pressable>
+                  <Pressable style={styles.popoverItem} onPress={() => runAfterClose(onComplete)}>
+                    <Ionicons name="checkmark-circle-outline" size={16} color={colors.success} />
+                    <Text style={[styles.popoverText, { color: colors.success }]}>Mark Completed</Text>
+                  </Pressable>
+                </View>
+              </Pressable>
+            </Modal> : null}
+          </View>
+        )}
+      </View>
+    </Pressable>
   );
-}
+});
 
-export default function FollowupsScreen() {
+// Memoized so picking a day redraws only the two cells that change, not all ~150 in the strip.
+const DayCell = React.memo(function DayCell({ day, active, width, onSelect }: { day: Date; active: boolean; width: number; onSelect: (day: Date) => void }) {
+  return (
+    <Pressable style={[styles.dayColumn, { width }]} onPress={() => onSelect(day)}>
+      <Text style={styles.dayLabel}>{WEEKDAYS[day.getDay()]}</Text>
+      <View style={[styles.dayNumber, active && styles.dayNumberActive]}>
+        <Text style={[styles.dayNumberText, active && styles.dayNumberTextActive]}>{day.getDate()}</Text>
+      </View>
+    </Pressable>
+  );
+});
+
+type AddFollowupValues = { lead: LeadListItem; type: FollowupType; at: Date; notes: string };
+type AddFollowupHandle = { open: (initial?: AddFollowupValues, error?: string) => void };
+
+// The Add follow-up form keeps what is typed in its own state, so each keystroke redraws only this form and not the whole
+// Tasks screen (date strip and lists) behind it.
+const AddFollowupSheet = React.memo(React.forwardRef<AddFollowupHandle, { saving: boolean; onSave: (values: AddFollowupValues) => void }>(
+function AddFollowupSheet({ saving, onSave }, ref) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { colorFor, findStage } = useStages();
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
-  const didMountRef = useRef(false);
-  const { width: screenWidth } = useWindowDimensions();
-  const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
-  const [followups, setFollowups] = useState<TodayFollowup[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
-  const [completingId, setCompletingId] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(true);
-
   const [addOpen, setAddOpen] = useState(false);
-
-  useEffect(() => {
-    navigation.setOptions({ tabBarStyle: addOpen ? { display: "none" } : tabBarStyleFor(insets.bottom) });
-    return () => { navigation.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
-  }, [addOpen, navigation, insets.bottom]);
-
   const [leadQuery, setLeadQuery] = useState("");
   const [leadResults, setLeadResults] = useState<LeadListItem[]>([]);
   const [searchingLeads, setSearchingLeads] = useState(false);
@@ -154,44 +257,21 @@ export default function FollowupsScreen() {
   const [followupAt, setFollowupAt] = useState(defaultFollowupDate());
   const [followupNotes, setFollowupNotes] = useState("");
   const [followupType, setFollowupType] = useState<FollowupType>("call");
-  const [saving, setSaving] = useState(false);
   const [addError, setAddError] = useState("");
 
-  // Only the newest request may update the screen, so a slow reply for an earlier day can't overwrite a later one.
-  const requestId = useRef(0);
-  // `silent` re-fetches in the background (no spinner, and a failure keeps the list on screen).
-  const load = useCallback(async (date: Date, refresh = false, silent = false) => {
-    const id = ++requestId.current;
-    if (!silent) {
-      refresh ? setRefreshing(true) : setLoading(true);
-      setError("");
-    }
-    try {
-      const dateStr = ymd(date);
-      // Today also lists follow-ups missed on earlier days (marked Overdue), so they can't be lost.
-      // Other days stay scoped to that calendar day.
-      const result = await fetchTodayFollowups(isSameDay(date, new Date()) ? undefined : { date_from: dateStr, date_to: dateStr });
-      if (id !== requestId.current) return;
-      setFollowups(result);
-    } catch (loadError) {
-      if (id !== requestId.current) return;
-      if (!silent) setError(errorMessage(loadError, "Could not load follow-ups."));
-    } finally {
-      if (id === requestId.current) { setLoading(false); setRefreshing(false); }
-    }
-  }, []);
+  React.useImperativeHandle(ref, () => ({
+    open: (initial, error) => {
+      setLeadQuery(""); setLeadResults([]); setSelectedLead(initial?.lead ?? null);
+      setFollowupAt(initial?.at ?? defaultFollowupDate()); setFollowupNotes(initial?.notes ?? ""); setAddError(error ?? "");
+      setFollowupType(initial?.type ?? "call");
+      setAddOpen(true);
+    },
+  }), []);
 
-  useEffect(() => { load(selectedDate); }, [selectedDate, load]);
-
-  // The tab stays mounted, so follow-ups completed or added elsewhere (a lead's page, Appointments) would stay stale.
-  // Refresh quietly whenever the tab is shown again.
-  const selectedDateRef = useRef(selectedDate);
-  selectedDateRef.current = selectedDate;
-  const focusedOnce = useRef(false);
-  useFocusEffect(useCallback(() => {
-    if (!focusedOnce.current) { focusedOnce.current = true; return; } // the first load is handled above
-    load(selectedDateRef.current, false, true);
-  }, [load]));
+  useEffect(() => {
+    navigation.setOptions({ tabBarStyle: addOpen ? { display: "none" } : tabBarStyleFor(insets.bottom) });
+    return () => { navigation.setOptions({ tabBarStyle: tabBarStyleFor(insets.bottom) }); };
+  }, [addOpen, navigation, insets.bottom]);
 
   useEffect(() => {
     if (!addOpen) return;
@@ -201,7 +281,7 @@ export default function FollowupsScreen() {
     searchTimer.current = setTimeout(async () => {
       setSearchingLeads(true);
       try {
-        const result = await fetchLeads({ search: leadQuery.trim(), limit: 6 });
+        const result = await fetchLeads({ search: phoneSearchTerm(leadQuery), limit: 6 });
         // Ignore a slower response for an older query.
         if (!cancelled) setLeadResults(result.leads);
       } catch { /* best-effort suggestions */ }
@@ -210,167 +290,36 @@ export default function FollowupsScreen() {
     return () => { cancelled = true; if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [leadQuery, addOpen]);
 
-  const days = useMemo(() => {
-    const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - DAYS_BEFORE_TODAY);
-    return Array.from({ length: DAYS_BEFORE_TODAY + DAYS_AFTER_TODAY + 1 }, (_, i) => {
-      const d = new Date(start); d.setDate(d.getDate() + i); return d;
-    });
-  }, []);
-
-  function scrollToDate(date: Date, animated: boolean) {
-    const index = days.findIndex((d) => isSameDay(d, date));
-    if (index < 0) return;
-    const x = Math.max(0, 8 + index * DAY_ITEM_WIDTH - screenWidth / 2 + DAY_ITEM_WIDTH / 2); // 8 = weekRow padding
-    scrollRef.current?.scrollTo({ x, animated });
-  }
-
-  useEffect(() => {
-    scrollToDate(selectedDate, didMountRef.current);
-    didMountRef.current = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate]);
-
-  function jumpDays(delta: number) {
-    const next = new Date(selectedDate);
-    next.setDate(next.getDate() + delta);
-    // Stay inside the days the strip can show, so a day is always highlighted.
-    const first = days[0];
-    const last = days[days.length - 1];
-    setSelectedDate(next < first ? first : next > last ? last : next);
-  }
-
-  async function handleComplete(item: TodayFollowup) {
-    setCompletingId(item.id);
-    try {
-      await completeLeadFollowup(item.id);
-      setFollowups((current) => current.filter((f) => f.id !== item.id));
-    } catch (completeError) {
-      // An alert, not the screen-level error, so one failed tap doesn't replace the whole list.
-      Alert.alert("Couldn't complete follow-up", errorMessage(completeError, "Could not update this follow-up."));
-    } finally { setCompletingId(null); }
-  }
-
-  function openAdd() {
-    setLeadQuery(""); setLeadResults([]); setSelectedLead(null);
-    setFollowupAt(defaultFollowupDate()); setFollowupNotes(""); setAddError(""); setFollowupType("call");
-    setAddOpen(true);
-  }
-
   function closeAdd() {
     if (!saving) setAddOpen(false);
   }
 
-  async function saveFollowup() {
+  function submit() {
     if (!selectedLead) { setAddError("Search and select a lead first."); return; }
     if (followupAt.getTime() < Date.now() - 60000) { setAddError("Choose a date and time in the future."); return; }
-    setSaving(true); setAddError("");
-    try {
-      await createLeadFollowup(selectedLead.id, {
-        followup_type: followupType,
-        next_followup_at: followupAt.toISOString(),
-        notes: followupNotes.trim() || undefined,
-      });
-      setAddOpen(false);
-      const when = followupAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
-      // Android drops Alerts fired while a Modal is still dismissing.
-      const leadName = selectedLead.name;
-      setTimeout(() => Alert.alert("Follow-up scheduled", `${leadName} - ${when}`), 300);
-      // Show the day it was booked for; if that's already the day on screen, just refresh it.
-      // Days outside the date strip can't be highlighted, so stay on the current day for those.
-      const bookedDay = new Date(followupAt.getFullYear(), followupAt.getMonth(), followupAt.getDate());
-      if (isSameDay(followupAt, selectedDate)) load(selectedDate, true);
-      else if (bookedDay >= days[0] && bookedDay <= days[days.length - 1]) setSelectedDate(bookedDay);
-    } catch (saveError) {
-      setAddError(errorMessage(saveError, "Could not schedule this follow-up."));
-    } finally { setSaving(false); }
+    setAddError(""); setAddOpen(false);
+    const values = { lead: selectedLead, type: followupType, at: followupAt, notes: followupNotes };
+    requestAnimationFrame(() => onSave(values)); // the form closes first, then the list behind it updates
   }
 
   return (
-    <View style={styles.screen}>
-      <GlassBackground />
-      <Appbar.Header style={styles.header} elevated={false}>
-        {router.canGoBack() ? <Appbar.BackAction onPress={() => router.back()} /> : null}
-        <Appbar.Content title="Follow-ups" titleStyle={styles.headerTitle} />
-        <Appbar.Action icon="plus" color={colors.primary} onPress={openAdd} />
-      </Appbar.Header>
-
-      <View style={styles.calendar}>
-        <View style={styles.monthRow}>
-          <Pressable onPress={() => jumpDays(-7)} hitSlop={8}><Ionicons name="chevron-back" size={18} color={colors.primary} /></Pressable>
-          <Text style={styles.monthLabel}>{MONTHS[selectedDate.getMonth()]} {selectedDate.getFullYear()}</Text>
-          <Pressable onPress={() => jumpDays(7)} hitSlop={8}><Ionicons name="chevron-forward" size={18} color={colors.primary} /></Pressable>
-        </View>
-        <ScrollView
-          ref={scrollRef} horizontal showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.weekRow} decelerationRate="fast"
-        >
-          {days.map((day, index) => {
-            const active = isSameDay(day, selectedDate);
-            return (
-              <Pressable key={index} style={styles.dayColumn} onPress={() => setSelectedDate(day)}>
-                <Text style={styles.dayLabel}>{WEEKDAYS[day.getDay()]}</Text>
-                <View style={[styles.dayNumber, active && styles.dayNumberActive]}>
-                  <Text style={[styles.dayNumberText, active && styles.dayNumberTextActive]}>{day.getDate()}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
-        <Pressable style={styles.todayToggle} onPress={() => setExpanded((value) => !value)}>
-          <Text style={styles.todayToggleText}>{isSameDay(selectedDate, new Date()) ? "Today" : "Selected day"} ({followups.length})</Text>
-          <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={16} color={colors.primary} />
-        </Pressable>
-
-      {expanded ? (
-        <ScrollView
-          contentContainerStyle={{ paddingBottom: insets.bottom + 100, flexGrow: followups.length ? 0 : 1 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(selectedDate, true)} tintColor={colors.primary} colors={[colors.primary]} />}
-          showsVerticalScrollIndicator={false}
-        >
-          {loading ? (
-            <View style={styles.state}><ActivityIndicator size="large" color={colors.primary} /></View>
-          ) : error ? (
-            <View style={styles.state}>
-              <Text style={styles.errorText}>{error}</Text>
-              <Button mode="contained" onPress={() => load(selectedDate)} style={styles.retry}>Try again</Button>
-            </View>
-          ) : followups.length ? (
-            followups.map((item) => (
-              <FollowupRow
-                key={item.id} item={item} completing={completingId === item.id}
-                onComplete={() => handleComplete(item)} colorFor={colorFor} findStage={findStage}
-                onPress={() => router.push({ pathname: "/(app)/leads/[id]", params: { id: item.lead_id, name: item.lead_name, phone: item.lead_phone, stage: item.lead_stage || "new" } })}
-              />
-            ))
-          ) : (
-            <View style={styles.empty}>
-              <View style={styles.emptyIcon}><Ionicons name="paw-outline" size={32} color={colors.primary} /></View>
-              <Text style={styles.emptyTitle}>No follow-ups due on this day.</Text>
-              <Text style={styles.emptyText}>Start assigning leads and set follow-ups</Text>
-            </View>
-          )}
-        </ScrollView>
-      ) : null}
-
-      <Modal visible={addOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeAdd}>
+    <Modal visible={addOpen} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={closeAdd}>
         <Pressable style={styles.sheetBackdrop} onPress={closeAdd}>
-          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top + 8 }]} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
+          <Pressable style={[styles.sheet, styles.fullSheet, { paddingTop: insets.top }]} onPress={() => {}}>
             <View style={styles.sheetHeader}>
-              <Pressable accessibilityLabel="Back" disabled={saving} hitSlop={10} onPress={closeAdd} style={styles.sheetBackButton}>
-                <Ionicons name="arrow-back" size={24} color={saving ? colors.textMuted : colors.text} />
+              <Text style={styles.sheetTitle}>Add follow-up</Text>
+              <Pressable accessibilityLabel="Close" disabled={saving} hitSlop={10} onPress={closeAdd}>
+                <Ionicons name="close" size={22} color={saving ? colors.textMuted : UI.ink} />
               </Pressable>
-              <Text style={styles.sheetTitle}>Add Follow-up</Text>
-              <View style={styles.sheetHeaderSpacer} />
             </View>
             <ScrollView
-              contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) }}
+              style={styles.sheetBody}
+              contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 18) }}
               keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
             >
               {addError ? <View style={styles.sheetError}><Ionicons name="alert-circle-outline" size={16} color={colors.danger} /><Text style={styles.sheetErrorText}>{addError}</Text></View> : null}
 
-              <Text style={styles.sheetSectionLabel}>Lead Name <Text style={styles.required}>*</Text></Text>
+              <Text style={[styles.sheetSectionLabel, { marginTop: 0 }]}>Lead name <Text style={styles.required}>*</Text></Text>
               {selectedLead ? (
                 <View style={styles.selectedLead}>
                   <Text style={styles.selectedLeadText} numberOfLines={1}>{selectedLead.name} · {selectedLead.phone}</Text>
@@ -397,7 +346,7 @@ export default function FollowupsScreen() {
                 </>
               )}
 
-              <Text style={styles.sheetSectionLabel}>Follow-Up Type</Text>
+              <Text style={styles.sheetSectionLabel}>Follow-up type</Text>
               <View style={styles.typeRow}>
                 {FOLLOWUP_TYPES.map((item) => {
                   const active = followupType === item.key;
@@ -409,64 +358,470 @@ export default function FollowupsScreen() {
                 })}
               </View>
 
-              <Text style={styles.sheetSectionLabel}>Follow-Up Date &amp; Time</Text>
-              <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} />
+              <Text style={styles.sheetSectionLabel}>Follow-up date &amp; time</Text>
+              <DateTimeField value={followupAt} onChange={setFollowupAt} minimumDate={new Date()} quickPicks />
 
-              <Text style={styles.sheetSectionLabel}>Follow-Up Note</Text>
-              <TextInput mode="outlined" value={followupNotes} onChangeText={setFollowupNotes} placeholder="Add a note (optional)" multiline numberOfLines={3} style={styles.sheetTextarea} />
+              <Text style={styles.sheetSectionLabel}>Follow-up note</Text>
+              <TextInput mode="outlined" value={followupNotes} onChangeText={setFollowupNotes} placeholder="Add a note (optional)" multiline numberOfLines={3} style={styles.sheetTextarea} outlineStyle={styles.sheetOutline} outlineColor={UI.formLine} activeOutlineColor={UI.teal} />
 
-              <Button mode="contained" onPress={saveFollowup} loading={saving} disabled={saving} style={styles.sheetPrimaryButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
+              <View style={styles.sheetActions}>
+                <Button mode="outlined" textColor={UI.teal} onPress={closeAdd} disabled={saving} style={styles.sheetCancelButton} contentStyle={styles.sheetPrimaryButtonContent}>Cancel</Button>
+                <Button mode="contained" buttonColor={UI.teal} onPress={submit} loading={saving} disabled={saving} style={styles.sheetSaveButton} contentStyle={styles.sheetPrimaryButtonContent}>Save</Button>
+              </View>
             </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
+  );
+}));
+
+export default function FollowupsScreen() {
+  const { user } = useAuth();
+  const cached = followupsCache && followupsCache.userId === user?.id ? followupsCache.list : null;
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  const { colorFor, findStage } = useStages();
+  const scrollRef = useRef<FlatList<Date>>(null);
+  const didMountRef = useRef(false);
+  const { width: screenWidth } = useWindowDimensions();
+  // Seven days fit across the card.
+  const dayWidth = Math.floor((screenWidth - 32 - 16) / 7);
+  const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
+  // The last list that loaded is shown at once while a fresh one is fetched, so the tab never opens on a bare spinner.
+  const [followups, setFollowups] = useState<TodayFollowup[]>(cached ?? []);
+  const [loading, setLoading] = useState(!cached);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [completingId, setCompletingId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [shown, setShown] = useState(SHOW_STEP);
+  // Opened from a dashboard tile (Follow-ups, Overdue): start on that group.
+  const { filter: startFilter, filterAt } = useLocalSearchParams<{ filter?: string; filterAt?: string }>();
+  useEffect(() => {
+    if (startFilter === "overdue" || startFilter === "day" || startFilter === "upcoming") {
+      setFilter(startFilter);
+      if (startFilter === "day") setSelectedDate(startOfDay(new Date()));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startFilter, filterAt]);
+
+  const addSheet = useRef<AddFollowupHandle>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Only the newest request may update the screen, so a slow reply can't overwrite a later one.
+  const requestId = useRef(0);
+  // Counts completions made on this screen, so a refresh that was already running can't put a completed follow-up back.
+  const localChanges = useRef(0);
+  // Completions still on their way to the server. A refresh that runs meanwhile gets the old list back (the follow-up still open),
+  // so its answer must not be put on screen.
+  const pendingSaves = useRef(0);
+  const followupsRef = useRef(followups);
+  followupsRef.current = followups;
+  // The screen is built from two requests: the days around today (small, fast, always fetched) and the older overdue
+  // history (can be large, so it only reloads on open and pull-to-refresh, not on every tab focus or save).
+  // `silent` re-fetches in the background (no spinner, and a failure keeps the list on screen).
+  const load = useCallback(async (refresh = false, silent = false, withOlder = true) => {
+    const id = ++requestId.current;
+    const changesAtStart = localChanges.current;
+    if (!silent) {
+      refresh ? setRefreshing(true) : setLoading(true);
+      setError("");
+    }
+    const windowStart = startOfDay(new Date()); windowStart.setDate(windowStart.getDate() - NEAR_DAYS_BEFORE);
+    const apply = (near: TodayFollowup[], older: TodayFollowup[] | null) => {
+      const keptOlder = older ?? followupsRef.current.filter((f) => new Date(f.next_followup_at) < windowStart);
+      const merged = keepUnchanged(followupsRef.current, [...keptOlder, ...near]);
+      followupsRef.current = merged;
+      if (user?.id) {
+        followupsCache = { userId: user.id, list: merged };
+        saveFollowupsOnPhone(user.id, merged);
+      }
+      setFollowups(merged);
+    };
+    try {
+      const to = startOfDay(new Date()); to.setDate(to.getDate() + DAYS_AFTER_TODAY);
+      const dayBefore = new Date(windowStart); dayBefore.setDate(dayBefore.getDate() - 1);
+      // Pull to refresh must ask the server again, not reuse an answer from the last few seconds.
+      const near = await fetchTodayFollowups({ date_from: ymd(windowStart), date_to: ymd(to) }, { fresh: refresh });
+      if (id !== requestId.current) return;
+      if (localChanges.current === changesAtStart && pendingSaves.current === 0) apply(near, null);
+      setLoading(false); setRefreshing(false);
+      // The (possibly large) history is asked for only once the days around today are on screen, so it can't slow them down.
+      const older = withOlder ? await fetchTodayFollowups({ date_from: OVERDUE_FROM, date_to: ymd(dayBefore) }, { fresh: refresh }).catch(() => null) : null;
+      if (older && id === requestId.current && localChanges.current === changesAtStart && pendingSaves.current === 0) apply(near, older);
+    } catch (loadError) {
+      if (id !== requestId.current) return;
+      if (!silent) setError(errorMessage(loadError, "Could not load follow-ups."));
+    } finally {
+      if (id === requestId.current) { setLoading(false); setRefreshing(false); }
+    }
+  }, [user?.id]);
+
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
+  // With a cached list on screen, the first refresh runs quietly instead of replacing it with a spinner.
+  useEffect(() => { load(false, !!cached); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // After the app was restarted nothing is in memory: show the list saved on the phone while the fresh one loads.
+  useEffect(() => {
+    if (!user?.id || followupsCache?.userId === user.id) return;
+    let cancelled = false;
+    AsyncStorage.getItem(`curvelead_followups_${user.id}`).then((raw) => {
+      if (cancelled || !raw || followupsCache?.userId === user.id) return; // the fresh list already arrived
+      const saved = JSON.parse(raw) as TodayFollowup[];
+      if (!Array.isArray(saved)) return;
+      followupsRef.current = saved;
+      setFollowups(saved); setLoading(false);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  // A lead edited on its own page (name, phone, stage) shows on its follow-up cards at once, instead of the old values staying
+  // until the next refresh. A lead moved into a lost stage leaves the list, as the server hides those follow-ups.
+  const findStageRef = useRef(findStage);
+  findStageRef.current = findStage;
+  useEffect(() => onLeadChanged((patch) => {
+    const touched = ["name", "phone", "stage"].some((key) => typeof patch[key] === "string");
+    if (!touched || !followupsRef.current.some((f) => f.lead_id === patch.id)) return;
+    const lost = typeof patch.stage === "string" && !!findStageRef.current(patch.stage)?.is_lost;
+    const apply = (list: TodayFollowup[]) => lost
+      ? list.filter((f) => f.lead_id !== patch.id)
+      : list.map((f) => f.lead_id !== patch.id ? f : {
+        ...f,
+        ...(typeof patch.name === "string" && { lead_name: patch.name }),
+        ...(typeof patch.phone === "string" && { lead_phone: patch.phone }),
+        ...(typeof patch.stage === "string" && { lead_stage: patch.stage }),
+      });
+    followupsRef.current = apply(followupsRef.current);
+    setFollowups(followupsRef.current);
+    if (followupsCache) {
+      followupsCache = { ...followupsCache, list: apply(followupsCache.list) };
+      saveFollowupsOnPhone(followupsCache.userId, followupsCache.list);
+    }
+  }), []);
+
+  // The tab stays mounted, so follow-ups completed or added elsewhere (a lead's page, Appointments) would stay stale.
+  // Refresh quietly whenever the tab is shown again.
+  const focusedOnce = useRef(false);
+  useFocusEffect(useCallback(() => {
+    if (!focusedOnce.current) { focusedOnce.current = true; return; } // the first load is handled above
+    load(false, true, false);
+  }, [load]));
+
+  const days = useMemo(() => {
+    const start = startOfDay(new Date()); start.setDate(start.getDate() - DAYS_BEFORE_TODAY);
+    return Array.from({ length: DAYS_BEFORE_TODAY + DAYS_AFTER_TODAY + 1 }, (_, i) => {
+      const d = new Date(start); d.setDate(d.getDate() + i); return d;
+    });
+  }, []);
+
+  function scrollToDate(date: Date, animated: boolean) {
+    const index = days.findIndex((d) => isSameDay(d, date));
+    if (index < 0) return;
+    const x = Math.max(0, 8 + index * dayWidth - (screenWidth - 32) / 2 + dayWidth / 2);
+    scrollRef.current?.scrollToOffset({ offset: x, animated });
+  }
+
+  useEffect(() => {
+    scrollToDate(selectedDate, didMountRef.current);
+    didMountRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
+
+  function jumpDays(delta: number) {
+    const next = new Date(selectedDate);
+    next.setDate(next.getDate() + delta);
+    // Stay inside the days the strip can show, so a day is always highlighted.
+    const first = days[0];
+    const last = days[days.length - 1];
+    setSelectedDate(next < first ? first : next > last ? last : next);
+  }
+
+  const handleComplete = useCallback(async (item: TodayFollowup) => {
+    // Remove it at once; put it back if the server refuses.
+    localChanges.current++;
+    pendingSaves.current++;
+    setCompletingId(item.id);
+    setFollowups((current) => current.filter((f) => f.id !== item.id));
+    followupsRef.current = followupsRef.current.filter((f) => f.id !== item.id);
+    if (followupsCache) followupsCache = { ...followupsCache, list: followupsCache.list.filter((f) => f.id !== item.id) };
+    let saved = false;
+    try {
+      await completeLeadFollowup(item.id);
+      saved = true;
+      // The server has it now. Nothing below may put the card back: a failure here is not a failed completion.
+      try {
+        cancelFollowupReminder(item.id);
+        // The copy saved on the phone must not bring it back after a restart.
+        if (followupsCache) saveFollowupsOnPhone(followupsCache.userId, followupsCache.list);
+      } catch { /* the follow-up is completed either way */ }
+    } catch (completeError) {
+      localChanges.current++;
+      setFollowups((current) => current.some((f) => f.id === item.id) ? current : [item, ...current]);
+      if (followupsCache && !followupsCache.list.some((f) => f.id === item.id)) followupsCache = { ...followupsCache, list: [item, ...followupsCache.list] };
+      // An alert, not the screen-level error, so one failed tap doesn't replace the whole list.
+      Alert.alert("Couldn't complete follow-up", errorMessage(completeError, "Could not update this follow-up."));
+    } finally {
+      pendingSaves.current--;
+      localChanges.current++; // a refresh that started while this was saving is out of date
+      setCompletingId(null);
+      // Confirm with the server (quietly, older overdue history included), so the list and the lead's details match what it saved.
+      if (saved && pendingSaves.current === 0) loadRef.current(false, true, true);
+    }
+  }, []);
+
+  const openLead = useCallback((item: TodayFollowup) => {
+    router.push({ pathname: "/(app)/leads/[id]", params: { id: item.lead_id, name: item.lead_name, phone: item.lead_phone, stage: item.lead_stage || "new" } });
+  }, []);
+
+  async function saveFollowup(form: AddFollowupValues) {
+    const { lead, type, at: bookedAt, notes } = form;
+    // The form is already closed and the follow-up shows in the list at once; the server saves it in the background.
+    const tempId = `temp-${Date.now()}`;
+    setSaving(true);
+    setFollowups((current) => [{
+      id: tempId, lead_id: lead.id, lead_name: lead.name, lead_phone: lead.phone, lead_stage: lead.stage,
+      followup_type: type, next_followup_at: bookedAt.toISOString(), notes: notes.trim() || undefined,
+    }, ...current]);
+    const when = bookedAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+    // Show the day it was booked for. Days outside the date strip can't be highlighted, so stay on the current day for those.
+    const bookedDay = startOfDay(bookedAt);
+    if (!isSameDay(bookedAt, selectedDate) && bookedDay >= days[0] && bookedDay <= days[days.length - 1]) setSelectedDate(bookedDay);
+    try {
+      const created = await createLeadFollowup(lead.id, { followup_type: type, next_followup_at: bookedAt.toISOString(), notes: notes.trim() || undefined });
+      scheduleFollowupReminder({ followupId: created.id, leadId: lead.id, leadName: lead.name, leadPhone: lead.phone, leadStage: lead.stage, at: bookedAt, type });
+      notifyFollowupScheduled({ id: lead.id, name: lead.name, phone: lead.phone, stage: lead.stage }, when).catch(() => {});
+      setTimeout(() => Alert.alert("Follow-up scheduled", `${lead.name} - ${when}`), 100);
+      load(false, true, false);
+    } catch (saveError) {
+      // Take the placeholder out and give the form back with what was typed, so nothing is lost.
+      setFollowups((current) => current.filter((item) => item.id !== tempId));
+      addSheet.current?.open(form, errorMessage(saveError, "Could not schedule this follow-up."));
+    } finally { setSaving(false); }
+  }
+
+  // Grouping is by the phone's real "today": earlier days are overdue, the picked day is its own group,
+  // and later days are upcoming.
+  const { overdueList, dayList, upcomingList } = useMemo(() => {
+    const nowMs = Date.now();
+    const todayStart = startOfDay(new Date()).getTime();
+    const dayStart = startOfDay(selectedDate).getTime();
+    const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+    const overdue: { item: TodayFollowup; t: number }[] = [];
+    const day: { item: TodayFollowup; t: number }[] = [];
+    const upcoming: { item: TodayFollowup; t: number }[] = [];
+    // One pass, each date read once (a long history made the old filter-and-sort-three-times pass slow on every redraw).
+    for (const item of followups) {
+      // Leads in a lost (disqualified) stage are out of the pipeline, so their scheduled follow-ups are dropped.
+      const stage = findStage(item.lead_stage);
+      if (stage?.is_lost || (item.lead_stage || "").toLowerCase() === "lost") continue;
+      const t = new Date(item.next_followup_at).getTime();
+      // As before: a past day picked in the strip lists its follow-ups both under Overdue and as its own day.
+      const onDay = t >= dayStart && t < dayEnd.getTime();
+      // Overdue as on the web: the time has passed, even earlier today.
+      if (t < nowMs) overdue.push({ item, t });
+      if (onDay) day.push({ item, t });
+      else if (t >= nowMs) upcoming.push({ item, t });
+    }
+    const sorted = (list: { item: TodayFollowup; t: number }[]) => list.sort((x, y) => x.t - y.t).map((entry) => entry.item);
+    return { overdueList: sorted(overdue), dayList: sorted(day), upcomingList: sorted(upcoming) };
+  }, [followups, selectedDate, findStage]);
+  useEffect(() => { setShown(SHOW_STEP); }, [filter, selectedDate]);
+  const selectedIsToday = isSameDay(selectedDate, new Date());
+  const dayTitle = selectedIsToday ? "Today" : selectedDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const dayDateLabel = selectedDate.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+
+  const sections: { key: Filter; title: string; right: string; items: TodayFollowup[]; overdue: boolean }[] = [
+    { key: "overdue", title: "Overdue", right: "Needs action", items: overdueList, overdue: true },
+    { key: "day", title: dayTitle, right: dayDateLabel, items: dayList, overdue: false },
+    { key: "upcoming", title: "Upcoming", right: "", items: upcomingList, overdue: false },
+  ];
+  // In the combined view a follow-up whose time has passed today is already under Overdue, so it isn't listed twice.
+  const overdueIds = new Set(overdueList.map((entry) => entry.id));
+  const visibleSections = sections
+    .map((section) => filter === "all" && section.key === "day" ? { ...section, items: section.items.filter((entry) => !overdueIds.has(entry.id)) } : section)
+    .filter((section) => (filter === "all" || filter === section.key) && section.items.length > 0);
+
+  const chips: { key: Filter; label: string; count?: number }[] = [
+    // No counts while the first load is running: "0" would claim there is nothing yet.
+    { key: "overdue", label: "Overdue", count: loading ? undefined : overdueList.length },
+    { key: "day", label: dayTitle, count: loading ? undefined : dayList.length },
+    { key: "upcoming", label: "Upcoming", count: loading ? undefined : upcomingList.length },
+  ];
+
+  return (
+    <View style={styles.screen}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        {router.canGoBack() ? (
+          <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+            <Ionicons name="arrow-back" size={22} color={UI.ink} />
+          </Pressable>
+        ) : null}
+        <Text style={styles.headerTitle}>Follow-ups</Text>
+      </View>
+
+      <View style={styles.calendar}>
+        <View style={styles.monthRow}>
+          <Pressable onPress={() => jumpDays(-7)} hitSlop={8} accessibilityLabel="Previous week"><Ionicons name="chevron-back" size={18} color={UI.green} /></Pressable>
+          <Text style={styles.monthLabel}>{MONTHS[selectedDate.getMonth()]} {selectedDate.getFullYear()}</Text>
+          <Pressable onPress={() => jumpDays(7)} hitSlop={8} accessibilityLabel="Next week"><Ionicons name="chevron-forward" size={18} color={UI.green} /></Pressable>
+        </View>
+        {/* Virtualized: only the days near the screen are built, not all ~150. */}
+        <FlatList
+          ref={scrollRef} horizontal data={days} extraData={selectedDate} keyExtractor={(_, index) => String(index)}
+          showsHorizontalScrollIndicator={false} contentContainerStyle={styles.weekRow} decelerationRate="fast"
+          getItemLayout={(_, index) => ({ length: dayWidth, offset: 8 + index * dayWidth, index })}
+          initialScrollIndex={Math.max(0, DAYS_BEFORE_TODAY - 3)} initialNumToRender={10} windowSize={5} maxToRenderPerBatch={10}
+          renderItem={({ item: day }) => <DayCell day={day} active={isSameDay(day, selectedDate)} width={dayWidth} onSelect={setSelectedDate} />}
+        />
+      </View>
+
+      <View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipRow}>
+          {chips.map((chip) => {
+            const active = filter === chip.key;
+            const isOverdueChip = chip.key === "overdue";
+            return (
+              <Pressable
+                key={chip.key} onPress={() => setFilter(active ? "all" : chip.key)} accessibilityRole="tab" accessibilityState={{ selected: active }}
+                style={[styles.chip, isOverdueChip && styles.chipOverdue, active && (isOverdueChip ? styles.chipOverdueActive : styles.chipActive)]}
+              >
+                <Text style={[styles.chipText, isOverdueChip && { color: UI.red }, active && !isOverdueChip && styles.chipTextActive, active && isOverdueChip && { color: "#fff" }]}>{chip.label}</Text>
+                {chip.count !== undefined ? (
+                  <View style={[styles.chipCount, isOverdueChip && { backgroundColor: UI.redSoft }, active && { backgroundColor: "rgba(255,255,255,0.25)" }]}>
+                    <Text style={[styles.chipCountText, isOverdueChip && { color: UI.red }, active && { color: "#fff" }]}>{chip.count}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + 100, flexGrow: 1 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={UI.green} colors={[UI.green]} />}
+        showsVerticalScrollIndicator={false}
+      >
+        {loading ? (
+          <View style={styles.state}><ActivityIndicator size="large" color={UI.green} /></View>
+        ) : error ? (
+          <View style={styles.state}>
+            <Text style={styles.errorText}>{error}</Text>
+            <Button mode="contained" onPress={() => load()} style={styles.retry}>Try again</Button>
+          </View>
+        ) : visibleSections.length ? (
+          visibleSections.map((section) => (
+            <View key={section.key}>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.sectionTitle, section.overdue && { color: UI.red }]}>{section.title}</Text>
+                <View style={[styles.sectionCount, section.overdue && { backgroundColor: UI.redSoft }]}>
+                  <Text style={[styles.sectionCountText, section.overdue && { color: UI.red }]}>{section.items.length}</Text>
+                </View>
+                <View style={{ flex: 1 }} />
+                {section.right ? <Text style={styles.sectionRight}>{section.right}</Text> : null}
+              </View>
+              {section.items.slice(0, shown).map((item) => (
+                <FollowupCard
+                  key={item.id} item={item} overdue={section.overdue} completing={completingId === item.id}
+                  onComplete={handleComplete} colorFor={colorFor} findStage={findStage} onPress={openLead}
+                />
+              ))}
+              {section.items.length > shown ? (
+                <Pressable style={styles.showMore} onPress={() => setShown((n) => n + SHOW_STEP)} accessibilityRole="button">
+                  <Text style={styles.showMoreText}>Show more ({section.items.length - shown})</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ))
+        ) : (
+          <View style={styles.empty}>
+            <View style={styles.emptyIcon}><Ionicons name="calendar-outline" size={30} color={UI.green} /></View>
+            <Text style={styles.emptyTitle}>{filter === "all" ? "No follow-ups to show." : "Nothing in this group."}</Text>
+            <Text style={styles.emptyText}>Start assigning leads and set follow-ups</Text>
+          </View>
+        )}
+      </ScrollView>
+
+      <Pressable accessibilityLabel="Add follow-up" accessibilityRole="button" style={[styles.fab, { bottom: insets.bottom + 86 }]} onPress={() => addSheet.current?.open()}>
+        <Ionicons name="add" size={24} color="#fff" />
+      </Pressable>
+
+      <AddFollowupSheet ref={addSheet} saving={saving} onSave={saveFollowup} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
-  typeChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: "#d7e6f1", backgroundColor: "#ffffff" },
-  typeChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  typeChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
+  typeChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: UI.formLine, backgroundColor: "#ffffff" },
+  typeChipActive: { backgroundColor: UI.teal, borderColor: UI.teal },
+  typeChipText: { color: UI.ink, fontSize: 13, fontWeight: "700" },
   typeChipTextActive: { color: "#ffffff" },
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { backgroundColor: "transparent" },
-  headerTitle: { fontSize: 20, fontFamily: "DMSans_700Bold" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingBottom: 12 },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center", marginLeft: -6 },
+  headerTitle: { color: UI.ink, fontSize: 18, fontFamily: "DMSans_700Bold" },
+  fab: { position: "absolute", right: 20, width: 46, height: 46, borderRadius: 23, backgroundColor: UI.green, alignItems: "center", justifyContent: "center", shadowColor: UI.green, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
 
-  calendar: { ...glass, marginHorizontal: 16, marginBottom: 16, paddingBottom: 12 },
-  monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 14 },
-  monthLabel: { color: colors.primary, fontSize: 14, fontFamily: "Inter_700Bold" },
+  calendar: { marginHorizontal: 16, marginBottom: 12, paddingBottom: 10, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 16 },
+  monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
+  monthLabel: { color: UI.ink, fontSize: 13, fontFamily: "Inter_700Bold" },
   weekRow: { flexDirection: "row", paddingHorizontal: 8 },
-  dayColumn: { width: DAY_ITEM_WIDTH, alignItems: "center", gap: 8 },
-  dayLabel: { color: colors.textMuted, fontSize: 10, fontFamily: "Inter_700Bold" },
-  dayNumber: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
-  dayNumberActive: { backgroundColor: colors.primary },
-  dayNumberText: { color: colors.text, fontSize: 15, fontWeight: "700" },
-  dayNumberTextActive: { color: colors.surface },
-  todayToggle: { ...glass, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, marginHorizontal: 16, marginBottom: 16 },
-  todayToggleText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
+  dayColumn: { alignItems: "center", gap: 6 },
+  dayLabel: { color: UI.muted, fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  dayNumber: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  dayNumberActive: { backgroundColor: UI.green },
+  dayNumberText: { color: UI.ink, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  dayNumberTextActive: { color: "#ffffff" },
+
+  chipScroll: { flexGrow: 0 },
+  showMore: { alignSelf: "center", paddingVertical: 10, paddingHorizontal: 18 },
+  showMoreText: { color: UI.green, fontWeight: "600" },
+  chipRow: { gap: 8, paddingHorizontal: 16, paddingBottom: 12, alignItems: "center" },
+  chip: { flexDirection: "row", alignItems: "center", gap: 6, height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line },
+  chipActive: { backgroundColor: UI.green, borderColor: UI.green },
+  chipOverdue: { borderColor: UI.redLine },
+  chipOverdueActive: { backgroundColor: UI.red, borderColor: UI.red },
+  chipText: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold" },
+  chipTextActive: { color: "#ffffff" },
+  chipCount: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, backgroundColor: "#e6ece9", alignItems: "center", justifyContent: "center" },
+  chipCountText: { color: UI.sub, fontSize: 10, fontFamily: "Inter_700Bold" },
+
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, marginTop: 6, marginBottom: 8 },
+  sectionTitle: { color: UI.ink, fontSize: 14, fontFamily: "DMSans_700Bold" },
+  sectionCount: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: "#d8f0e5", alignItems: "center", justifyContent: "center" },
+  sectionCountText: { color: UI.green, fontSize: 11, fontFamily: "Inter_700Bold" },
+  sectionRight: { color: UI.sub, fontSize: 11, fontFamily: "Inter_500Medium" },
 
   state: { alignItems: "center", justifyContent: "center", paddingVertical: 60 },
   errorText: { color: colors.danger, fontSize: 13, textAlign: "center", paddingHorizontal: 30 },
   retry: { marginTop: 14 },
 
   empty: { alignItems: "center", justifyContent: "center", flex: 1, paddingVertical: 60, paddingHorizontal: 30 },
-  emptyIcon: { width: 64, height: 64, borderRadius: 20, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  emptyTitle: { color: colors.primary, fontSize: 15, fontWeight: "700", textAlign: "center" },
-  emptyText: { color: colors.primary, fontSize: 14, textAlign: "center", marginTop: 4 },
+  emptyIcon: { width: 64, height: 64, borderRadius: 20, backgroundColor: "#d8f0e5", alignItems: "center", justifyContent: "center", marginBottom: 16 },
+  emptyTitle: { color: UI.ink, fontSize: 15, fontWeight: "700", textAlign: "center" },
+  emptyText: { color: UI.sub, fontSize: 13, textAlign: "center", marginTop: 4 },
 
-  row: { ...glass, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 12 },
-  avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: colors.surface, fontSize: 16, fontWeight: "800" },
-  rowTitleLine: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
-  rowName: { flexShrink: 1, maxWidth: "100%", color: colors.text, fontSize: 14, fontFamily: "Inter_700Bold" },
-  stagePill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  stagePillText: { fontSize: 10, fontWeight: "800" },
-  rowTime: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
-  rowOverdue: { color: colors.danger, fontWeight: "700" },
-  rowNotes: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
-  doneButton: { alignSelf: "center" },
+  card: { marginHorizontal: 16, marginBottom: 10, padding: 12, borderRadius: 16, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, gap: 10 },
+  cardOverdue: { borderColor: UI.redLine },
+  cardTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatar: { width: 40, height: 40, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  avatarText: { color: "#ffffff", fontSize: 16, fontFamily: "Inter_700Bold" },
+  cardCopy: { flex: 1, minWidth: 0, gap: 4, alignItems: "flex-start" },
+  rowName: { color: UI.ink, fontSize: 14, fontFamily: "Inter_700Bold", maxWidth: "100%" },
+  stagePill: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, maxWidth: "100%" },
+  stagePillText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  rowNotes: { color: UI.sub, fontSize: 12 },
+  cardBottom: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 10, borderTopWidth: 1, borderTopColor: UI.line },
+  cardBottomOverdue: { borderTopColor: UI.redLine },
+  whenWrap: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 },
+  whenLabel: { color: UI.sub, fontSize: 10, fontFamily: "Inter_500Medium" },
+  whenValue: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold", marginTop: 1 },
+  actions: { flexDirection: "row", gap: 8 },
+  actionSquare: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  actionSquareLight: { backgroundColor: "#eef1f0" },
   popover: {
     position: "absolute", minWidth: 190, paddingVertical: 6, borderRadius: 12, backgroundColor: colors.surface,
     borderWidth: 1, borderColor: colors.borderSoft, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
@@ -476,22 +831,26 @@ const styles = StyleSheet.create({
 
   sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
   fullSheet: { height: "100%", maxHeight: "100%", borderTopLeftRadius: 0, borderTopRightRadius: 0 },
-  sheet: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
+  sheet: { backgroundColor: UI.formBg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "70%" },
+  sheetBody: { flex: 1 },
   sheetHandle: { width: 34, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 10 },
-  sheetHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
+  sheetHeader: { minHeight: 56, paddingHorizontal: 16, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.formLine, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sheetBackButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", marginLeft: -8 },
   sheetHeaderSpacer: { width: 32 },
-  sheetTitle: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "800" },
-  sheetSectionLabel: { color: colors.text, fontSize: 11, fontWeight: "700", marginTop: 10, marginBottom: 5 },
+  sheetTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
+  sheetSectionLabel: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold", marginTop: 14, marginBottom: 6 },
   required: { color: colors.danger },
   sheetError: { flexDirection: "row", alignItems: "center", gap: 8, padding: 8, marginBottom: 4, borderRadius: 8, backgroundColor: colors.dangerSoft },
   sheetErrorText: { flex: 1, color: colors.danger, fontSize: 11, fontWeight: "700" },
-  searchInput: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8 },
+  searchInput: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.formLine, borderRadius: 10 },
   searchInputText: { fontSize: 13, minHeight: 0 },
-  suggestions: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, marginTop: 6, overflow: "hidden" },
-  selectedLead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 40, paddingHorizontal: 12, backgroundColor: colors.primarySoft, borderRadius: 8 },
-  selectedLeadText: { flex: 1, color: colors.primary, fontSize: 13, fontWeight: "700" },
-  sheetTextarea: { minHeight: 56 },
-  sheetPrimaryButton: { marginTop: 14, marginBottom: 4 },
-  sheetPrimaryButtonContent: { height: 42 },
+  suggestions: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.formLine, borderRadius: 10, marginTop: 6, overflow: "hidden" },
+  selectedLead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 40, paddingHorizontal: 12, backgroundColor: "#e1eef7", borderRadius: 10 },
+  selectedLeadText: { flex: 1, color: UI.teal, fontSize: 13, fontWeight: "700" },
+  sheetTextarea: { minHeight: 56, backgroundColor: "#ffffff" },
+  sheetOutline: { borderRadius: 10 },
+  sheetActions: { flexDirection: "row", gap: 12, marginTop: 20 },
+  sheetCancelButton: { flex: 1, borderColor: UI.formLine, borderRadius: 999, backgroundColor: "#ffffff" },
+  sheetSaveButton: { flex: 1, borderRadius: 999 },
+  sheetPrimaryButtonContent: { height: 44 },
 });

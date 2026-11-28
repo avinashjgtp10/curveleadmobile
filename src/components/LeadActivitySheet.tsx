@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Button, Text, TextInput } from "react-native-paper";
 import axios from "axios";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,15 +9,19 @@ import { DateTimeField, defaultFollowupDate } from "@/components/DateTimeField";
 import { createLeadFollowup, logLeadActivity } from "@/api/leads";
 import { NoteType, createLeadNote } from "@/api/notes";
 
+// The Add lead form's palette: pale blue page, soft blue borders, deep teal-blue actions.
+const TEAL = "#0b6b97";
+const LINE = "#cfe3f1";
+
 export type ActivitySheetType = "call" | "message" | "meeting" | "note";
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
 const CONFIG: Record<ActivitySheetType, { title: string; icon: IconName; tint: string; bg: string; save: string }> = {
-  call: { title: "Log a call", icon: "call", tint: "#0369a1", bg: "#e0f2fe", save: "Save call" },
-  message: { title: "Log a message", icon: "chatbubble-ellipses", tint: "#15803d", bg: "#dcfce7", save: "Save message" },
-  meeting: { title: "Schedule a meeting", icon: "calendar", tint: "#7e22ce", bg: "#f3e8ff", save: "Schedule meeting" },
-  note: { title: "Add a note", icon: "document-text", tint: "#b45309", bg: "#fef3c7", save: "Save note" },
+  call: { title: "Log a call", icon: "call", tint: TEAL, bg: "#e1eef7", save: "Save call" },
+  message: { title: "Log a message", icon: "chatbubble-ellipses", tint: TEAL, bg: "#e1eef7", save: "Save message" },
+  meeting: { title: "Schedule a meeting", icon: "calendar", tint: TEAL, bg: "#e1eef7", save: "Schedule meeting" },
+  note: { title: "Add a note", icon: "document-text", tint: TEAL, bg: "#e1eef7", save: "Save note" },
 };
 
 const CALL_OUTCOMES: { label: string; icon: IconName }[] = [
@@ -63,7 +67,6 @@ export function LeadActivitySheet({ type, leadId, leadName, onClose, onSaved }: 
   onSaved: (type: ActivitySheetType) => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [outcome, setOutcome] = useState("");
   const [notes, setNotes] = useState("");
@@ -137,26 +140,22 @@ export function LeadActivitySheet({ type, leadId, leadName, onClose, onSaved }: 
   const notePlaceholder = type === "call" ? "What was discussed?" : type === "message" ? "What did you send or hear back?"
     : type === "meeting" ? "e.g. Walk through pricing" : "Write your note…";
 
+  // A full page like the Add lead form: white header with a back arrow, pale blue page, Cancel and Save pills.
   return (
-    <Modal visible transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={close}>
-      <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={close} />
-        <View style={[styles.sheet, {
-          marginBottom: keyboardHeight,
-          paddingBottom: keyboardHeight ? 12 : Math.max(insets.bottom, 16),
-          maxHeight: windowHeight - keyboardHeight - insets.top - 12,
-        }]}>
-          <View style={styles.handle} />
-          <View style={styles.header}>
-            <View style={[styles.headerIcon, { backgroundColor: config.bg }]}><Ionicons name={config.icon} size={22} color={config.tint} /></View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{config.title}</Text>
-              <Text style={styles.subtitle} numberOfLines={1}>{leadName}</Text>
-            </View>
-            <Pressable onPress={close} hitSlop={10} accessibilityLabel="Close"><Ionicons name="close" size={22} color={colors.textSecondary} /></Pressable>
+    <Modal visible animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={close}>
+      <View style={[styles.screen, { paddingBottom: keyboardHeight }]}>
+        <View style={[styles.header, { paddingTop: insets.top }]}>
+          <Pressable onPress={close} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+            <Ionicons name="arrow-back" size={22} color="#0f172a" />
+          </Pressable>
+          <View style={[styles.headerIcon, { backgroundColor: config.bg }]}><Ionicons name={config.icon} size={18} color={config.tint} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>{config.title}</Text>
+            <Text style={styles.subtitle} numberOfLines={1}>{leadName}</Text>
           </View>
+        </View>
 
-          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={styles.form}>
+          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={styles.form} contentContainerStyle={styles.formContent}>
             {error ? (
               <View style={styles.errorBox}>
                 <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
@@ -191,7 +190,7 @@ export function LeadActivitySheet({ type, leadId, leadName, onClose, onSaved }: 
                 <Text style={styles.label}>Date &amp; time</Text>
                 <DateTimeField value={when} onChange={setWhen} minimumDate={new Date()} />
                 {mode === "demo" ? (
-                  <TextInput mode="outlined" label="Meeting link (optional)" value={meetingUrl} onChangeText={setMeetingUrl} placeholder="https://meet.google.com/…" autoCapitalize="none" keyboardType="url" style={styles.field} />
+                  <TextInput mode="outlined" outlineStyle={styles.outline} outlineColor={LINE} activeOutlineColor={TEAL} label="Meeting link (optional)" value={meetingUrl} onChangeText={setMeetingUrl} placeholder="https://meet.google.com/…" autoCapitalize="none" keyboardType="url" style={styles.field} />
                 ) : null}
               </>
             ) : null}
@@ -206,7 +205,7 @@ export function LeadActivitySheet({ type, leadId, leadName, onClose, onSaved }: 
             ) : null}
 
             <TextInput
-              mode="outlined" label={noteLabel} value={notes}
+              mode="outlined" outlineStyle={styles.outline} label={noteLabel} value={notes} outlineColor={LINE} activeOutlineColor={TEAL}
               onChangeText={(value) => { setNotes(value); setError(""); }}
               placeholder={notePlaceholder} multiline numberOfLines={type === "note" ? 5 : 3}
               style={[styles.field, styles.multiline]}
@@ -215,7 +214,7 @@ export function LeadActivitySheet({ type, leadId, leadName, onClose, onSaved }: 
             {type === "call" || type === "message" ? (
               <>
                 <Pressable style={styles.toggleRow} onPress={() => setFollowUp((value) => !value)} accessibilityRole="checkbox" accessibilityState={{ checked: followUp }}>
-                  <Ionicons name={followUp ? "checkbox" : "square-outline"} size={22} color={colors.primary} />
+                  <Ionicons name={followUp ? "checkbox" : "square-outline"} size={22} color={TEAL} />
                   <Text style={styles.toggleText}>Schedule next follow-up</Text>
                 </Pressable>
                 {followUp ? <DateTimeField value={when} onChange={setWhen} minimumDate={new Date()} /> : null}
@@ -223,13 +222,12 @@ export function LeadActivitySheet({ type, leadId, leadName, onClose, onSaved }: 
             ) : null}
           </ScrollView>
 
-          <View style={styles.actions}>
-            <Button mode="text" onPress={close} disabled={saving} style={styles.cancel} contentStyle={styles.buttonContent}>Cancel</Button>
-            <Button mode="contained" onPress={save} disabled={saving} style={styles.save} contentStyle={styles.buttonContent}
-              icon={saving ? () => <ActivityIndicator size="small" color="#ffffff" /> : undefined}>
-              {saving ? "Saving…" : config.save}
-            </Button>
-          </View>
+        <View style={[styles.bottomBar, { paddingBottom: keyboardHeight ? 12 : Math.max(insets.bottom, 12) }]}>
+          <Button mode="outlined" textColor={TEAL} onPress={close} disabled={saving} style={styles.cancel} contentStyle={styles.buttonContent}>Cancel</Button>
+          <Button mode="contained" buttonColor={TEAL} onPress={save} disabled={saving} style={styles.save} contentStyle={styles.buttonContent}
+            icon={saving ? () => <ActivityIndicator size="small" color="#ffffff" /> : undefined}>
+            {saving ? "Saving…" : config.save}
+          </Button>
         </View>
       </View>
     </Modal>
@@ -237,29 +235,30 @@ export function LeadActivitySheet({ type, leadId, leadName, onClose, onSaved }: 
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(22,22,22,0.45)" },
-  sheet: { backgroundColor: colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 18, paddingTop: 10 },
-  handle: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.border, marginBottom: 14 },
-  header: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 6 },
-  headerIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  title: { color: colors.text, fontSize: 18, fontWeight: "800" },
-  subtitle: { color: colors.textSecondary, fontSize: 12, marginTop: 1 },
-  form: { flexGrow: 0 },
-  label: { color: colors.text, fontSize: 12, fontWeight: "700", marginTop: 14, marginBottom: 8 },
-  required: { color: colors.danger },
+  screen: { flex: 1, backgroundColor: "#f0f6fa" },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: LINE },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  title: { color: "#0f172a", fontSize: 16, fontFamily: "DMSans_700Bold" },
+  subtitle: { color: colors.textSecondary, fontSize: 11, marginTop: 1 },
+  form: { flex: 1 },
+  formContent: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
+  label: { color: "#0f172a", fontSize: 12, fontFamily: "Inter_700Bold", marginTop: 14, marginBottom: 6 },
+  required: { color: "#d6334f" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
+  chip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: LINE, backgroundColor: "#ffffff" },
+  chipActive: { backgroundColor: TEAL, borderColor: TEAL },
+  chipText: { color: "#0f172a", fontSize: 13, fontWeight: "700" },
   chipTextActive: { color: "#ffffff" },
-  field: { marginTop: 14, backgroundColor: colors.surface },
+  field: { marginTop: 14, backgroundColor: "#ffffff" },
+  outline: { borderRadius: 10 },
   multiline: { minHeight: 90 },
   toggleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 16, marginBottom: 10 },
-  toggleText: { color: colors.text, fontSize: 14, fontWeight: "700" },
-  errorBox: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, marginTop: 10, borderRadius: 8, backgroundColor: colors.dangerSoft },
+  toggleText: { color: "#0f172a", fontSize: 13, fontWeight: "700" },
+  errorBox: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, marginTop: 10, borderRadius: 10, backgroundColor: colors.dangerSoft },
   errorText: { flex: 1, color: colors.danger, fontSize: 12, fontWeight: "700" },
-  actions: { flexDirection: "row", gap: 10, marginTop: 18 },
-  cancel: { flex: 1 },
-  save: { flex: 2 },
-  buttonContent: { height: 48 },
+  bottomBar: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: "#f0f6fa", borderTopWidth: 1, borderTopColor: LINE },
+  cancel: { width: 110, borderColor: LINE, borderRadius: 999, backgroundColor: "#ffffff" },
+  save: { flex: 1, borderRadius: 999 },
+  buttonContent: { height: 44 },
 });

@@ -12,6 +12,18 @@ export function dialNumber(phone: string) {
   return digits;
 }
 
+/**
+ * Phones are stored as "+<code><digits>" with no spaces, so a number typed as "98765 43210" or "098765 43210" would
+ * never match. Anything that looks like a phone number is searched as plain digits; other text is left alone.
+ */
+export function phoneSearchTerm(query: string) {
+  const q = query.trim();
+  if (!/^[\d\s()+-]+$/.test(q)) return q;
+  const digits = q.replace(/\D/g, "");
+  if (!digits) return q;
+  return q.startsWith("+") ? digits : digits.replace(/^0+(?=\d)/, "");
+}
+
 export function telUrl(phone: string) {
   return `tel:${dialNumber(phone)}`;
 }

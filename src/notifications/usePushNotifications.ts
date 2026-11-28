@@ -1,17 +1,25 @@
 import { useEffect, useRef } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { router } from "expo-router";
 import type * as NotificationsType from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { unregisterPushToken } from "@/api/pushTokens";
 import { rateLimitRemainingMs } from "@/api/client";
-import { saveIncomingPushNotification } from "@/api/notifications";
-import { configureNotificationHandler } from "./push";
-import { LAST_REGISTERED_TOKEN_KEY, registerDevice } from "./pushStatus";
+import { alertNewLeads, alertNewServerNotifications, alertOverdueFollowups, resetAlertBaseline, saveIncomingPushNotification } from "@/api/notifications";
+import { configureNotificationHandler, getNotificationPermission } from "./push";
+import { LAST_REGISTERED_TOKEN_KEY, getPushStatus, registerDevice } from "./pushStatus";
 import { navigateToNotification, NotificationRouteData } from "./navigateToNotification";
 import { withRetry } from "./retry";
 import { isExpoGo } from "./environment";
+import { setBackgroundCheck } from "./backgroundCheck";
+
+// Registering this phone for push and the first new-lead / notification check wait this long after opening, so they don't
+// compete with the screens loading. Notifications that arrive as real pushes, and the app-closed background check, are not delayed.
+const PUSH_STARTUP_DELAY_MS = 15_000;
+// The new-lead / notification check is what shows alerts that arrived while the app was closed (when the server sent no push),
+// so on opening it runs after a few seconds, not after the full registration delay.
+const ALERT_STARTUP_DELAY_MS = 4_000;
 
 // Register the foreground handler as soon as the app loads, not after the first screen mounts: a push that arrives
 // during start-up would otherwise fall back to iOS's default and show no banner.
@@ -68,7 +76,11 @@ export function usePushNotifications(navigationReady: boolean) {
   useEffect(() => {
     if (isExpoGo || isLoading) return;
 
+    // Keeps checking for new leads/notifications while the app is closed (the backend may not send real pushes).
+    setBackgroundCheck(!!user).catch(() => {});
+
     if (!user) {
+      resetAlertBaseline().catch(() => {});
       // Logged out: best-effort unregister this device's token so the backend stops
       // sending pushes to a session that's no longer signed in, then forget it locally
       // regardless of whether the network call succeeded (don't get stuck retrying
@@ -93,7 +105,7 @@ export function usePushNotifications(navigationReady: boolean) {
       if (blocked) { timer = start(blocked + 500); return; }
       registerDevice().catch((error) => console.warn("[push] registration failed", error));
     }, delay);
-    let timer = start(4000);
+    let timer = start(PUSH_STARTUP_DELAY_MS);
 
     // Fires if the underlying push token rotates while the app is running (rare, but
     // documented as possible by Expo — e.g. after a Google Play Services update).
@@ -101,11 +113,40 @@ export function usePushNotifications(navigationReady: boolean) {
       registerDevice().catch(() => {});
     });
 
+    // Registration otherwise runs only at login / app start. If it failed then (server briefly down, rate limit) or the
+    // person turned notifications on later in the phone's settings, this phone would stay unregistered until a restart.
+    const appSub = AppState.addEventListener("change", async (state) => {
+      if (state !== "active" || cancelled || rateLimitRemainingMs()) return;
+      const status = await getPushStatus();
+      if (!status || status.state === "registered" || status.state === "unsupported") return;
+      // Only when the permission is now on: asking again while it's off would just nag.
+      if ((await getNotificationPermission()) !== "granted") return;
+      registerDevice().catch(() => {});
+    });
+
     return () => {
       cancelled = true;
       clearTimeout(timer);
       tokenSub.remove();
+      appSub.remove();
     };
+  }, [user, isLoading]);
+
+  // Server-made notifications (new leads from WhatsApp/Google/Facebook, reminders) ring while the app is open, even when the
+  // backend sent no push for them. Skipped while rate limited so it never adds to a "Too many requests" burst.
+  useEffect(() => {
+    if (isExpoGo || isLoading || !user) return;
+    let running = false;
+    const check = () => {
+      if (running || AppState.currentState !== "active" || rateLimitRemainingMs()) return;
+      running = true;
+      // Leads first, so a "new lead" notification for a lead just announced isn't announced again.
+      alertNewLeads().catch(() => {}).then(() => alertNewServerNotifications()).catch(() => {}).then(() => alertOverdueFollowups()).catch(() => {}).finally(() => { running = false; });
+    };
+    const first = setTimeout(check, ALERT_STARTUP_DELAY_MS);
+    const timer = setInterval(check, 60000);
+    const sub = AppState.addEventListener("change", (state) => { if (state === "active") check(); });
+    return () => { clearTimeout(first); clearInterval(timer); sub.remove(); };
   }, [user, isLoading]);
 
   // Tap handling: foreground taps and background taps both fire this listener.

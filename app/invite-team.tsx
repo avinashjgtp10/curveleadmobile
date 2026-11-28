@@ -10,6 +10,9 @@ import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
 import { inviteStaffMember } from "@/api/staff";
 import { fetchTeams, Team } from "@/api/workspaceSettings";
 
+// Palette shared with the Team screen: pale blue page, white fields, deep teal-blue actions.
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", teal: "#0b6b97", red: "#d6334f" };
+
 const NO_TEAM = "No team";
 
 export default function InviteTeamScreen() {
@@ -66,9 +69,9 @@ export default function InviteTeamScreen() {
     <KeyboardAvoidingView style={[styles.backdrop, { paddingBottom: keyboardHeight }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={[styles.sheet, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Text style={styles.title}>Invite Team Member</Text>
+          <Text style={styles.title}>Invite team member</Text>
           <Pressable accessibilityLabel="Close" hitSlop={10} onPress={close}>
-            <Ionicons name="close" size={22} color={colors.text} />
+            <Ionicons name="close" size={22} color={UI.ink} />
           </Pressable>
         </View>
 
@@ -98,8 +101,8 @@ export default function InviteTeamScreen() {
             onSelect={(value) => { setTeam(value); setOpenMenu(null); }}
           />
           <View style={styles.actions}>
-            <Button mode="outlined" style={styles.cancelButton} contentStyle={styles.actionContent} onPress={close} disabled={sending}>Cancel</Button>
-            <Button mode="contained" style={styles.sendButton} contentStyle={styles.actionContent} onPress={sendInvite} loading={sending} disabled={sending}>Send invite</Button>
+            <Button mode="outlined" textColor={UI.teal} style={styles.cancelButton} contentStyle={styles.actionContent} onPress={close} disabled={sending}>Cancel</Button>
+            <Button mode="contained" buttonColor={UI.teal} style={styles.sendButton} contentStyle={styles.actionContent} onPress={sendInvite} loading={sending} disabled={sending}>Send invite</Button>
           </View>
         </ScrollView>
       </View>
@@ -119,8 +122,8 @@ function InviteField({ label, required, ...props }: { label: string; required?: 
         keyboardType={props.keyboardType}
         autoCapitalize={props.autoCapitalize}
         style={styles.input}
-        outlineColor={colors.border}
-        activeOutlineColor={colors.primary}
+        outlineColor={UI.line}
+        activeOutlineColor={UI.teal}
       />
     </View>
   );
@@ -132,7 +135,7 @@ function InviteSelect({ label, value, open, onPress, options, onSelect }: { labe
       <Text style={styles.label}>{label}</Text>
       <Pressable style={styles.select} onPress={onPress}>
         <Text style={styles.selectText}>{value}</Text>
-        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={22} color={colors.text} />
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={20} color={UI.ink} />
       </Pressable>
       {open ? (
         <View style={styles.options}>
@@ -148,23 +151,23 @@ function InviteSelect({ label, value, open, onPress, options, onSelect }: { labe
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: colors.surface },
-  sheet: { flex: 1, backgroundColor: colors.surface },
-  header: { minHeight: 52, paddingHorizontal: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.borderSoft, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  title: { color: colors.text, fontSize: 16, fontWeight: "800" },
+  backdrop: { flex: 1, backgroundColor: UI.bg },
+  sheet: { flex: 1, backgroundColor: UI.bg },
+  header: { minHeight: 56, paddingHorizontal: spacing.lg, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  title: { color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   body: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
-  description: { color: colors.textSecondary, fontSize: 12, lineHeight: 17, marginBottom: spacing.sm },
-  field: { marginBottom: 10 },
-  label: { color: colors.text, fontSize: 12, fontWeight: "700", marginBottom: 5 },
-  required: { color: colors.danger },
-  input: { height: 38, backgroundColor: colors.surface, fontSize: 13 },
-  select: { minHeight: 40, borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: spacing.md, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  selectText: { color: colors.text, fontSize: 13 },
-  options: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, marginTop: 5, overflow: "hidden", backgroundColor: colors.surface },
-  option: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  optionText: { color: colors.text, fontSize: 13 },
-  actions: { flexDirection: "row", gap: 10, marginTop: spacing.sm },
-  actionContent: { height: 42 },
-  cancelButton: { flex: 1, borderColor: colors.border },
-  sendButton: { flex: 1 },
+  description: { color: UI.sub, fontSize: 12, lineHeight: 17, marginBottom: spacing.md },
+  field: { marginBottom: 12 },
+  label: { color: UI.ink, fontSize: 12, fontFamily: "Inter_700Bold", marginBottom: 6 },
+  required: { color: UI.red },
+  input: { height: 42, backgroundColor: "#ffffff", fontSize: 13 },
+  select: { minHeight: 44, borderWidth: 1, borderColor: UI.line, borderRadius: 10, backgroundColor: "#ffffff", paddingHorizontal: spacing.md, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  selectText: { color: UI.ink, fontSize: 13 },
+  options: { borderWidth: 1, borderColor: UI.line, borderRadius: 10, marginTop: 5, overflow: "hidden", backgroundColor: "#ffffff" },
+  option: { paddingHorizontal: spacing.md, paddingVertical: 12 },
+  optionText: { color: UI.ink, fontSize: 13 },
+  actions: { flexDirection: "row", gap: 12, marginTop: spacing.md },
+  actionContent: { height: 44 },
+  cancelButton: { flex: 1, borderColor: UI.line, borderRadius: 999, backgroundColor: "#ffffff" },
+  sendButton: { flex: 1, borderRadius: 999 },
 });

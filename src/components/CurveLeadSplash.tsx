@@ -4,7 +4,7 @@ import {
 } from "react-native";
 import * as NativeSplashScreen from "expo-splash-screen";
 const LOGO = require("../../assets/curvelead-splash-logo.png");
-export const SPLASH_TIMING = { wave: 1800, hold: 800, exit: 650, textFade: 600, wordmarkDelay: 900, taglineDelay: 1050 } as const;
+export const SPLASH_TIMING = { wave: 550, hold: 0, exit: 250, textFade: 250, wordmarkDelay: 250, taglineDelay: 320 } as const;
 const ease = Easing.bezier(0.25, 0.1, 0.25, 1);
 
 type Props = { ready: boolean; onComplete: () => void };

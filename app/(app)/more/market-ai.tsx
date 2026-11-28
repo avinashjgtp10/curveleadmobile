@@ -1,14 +1,17 @@
 import { PlaceholderScreen } from "@/components/PlaceholderScreen";
-import { glass } from "@/components/Glass";
 import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Appbar, Text, TextInput } from "react-native-paper";
+import { Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { ActivityIndicator, Text } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { apiClient } from "@/api/client";
 
+
+// The add forms' palette: pale blue page, white cards with soft blue borders, deep teal-blue actions.
+const CARD = { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#cfe3f1", borderRadius: 16 } as const;
+const UI = { bg: "#f0f6fa", line: "#cfe3f1", ink: "#0f172a", sub: "#64748b", muted: "#94a3b8", teal: "#0b6b97", tealSoft: "#e1eef7", red: "#d6334f", redSoft: "#fdecef", amber: "#c2710c", amberSoft: "#fde9c9", green: "#0f7b5f", greenSoft: "#d8f0e5", track: "#e4ecf3" };
 const INDUSTRIES = ["CRM & Sales Software", "Real Estate", "EdTech", "FinTech", "HealthTech", "E-Commerce", "Salon & Spa", "Retail", "SaaS", "Other"];
 const GEOGRAPHIES = ["India", "United States", "United Kingdom", "UAE", "Singapore", "Global"];
 const CUSTOMERS = ["SMBs", "Enterprises", "Startups", "Local customers", "Students", "Consumers"];
@@ -39,6 +42,20 @@ function FieldLabel({ children, required = false }: { children: string; required
   );
 }
 
+// A plain white box like the Add lead form's fields. The multi-line one shows its whole placeholder.
+function TextBox({ value, onChangeText, placeholder, multiline = false, error = false }: {
+  value: string; onChangeText: (value: string) => void; placeholder: string; multiline?: boolean; error?: boolean;
+}) {
+  return (
+    <View style={[styles.textBox, multiline && styles.textBoxMulti, error && styles.fieldErrorBorder]}>
+      <RNTextInput
+        value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={UI.muted}
+        multiline={multiline} textAlignVertical={multiline ? "top" : "center"} style={[styles.textBoxInput, multiline && styles.textBoxInputMulti]}
+      />
+    </View>
+  );
+}
+
 function SelectField({ label, value, options, onChange, required = false, error }: {
   label: string;
   value: string;
@@ -53,7 +70,7 @@ function SelectField({ label, value, options, onChange, required = false, error 
       <FieldLabel required={required}>{label}</FieldLabel>
       <Pressable style={[styles.selectBox, open && styles.selectBoxOpen, error && styles.fieldErrorBorder]} onPress={() => setOpen((current) => !current)}>
         <Text style={[styles.selectText, !value && styles.placeholderText]} numberOfLines={1}>{value || `Select ${label.toLowerCase()}...`}</Text>
-        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={colors.textMuted} />
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={UI.muted} />
       </Pressable>
       {open ? (
         <View style={styles.dropdownList}>
@@ -118,14 +135,16 @@ function MarketIntelligenceContent() {
 
   return (
     <View style={styles.screen}>
-      <Appbar.Header style={styles.header} elevated={false}>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Market Intelligence" titleStyle={styles.headerTitle} />
-      </Appbar.Header>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Back">
+          <Ionicons name="arrow-back" size={22} color={UI.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle} numberOfLines={1}>Market Intelligence</Text>
+      </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <View style={styles.heroIcon}><Ionicons name="globe-outline" size={22} color="#4f46e5" /></View>
+          <View style={styles.heroIcon}><Ionicons name="globe-outline" size={22} color={UI.teal} /></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Market Intelligence</Text>
             <Text style={styles.subtitle}>AI-powered competitor & market analysis for your business</Text>
@@ -134,12 +153,12 @@ function MarketIntelligenceContent() {
 
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Ionicons name="sparkles-outline" size={18} color="#4f46e5" />
+            <Ionicons name="sparkles-outline" size={18} color={UI.teal} />
             <Text style={styles.cardTitle}>Tell us about your business</Text>
           </View>
 
           <FieldLabel>Business Name</FieldLabel>
-          <TextInput mode="outlined" value={businessName} onChangeText={setBusinessName} placeholder="e.g. CurveLead" style={styles.input} />
+          <TextBox value={businessName} onChangeText={setBusinessName} placeholder="e.g. CurveLead" />
 
           <SelectField
             label="Industry"
@@ -151,14 +170,12 @@ function MarketIntelligenceContent() {
           />
 
           <FieldLabel required>Product / Service</FieldLabel>
-          <TextInput
-            mode="outlined"
+          <TextBox
             value={productService}
             onChangeText={(value) => { setProductService(value); setErrors((current) => ({ ...current, productService: undefined })); }}
             placeholder="e.g. Lead management CRM with AI scoring and WhatsApp integration"
-            style={[styles.input, errors.productService && styles.inputWithError]}
-            error={!!errors.productService}
             multiline
+            error={!!errors.productService}
           />
           {errors.productService ? <Text style={styles.inlineError}>{errors.productService}</Text> : null}
 
@@ -206,41 +223,44 @@ export default function MarketAiScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.surface },
-  header: { backgroundColor: colors.surface },
-  headerTitle: { color: colors.text, fontSize: 18, fontFamily: "Inter_700Bold" },
+  screen: { flex: 1, backgroundColor: UI.bg },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: UI.line },
+  headerButton: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, color: UI.ink, fontSize: 16, fontFamily: "DMSans_700Bold" },
   content: { paddingHorizontal: 16 },
   hero: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 18 },
   heroIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#e0e7ff", alignItems: "center", justifyContent: "center" },
-  title: { color: colors.text, fontSize: 20, fontFamily: "DMSans_700Bold" },
-  subtitle: { color: colors.textSecondary, fontSize: 12, marginTop: 2, lineHeight: 17 },
-  card: { ...glass, backgroundColor: colors.surface, borderColor: colors.borderSoft, padding: 16, marginBottom: 16 },
+  title: { color: UI.ink, fontSize: 20, fontFamily: "DMSans_700Bold" },
+  subtitle: { color: UI.sub, fontSize: 12, marginTop: 2, lineHeight: 17 },
+  card: { ...CARD, backgroundColor: "#ffffff", borderColor: UI.line, padding: 16, marginBottom: 16 },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 16 },
-  cardTitle: { color: colors.text, fontSize: 15, fontFamily: "Inter_700Bold" },
+  cardTitle: { color: UI.ink, fontSize: 15, fontFamily: "Inter_700Bold" },
   fieldBlock: { marginBottom: 12 },
-  label: { color: colors.textSecondary, fontSize: 12, fontFamily: "Inter_600SemiBold", marginBottom: 7, marginTop: 2 },
-  required: { color: colors.danger },
-  input: { backgroundColor: colors.surface, marginBottom: 12 },
-  inputWithError: { marginBottom: 4 },
-  selectBox: { height: 48, borderWidth: 1, borderColor: colors.border, borderRadius: 8, backgroundColor: colors.surface, paddingHorizontal: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  selectBoxOpen: { borderColor: "#818cf8", borderWidth: 2 },
-  fieldErrorBorder: { borderColor: colors.danger },
-  selectText: { flex: 1, color: colors.text, fontSize: 14, fontFamily: "Inter_500Medium" },
-  placeholderText: { color: colors.textMuted },
-  dropdownList: { maxHeight: 240, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSoft, borderRadius: 8, marginTop: 4, overflow: "hidden", shadowColor: colors.text, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
+  label: { color: UI.sub, fontSize: 12, fontFamily: "Inter_600SemiBold", marginBottom: 7, marginTop: 2 },
+  required: { color: UI.red },
+  textBox: { minHeight: 48, borderWidth: 1, borderColor: UI.line, borderRadius: 10, backgroundColor: "#ffffff", paddingHorizontal: 13, justifyContent: "center", marginBottom: 12 },
+  textBoxMulti: { minHeight: 100, paddingVertical: 8, justifyContent: "flex-start" },
+  textBoxInput: { color: UI.ink, fontSize: 14, paddingVertical: 12 },
+  textBoxInputMulti: { minHeight: 80, paddingVertical: 4 },
+  selectBox: { height: 48, borderWidth: 1, borderColor: UI.line, borderRadius: 10, backgroundColor: "#ffffff", paddingHorizontal: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  selectBoxOpen: { borderColor: UI.teal, borderWidth: 2 },
+  fieldErrorBorder: { borderColor: UI.red },
+  selectText: { flex: 1, color: UI.ink, fontSize: 14, fontFamily: "Inter_500Medium" },
+  placeholderText: { color: UI.muted },
+  dropdownList: { maxHeight: 240, backgroundColor: "#ffffff", borderWidth: 1, borderColor: UI.line, borderRadius: 8, marginTop: 4, overflow: "hidden", shadowColor: UI.ink, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
   dropdownScroll: { maxHeight: 240 },
-  dropdownOption: { minHeight: 42, justifyContent: "center", paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
-  dropdownOptionText: { color: colors.text, fontSize: 13, fontFamily: "Inter_500Medium" },
-  dropdownPlaceholder: { color: colors.textMuted, fontSize: 13, fontFamily: "Inter_500Medium" },
-  inlineError: { color: colors.danger, fontSize: 11, fontFamily: "Inter_600SemiBold", marginTop: 4, marginBottom: 8 },
-  generateButton: { height: 48, borderRadius: 10, backgroundColor: "#4f46e5", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 4 },
+  dropdownOption: { minHeight: 42, justifyContent: "center", paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: UI.line },
+  dropdownOptionText: { color: UI.ink, fontSize: 13, fontFamily: "Inter_500Medium" },
+  dropdownPlaceholder: { color: UI.muted, fontSize: 13, fontFamily: "Inter_500Medium" },
+  inlineError: { color: UI.red, fontSize: 11, fontFamily: "Inter_600SemiBold", marginTop: 4, marginBottom: 8 },
+  generateButton: { height: 48, borderRadius: 10, backgroundColor: UI.teal, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 4 },
   generateButtonDisabled: { opacity: 0.72 },
   generateText: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" },
-  poweredText: { color: colors.textMuted, fontSize: 10, textAlign: "center", marginTop: 12 },
-  resultCard: { ...glass, backgroundColor: colors.surface, borderColor: colors.borderSoft, padding: 16, marginBottom: 16 },
-  resultTitle: { color: colors.text, fontSize: 16, fontFamily: "Inter_700Bold", marginBottom: 8 },
-  resultSummary: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  poweredText: { color: UI.muted, fontSize: 10, textAlign: "center", marginTop: 12 },
+  resultCard: { ...CARD, backgroundColor: "#ffffff", borderColor: UI.line, padding: 16, marginBottom: 16 },
+  resultTitle: { color: UI.ink, fontSize: 16, fontFamily: "Inter_700Bold", marginBottom: 8 },
+  resultSummary: { color: UI.sub, fontSize: 13, lineHeight: 19 },
   resultSection: { marginTop: 14 },
-  resultSectionTitle: { color: colors.text, fontSize: 13, fontFamily: "Inter_700Bold", marginBottom: 6 },
-  resultBullet: { color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginBottom: 4 },
+  resultSectionTitle: { color: UI.ink, fontSize: 13, fontFamily: "Inter_700Bold", marginBottom: 6 },
+  resultBullet: { color: UI.sub, fontSize: 12, lineHeight: 18, marginBottom: 4 },
 });
