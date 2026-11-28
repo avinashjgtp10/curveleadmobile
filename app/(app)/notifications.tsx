@@ -7,7 +7,7 @@ import axios from "axios";
 import { clearDeliveredNotifications, setAppBadge } from "@/notifications/push";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { ActivityIndicator, Button } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -110,7 +110,8 @@ export default function NotificationsScreen() {
       setShownNotifications(latest);
       setItems(latest);
     } catch (loadError) {
-      if (getShownNotifications() && !refresh) return; // a quiet reload failed: keep the list that is already on screen
+      // A failed reload (quiet or pull to refresh) keeps the list that is already on screen instead of replacing it with an error page.
+      if (getShownNotifications()) return;
       setError(axios.isAxiosError(loadError) && typeof loadError.response?.data?.error === "string"
         ? loadError.response.data.error
         : t("Could not load notifications."));
@@ -131,21 +132,28 @@ export default function NotificationsScreen() {
 
   async function handleMarkAllRead() {
     const previous = items;
-    setItems((current) => current.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })));
+    const readAt = new Date().toISOString();
+    const allRead = items.map((item) => ({ ...item, read_at: item.read_at || readAt }));
+    setItems(allRead);
     try {
       await markAllNotificationsRead(items.map((item) => item.id));
+      setShownNotifications(allRead); // keep the saved copy in step, so reopening doesn't flash the old unread dots
       // Everything is read, so the alerts waiting in the phone's notification shade and the number on the app icon go too.
       clearDeliveredNotifications();
       setAppBadge(0);
     } catch {
       setItems(previous);
-      setError("");
+      Alert.alert(t("Couldn't mark as read"), t("Please try again."));
     }
   }
 
   const handlePress = useCallback((item: AppNotification) => {
     if (!item.read_at) {
-      setItems((current) => current.map((currentItem) => currentItem.id === item.id ? { ...currentItem, read_at: new Date().toISOString() } : currentItem));
+      setItems((current) => {
+        const next = current.map((currentItem) => currentItem.id === item.id ? { ...currentItem, read_at: new Date().toISOString() } : currentItem);
+        setShownNotifications(next);
+        return next;
+      });
       markNotificationRead(item.id).catch(() => {});
     }
     openNotification(item);
