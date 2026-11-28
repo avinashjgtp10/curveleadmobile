@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/theme";
 import { ImportLeadsResult, importLeadsFile } from "@/api/leads";
 import { notifyLeadsAdded } from "@/api/notifications";
+import { emitLeadCreated } from "@/lib/leadCreation";
 
 // Android phones label .csv files in different ways (and some file managers report no type at all),
 // so CSV is accepted under every common label instead of greying the file out.
@@ -55,6 +56,8 @@ export default function ImportLeadsScreen() {
       const uploaded = await importLeadsFile({ uri: file.uri, name: file.name, mimeType: file.mimeType });
       setResult(uploaded);
       notifyLeadsAdded(uploaded.inserted, "Spreadsheet import").catch(() => {});
+      // The Leads list reloads now, instead of waiting for its own refresh (it could skip one for up to a minute).
+      emitLeadCreated();
     } catch (uploadError) {
       setError(errorMessage(uploadError, "Could not import this file. Check the format and try again."));
     } finally { setUploading(false); }
