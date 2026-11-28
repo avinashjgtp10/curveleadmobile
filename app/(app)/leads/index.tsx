@@ -48,7 +48,7 @@ const SCAN_CACHE_MS = 5 * 60_000;
  * can't hide a lead that is in the filtered list.
  */
 function phoneSearchParams(extraParams: Record<string, unknown>) {
-  const { search: _search, stage: _stage, date_field: _field, date_from: _from, date_to: _to, ...rest } = extraParams;
+  const { search: _search, stage: _stage, lead_status: _status, date_field: _field, date_from: _from, date_to: _to, ...rest } = extraParams;
   return rest;
 }
 
@@ -550,7 +550,9 @@ export default function LeadsScreen() {
     setError("");
     try {
       const localFilters: LocalFilters = { status: filterStatus, health: filterHealth, sla: filterSla, stage: filterStage, from: filterDateFrom, to: filterDateTo, stageName: (stage) => findStageRef.current(stage)?.name ?? "" };
-      const localActive = !!(filterStatus || filterHealth || filterSla);
+      // The status is asked of the server like the stage (it filters every lead, not just the newest 500); follow-up health and the
+      // reply window are worked out from each lead's own fields on the phone.
+      const localActive = !!(filterHealth || filterSla);
       const loadedPages = silent ? Math.max(1, pageRef.current) : 1;
       // Deep scrolls would otherwise make this one request huge; only the first pages are refreshed, the rest stay as they were.
       const fetchPages = Math.min(loadedPages, MAX_SILENT_PAGES);
@@ -559,6 +561,7 @@ export default function LeadsScreen() {
         ...(query && { search: searchTerm(query) }),
         ...(score && { score }),
         ...(filterStage && { stage: filterStage }),
+        ...(filterStatus && { lead_status: filterStatus }),
         ...(filterSource && { source: filterSource }),
         ...(filterAssignedTo && { assigned_to: filterAssignedTo }),
         ...((filterDateFrom || filterDateTo) && { date_field: "created_at" }),
@@ -569,6 +572,19 @@ export default function LeadsScreen() {
       // Pull to refresh (keepList) must ask the server again, not reuse an answer from the last few seconds.
       let result = await fetchLeads({ page: localActive ? 1 : nextPage, limit: localActive ? LOCAL_FILTER_LIMIT : PAGE_SIZE * fetchPages, ...extraParams }, { fresh: keepList });
       let filterOnPhone = localActive;
+      // The server matches the status exactly (ignoring case). If it found nothing, the status may be stored a little differently
+      // ("Not Reachable" vs "not_reachable"), so read the leads without that filter and match the status here, like the stage.
+      if (filterStatus && !append && result.leads.length === 0) {
+        const { lead_status: _status, ...withoutStatus } = extraParams as Record<string, unknown>;
+        result = await fetchLeads({ page: 1, limit: LOCAL_FILTER_LIMIT, ...withoutStatus });
+        const pagesToRead = Math.min(result.pagination.pages, MAX_LOCAL_FILTER_BATCHES);
+        for (let batch = 2; batch <= pagesToRead; batch++) {
+          const more = await fetchLeads({ page: batch, limit: LOCAL_FILTER_LIMIT, ...withoutStatus });
+          if (id !== requestId.current) return;
+          result = { ...result, leads: [...result.leads, ...more.leads] };
+        }
+        filterOnPhone = true;
+      }
       // The server should apply the stage and date filters. If it sent back leads that don't match them, it didn't:
       // fetch a larger batch once and filter it here, so the list always matches the chips.
       // A day of slack on each side, so a lead created near midnight (counted as another day by the server's time zone) doesn't trigger this.
